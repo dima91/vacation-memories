@@ -42,6 +42,80 @@ def test_no_subcommand_prints_the_version(capsys):
     assert capsys.readouterr().out.startswith("vacation-memories ")
 
 
+class TestWithoutSubcommand:
+    def test_options_are_still_validated(self, tmp_path, capsys):
+        assert run(tmp_path, "--config", "/nonexistent.toml") == exit_codes.USAGE
+        assert capsys.readouterr().err.startswith("error:")
+
+    def test_contradictory_flags_exit_2(self, tmp_path):
+        assert run(tmp_path, "--require-ai", "--no-ai") == exit_codes.USAGE
+
+    def test_valid_options_still_print_the_version(self, tmp_path, capsys):
+        assert run(tmp_path, "--nice", "3") == exit_codes.OK
+        assert capsys.readouterr().out.startswith("vacation-memories ")
+
+    def test_environment_is_not_validated_when_no_option_is_given(self, tmp_path, capsys):
+        assert cli.main([], environ={"OLLAMA_HOST": "http://remote-host:1"}) == exit_codes.OK
+
+
+class TestUnusableFiles:
+    @pytest.fixture
+    def read_only_workdir(self, tmp_path, monkeypatch):
+        """An existing workdir we cannot write to (e.g. a bind mount of another user)."""
+        if os.geteuid() == 0:
+            pytest.skip("root ignores permissions")
+        workdir = tmp_path / "work"
+        (workdir / "tmp").mkdir(parents=True)
+        workdir.chmod(0o500)
+        monkeypatch.setattr(cli, "prepare_workdir", lambda path: None)  # it would simply chmod it back
+        yield workdir
+        workdir.chmod(0o700)
+
+    def test_read_only_workdir_gives_a_report_and_exit_4_not_a_traceback(self, tmp_path, capsys, read_only_workdir):
+        code = run(tmp_path, "doctor", "--no-ai", "--workdir", str(read_only_workdir))
+        assert code == exit_codes.REQUIREMENTS
+        out = capsys.readouterr()
+        assert "[FAIL] workdir" in out.out
+        assert "Traceback" not in out.err
+
+    def test_default_log_file_that_cannot_be_used_falls_back_to_the_console(self, tmp_path, capsys, read_only_workdir):
+        run(tmp_path, "doctor", "--no-ai", "--workdir", str(read_only_workdir))
+        assert "console only" in capsys.readouterr().err
+
+    def test_failure_to_save_the_profile_is_a_warning(self, tmp_path, capsys, monkeypatch):
+        def broken(profile, path):
+            raise PermissionError("read-only file system")
+
+        monkeypatch.setattr(cli, "write_runtime_profile", broken)
+        assert run(tmp_path, "doctor", "--no-ai", "--workdir", str(tmp_path / "work")) == exit_codes.OK
+        assert "runtime_profile.json" in capsys.readouterr().err
+
+    @pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permissions")
+    def test_existing_read_only_default_log_file_falls_back_to_the_console(self, tmp_path, capsys):
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        (workdir / "run.log").write_text("old")
+        (workdir / "run.log").chmod(0o400)
+        assert run(tmp_path, "doctor", "--no-ai", "--workdir", str(workdir)) == exit_codes.OK
+        assert "console only" in capsys.readouterr().err
+        assert (workdir / "run.log").read_text() == "old"
+
+    @pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permissions")
+    def test_explicit_log_file_that_cannot_be_written_exits_2(self, tmp_path, capsys):
+        log = tmp_path / "job.log"
+        log.write_text("")
+        log.chmod(0o400)
+        code = run(tmp_path, "doctor", "--no-ai", "--workdir", str(tmp_path / "work"), "--log-file", str(log))
+        assert code == exit_codes.USAGE
+        assert "log file" in capsys.readouterr().err
+
+    def test_explicit_log_file_that_is_a_folder_exits_2(self, tmp_path):
+        folder = tmp_path / "logs"
+        folder.mkdir()
+        code = run(tmp_path, "doctor", "--no-ai", "--workdir", str(tmp_path / "work"), "--log-file", str(folder))
+        assert code == exit_codes.USAGE
+
+
 class TestDoctorCommand:
     def test_healthy_machine_exits_0_and_prints_the_report(self, tmp_path, capsys):
         assert run(tmp_path, "doctor", "--no-ai", "--workdir", str(tmp_path / "work")) == exit_codes.OK

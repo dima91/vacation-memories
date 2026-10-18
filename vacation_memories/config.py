@@ -236,14 +236,14 @@ def resolve_settings(cli: Mapping[str, object], env: Mapping[str, str]) -> Setti
             values[key] = _DEFAULTS[key]
             sources[key] = "default"
 
-    if sources["ollama_url"] == "default" and env.get("OLLAMA_HOST"):
+    _reconcile_ai_flags(values, sources)
+    # OLLAMA_HOST belongs to another program: it is only looked at when the AI is going to be used.
+    if not values["no_ai"] and sources["ollama_url"] == "default" and env.get("OLLAMA_HOST"):
         try:
             values["ollama_url"] = normalize_ollama_host(env["OLLAMA_HOST"])
         except ValueError as error:
             raise ConfigError(str(error)) from None
         sources["ollama_url"] = "OLLAMA_HOST"
-
-    _reconcile_ai_flags(values, sources)
     if not values["no_ai"] and not values["allow_remote_ollama"] and not ollama_url_is_local(values["ollama_url"]):
         raise ConfigError(
             f"the Ollama URL {values['ollama_url']} is not local: "
@@ -291,8 +291,9 @@ def _reconcile_ai_flags(values: dict[str, object], sources: dict[str, str]) -> N
     if not (values["require_ai"] and values["no_ai"]):
         return
     require_source, no_ai_source = sources["require_ai"], sources["no_ai"]
-    if require_source == no_ai_source == "cli":
-        raise ConfigError("--require-ai and --no-ai are contradictory")
+    if require_source == no_ai_source:
+        where = "on the command line" if require_source == "cli" else f"in the same {require_source} layer"
+        raise ConfigError(f"--require-ai and --no-ai are contradictory (both set {where})")
     if _SOURCE_RANK[require_source] < _SOURCE_RANK[no_ai_source]:
         values["no_ai"] = False
     else:

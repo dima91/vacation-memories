@@ -55,17 +55,24 @@ def main(
 ) -> int:
     """Run the CLI; `environ` and `detection_env` let tests replace the process environment and the machine."""
     args = build_parser().parse_args(argv)
+    environ = os.environ if environ is None else environ
+    options = {key: value for key, value in vars(args).items() if key != "command"}
     if args.command is None:
+        # Nothing to run yet, but options that were given are still checked, not silently ignored.
+        if options:
+            try:
+                resolve_settings(options, environ)
+            except ConfigError as error:
+                return _usage_error(error)
         print(f"vacation-memories {__version__}")
         return exit_codes.OK
-    return _run(args, os.environ if environ is None else environ, detection_env)
+    return _run(args.command, options, environ, detection_env)
 
 
-def _run(args: argparse.Namespace, environ: Mapping[str, str], detection_env: DetectionEnv | None) -> int:
+def _run(command: str, options: dict, environ: Mapping[str, str], detection_env: DetectionEnv | None) -> int:
     os.umask(0o077)
     _force_utf8_streams()
 
-    options = {key: value for key, value in vars(args).items() if key != "command"}
     try:
         settings = resolve_settings(options, environ)
     except ConfigError as error:
@@ -77,14 +84,21 @@ def _run(args: argparse.Namespace, environ: Mapping[str, str], detection_env: De
     except OSError as error:
         workdir_error = error
 
-    log_file = None if workdir_error and settings.sources["log_file"] == "default" else settings.log_file
+    log_file = settings.log_file
+    console_only_reason = None
     try:
-        if log_file is not None:
-            _check_log_folder(log_file)
-    except ConfigError as error:
-        return _usage_error(error)
-    setup_logging(log_file, settings.log_format, settings.quiet)
+        _check_log_file(log_file)
+        setup_logging(log_file, settings.log_format, settings.quiet)
+    except (ConfigError, OSError) as error:
+        if settings.sources["log_file"] != "default":
+            return _usage_error(error)
+        # The default log file lives in the workdir: if that cannot be used, `doctor` must still
+        # report it instead of failing here.
+        console_only_reason = error
+        setup_logging(None, settings.log_format, settings.quiet)
 
+    if console_only_reason:
+        logger.warning("logging to the console only: %s", console_only_reason)
     if workdir_error:
         logger.error("cannot use the workdir %s: %s", settings.workdir, workdir_error)
     _apply_nice(settings.nice)
@@ -93,17 +107,24 @@ def _run(args: argparse.Namespace, environ: Mapping[str, str], detection_env: De
             "the Ollama URL %s is not local: the images travel in base64 over unencrypted HTTP", settings.ollama_url
         )
 
-    return _doctor(settings, detection_env, record_profile=workdir_error is None)
+    return _COMMANDS[command](settings, detection_env, record_profile=workdir_error is None)
 
 
 def _doctor(settings: Settings, detection_env: DetectionEnv | None, *, record_profile: bool) -> int:
     profile = detect_profile(settings, detection_env)
     if record_profile:
-        write_runtime_profile(profile, settings.workdir / "runtime_profile.json")
+        target = settings.workdir / "runtime_profile.json"
+        try:
+            write_runtime_profile(profile, target)
+        except OSError as error:
+            logger.warning("cannot save %s: %s", target, error.strerror or error)
     checks = run_doctor(settings, profile)
     for line in format_report(checks, profile):
         print(line)
     return exit_codes.REQUIREMENTS if has_blocking_failures(checks) else exit_codes.OK
+
+
+_COMMANDS = {"doctor": _doctor}
 
 
 def _usage_error(error: Exception) -> int:
@@ -111,10 +132,13 @@ def _usage_error(error: Exception) -> int:
     return exit_codes.USAGE
 
 
-def _check_log_folder(log_file: Path) -> None:
+def _check_log_file(log_file: Path) -> None:
+    """The folder must exist and be writable, and an existing file must be a writable regular file."""
     folder = log_file.parent
     if not folder.is_dir() or not os.access(folder, os.W_OK | os.X_OK):
         raise ConfigError(f"the folder of the log file does not exist or is not writable: {folder}")
+    if log_file.exists() and (not log_file.is_file() or not os.access(log_file, os.W_OK)):
+        raise ConfigError(f"the log file is not a writable file: {log_file}")
 
 
 def _apply_nice(increment: int) -> None:

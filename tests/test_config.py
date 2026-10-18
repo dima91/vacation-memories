@@ -170,6 +170,23 @@ class TestAiFlags:
         with pytest.raises(ConfigError, match="require-ai"):
             resolve(cli={"require_ai": True, "no_ai": True})
 
+    def test_both_flags_in_the_same_environment_are_contradictory(self):
+        env = {"VACATION_MEMORIES_REQUIRE_AI": "1", "VACATION_MEMORIES_NO_AI": "1"}
+        with pytest.raises(ConfigError, match="contradictory"):
+            resolve(env=env)
+
+    def test_both_flags_in_the_same_configuration_file_are_contradictory(self, tmp_path):
+        config = write_config(tmp_path, "require_ai = true\nno_ai = true\n")
+        with pytest.raises(ConfigError, match="contradictory"):
+            resolve(cli={"config": config})
+
+    def test_malformed_ollama_host_is_ignored_without_ai(self):
+        assert resolve(cli={"no_ai": True}, env={"OLLAMA_HOST": "host:abc"}).no_ai is True
+
+    def test_malformed_ollama_host_is_an_error_with_ai(self):
+        with pytest.raises(ConfigError, match="OLLAMA_HOST"):
+            resolve(env={"OLLAMA_HOST": "host:abc"})
+
     def test_no_ai_on_the_command_line_beats_require_ai_from_the_configuration(self, tmp_path):
         config = write_config(tmp_path, "require_ai = true\n")
         settings = resolve(cli={"config": config, "no_ai": True})

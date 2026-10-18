@@ -65,6 +65,66 @@ class TestWorkdirLock:
                 WorkdirLock(tmp_path).__enter__()
             assert (tmp_path / "status.json").read_text() == before
 
+    def test_failure_to_write_the_status_releases_the_lock(self, tmp_path, monkeypatch):
+        def broken_start(self):
+            raise OSError("disk full")
+
+        with monkeypatch.context() as patch:
+            patch.setattr("vacation_memories.workdir.StatusWriter.start", broken_start)
+            with pytest.raises(OSError, match="disk full"):
+                WorkdirLock(tmp_path).__enter__()
+        with WorkdirLock(tmp_path):  # the failed attempt did not keep the lock
+            pass
+
+    def test_status_of_a_finished_run_is_not_reported_as_the_holder(self, tmp_path):
+        first = WorkdirLock(tmp_path)
+        with first:
+            first.status.finish("done")
+            with pytest.raises(WorkdirInUseError) as refused:
+                WorkdirLock(tmp_path, holder_wait=0).__enter__()
+        assert str(os.getpid()) not in str(refused.value)
+        assert "another instance" in str(refused.value)
+
+    def test_old_status_of_a_crashed_run_is_not_reported_as_the_holder(self, tmp_path):
+        stale = {"pid": 4242, "hostname": "gone", "state": "running", "started_at": "2020-01-01T00:00:00+00:00",
+                 "updated_at": "2020-01-01T00:00:00+00:00"}
+        (tmp_path / "status.json").write_text(json.dumps(stale))
+        import fcntl
+
+        descriptor = os.open(tmp_path / ".lock", os.O_RDWR | os.O_CREAT)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)  # a holder that has not written its status yet
+        try:
+            with pytest.raises(WorkdirInUseError) as refused:
+                WorkdirLock(tmp_path, holder_wait=0).__enter__()
+        finally:
+            os.close(descriptor)
+        assert "4242" not in str(refused.value) and "gone" not in str(refused.value)
+
+    def test_refused_instance_waits_briefly_for_the_holder_to_write_its_status(self, tmp_path):
+        import fcntl
+        import threading
+        import time
+
+        (tmp_path / "status.json").write_text("{}")
+        descriptor = os.open(tmp_path / ".lock", os.O_RDWR | os.O_CREAT)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        fresh = {"pid": 777, "hostname": "box", "state": "running"}
+
+        def holder_writes_status():
+            time.sleep(0.2)
+            now = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
+            (tmp_path / "status.json").write_text(json.dumps({**fresh, "started_at": now, "updated_at": now}))
+
+        thread = threading.Thread(target=holder_writes_status)
+        thread.start()
+        try:
+            with pytest.raises(WorkdirInUseError) as refused:
+                WorkdirLock(tmp_path, holder_wait=3).__enter__()
+        finally:
+            thread.join()
+            os.close(descriptor)
+        assert "PID 777" in str(refused.value) and "box" in str(refused.value)
+
     def test_lock_is_released_on_exit(self, tmp_path):
         with WorkdirLock(tmp_path):
             pass
@@ -83,7 +143,7 @@ class TestWorkdirLock:
         with WorkdirLock(tmp_path):
             (tmp_path / "status.json").write_text("{ not json")
             with pytest.raises(WorkdirInUseError, match="in use"):
-                WorkdirLock(tmp_path).__enter__()
+                WorkdirLock(tmp_path, holder_wait=0).__enter__()
 
     def test_lock_dies_with_the_process(self, tmp_path):
         import subprocess

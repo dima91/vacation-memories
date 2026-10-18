@@ -6,6 +6,7 @@ import logging
 import os
 import socket
 import tempfile
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,9 @@ PRIVATE_MODE = 0o700
 STATES = ("running", "done", "failed", "interrupted")
 LOCK_NAME = ".lock"
 STATUS_NAME = "status.json"
+HOLDER_WAIT_SECONDS = 1.0
+HOLDER_POLL_SECONDS = 0.05
+STATUS_MAX_AGE_SECONDS = 60
 
 
 @dataclass(frozen=True)
@@ -106,6 +110,17 @@ def read_status(workdir: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def _is_current(status: dict | None) -> bool:
+    """A running instance that updated its status recently (it does so every few seconds)."""
+    if not status or status.get("state") != "running" or not {"hostname", "pid", "started_at"} <= status.keys():
+        return False
+    try:
+        age = datetime.now(timezone.utc) - datetime.fromisoformat(status["updated_at"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return age.total_seconds() <= STATUS_MAX_AGE_SECONDS
+
+
 class WorkdirLock:
     """`flock` on `<workdir>/.lock`: the kernel releases it when the process dies.
 
@@ -113,9 +128,10 @@ class WorkdirLock:
     hostname as well as the PID and start time of the active one (from `status.json`).
     """
 
-    def __init__(self, workdir: Path):
+    def __init__(self, workdir: Path, holder_wait: float = HOLDER_WAIT_SECONDS):
         self.workdir = Path(workdir)
         self.status = StatusWriter(self.workdir / STATUS_NAME)
+        self.holder_wait = holder_wait
         self._descriptor: int | None = None
 
     def acquire(self) -> None:
@@ -129,7 +145,11 @@ class WorkdirLock:
             os.close(descriptor)
             raise
         self._descriptor = descriptor
-        self.status.start()
+        try:
+            self.status.start()
+        except BaseException:
+            self.release()
+            raise
 
     def release(self) -> None:
         if self._descriptor is not None:
@@ -137,13 +157,23 @@ class WorkdirLock:
             self._descriptor = None
 
     def _describe_holder(self) -> str:
-        status = read_status(self.workdir)
-        if not status or not {"hostname", "pid", "started_at"} <= status.keys():
-            return f"the workdir {self.workdir} is in use by another instance"
-        return (
-            f"the workdir {self.workdir} is in use by another instance "
-            f"(hostname {status['hostname']}, PID {status['pid']}, started at {status['started_at']})"
-        )
+        """Name the active instance from `status.json`, but only from a current one.
+
+        The holder writes its status just after taking the lock, so for a moment the file may
+        still be the one left by an earlier run: wait briefly for a fresh status rather than
+        blame the wrong host and PID, and fall back to a generic message.
+        """
+        deadline = time.monotonic() + self.holder_wait
+        while True:
+            status = read_status(self.workdir)
+            if _is_current(status):
+                return (
+                    f"the workdir {self.workdir} is in use by another instance "
+                    f"(hostname {status['hostname']}, PID {status['pid']}, started at {status['started_at']})"
+                )
+            if time.monotonic() >= deadline:
+                return f"the workdir {self.workdir} is in use by another instance"
+            time.sleep(HOLDER_POLL_SECONDS)
 
     def __enter__(self) -> "WorkdirLock":
         self.acquire()

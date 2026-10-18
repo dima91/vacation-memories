@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from vacation_memories.atomic import atomic_write_json
-from vacation_memories.config import Settings
+from vacation_memories.config import Settings, ollama_url_is_local
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +137,8 @@ class RuntimeProfile:
     threads_per_job: int
     block_size: int
     cache_memory_mb: int
-    hwaccel: str
+    hwaccel: str  # what the renderer may use: "none", "auto" or an accelerator FFmpeg has
+    hwaccel_requested: str
     overrides: dict[str, object] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
@@ -164,6 +165,7 @@ class RuntimeProfile:
                 "block_size": self.block_size,
                 "cache_memory_mb": self.cache_memory_mb,
                 "hwaccel": self.hwaccel,
+                "hwaccel_requested": self.hwaccel_requested,
             },
             "overrides": self.overrides,
             "warnings": self.warnings,
@@ -187,7 +189,7 @@ def detect_profile(settings: Settings, env: DetectionEnv | None = None) -> Runti
     ollama = detect_ollama(env, settings.ollama_url, settings.model, warn) if ai_active else None
 
     host_ram = _host_ram_available(env, warn)
-    reserved = _model_reservation(ollama)
+    reserved = _model_reservation(ollama, settings.ollama_url)
     headroom = _cgroup_ram_headroom(env, warn)
     usable_ram = max(0, (host_ram if host_ram is not None else CONSERVATIVE_RAM_BYTES) - reserved)
     if headroom is not None:
@@ -210,7 +212,8 @@ def detect_profile(settings: Settings, env: DetectionEnv | None = None) -> Runti
         threads_per_job=threads,
         block_size=block_size,
         cache_memory_mb=cache_mb,
-        hwaccel=settings.hwaccel,
+        hwaccel=_resolve_hwaccel(settings.hwaccel, ffmpeg, warn),
+        hwaccel_requested=settings.hwaccel,
         overrides=overrides,
         warnings=warnings,
     )
@@ -240,9 +243,10 @@ def format_profile(profile: RuntimeProfile) -> list[str]:
         ollama = profile.ollama
         state = "unreachable" if not ollama.reachable else f"model {'present' if ollama.model_present else 'missing'}"
         lines.append(f"Ollama: {state}, model runs on: {ollama.placement}")
+    requested = "" if profile.hwaccel_requested == profile.hwaccel else f" (requested {profile.hwaccel_requested})"
     lines.append(
         f"Derived: jobs {profile.jobs} x {profile.threads_per_job} thread(s), block size {profile.block_size}, "
-        f"memory cache {profile.cache_memory_mb} MB, hwaccel {profile.hwaccel}"
+        f"memory cache {profile.cache_memory_mb} MB, hwaccel {profile.hwaccel}{requested}"
     )
     if profile.overrides:
         lines.append("Overridden by configuration: " + ", ".join(f"{k}={v}" for k, v in profile.overrides.items()))
@@ -343,10 +347,11 @@ def _cgroup_ram_headroom(env: DetectionEnv, warn: Callable[[str], None]) -> int 
     return None
 
 
-def _model_reservation(ollama: OllamaInfo | None) -> int:
-    """Ollama runs on the same machine: a model not loaded yet will take this much host RAM
-    (also when it runs on the integrated GPU, which uses system RAM)."""
-    if ollama is None or not ollama.model_present or ollama.model_loaded:
+def _model_reservation(ollama: OllamaInfo | None, url: str) -> int:
+    """A model not loaded yet will take this much host RAM when Ollama runs on this machine
+    (also when it runs on the integrated GPU, which uses system RAM). A remote Ollama uses
+    its own host's memory."""
+    if ollama is None or not ollama.model_present or ollama.model_loaded or not ollama_url_is_local(url):
         return 0
     return ollama.model_size_bytes or 0
 
@@ -417,9 +422,16 @@ def _entry_name(entry: dict) -> str:
     return entry.get("name") or entry.get("model") or ""
 
 
+def _models(payload: object) -> list[dict]:
+    """The `models` entries of an Ollama answer. A null or malformed list (Go servers emit `null`
+    for an empty slice) counts as empty; entries that are not objects are skipped."""
+    entries = payload.get("models") if isinstance(payload, dict) else None
+    return [entry for entry in entries if isinstance(entry, dict)] if isinstance(entries, list) else []
+
+
 def detect_ollama(env: DetectionEnv, url: str, model: str, warn: Callable[[str], None]) -> OllamaInfo:
     try:
-        tags = env.http_get_json(f"{url}/api/tags")["models"]  # type: ignore[index]
+        tags = _models(env.http_get_json(f"{url}/api/tags"))
     except Exception as error:
         warn(f"Ollama is not reachable at {url}: {error}")
         return OllamaInfo(reachable=False, model=model, error=str(error))
@@ -427,7 +439,7 @@ def detect_ollama(env: DetectionEnv, url: str, model: str, warn: Callable[[str],
     wanted = _model_key(model)
     installed = next((entry for entry in tags if _model_key(_entry_name(entry)) == wanted), None)
     try:
-        running = env.http_get_json(f"{url}/api/ps")["models"]  # type: ignore[index]
+        running = _models(env.http_get_json(f"{url}/api/ps"))
     except Exception as error:
         warn(f"cannot read the Ollama state of the loaded models: {error}")
         running = []
@@ -455,6 +467,25 @@ def _placement(loaded: dict) -> str:
 
 
 # --- Derived parameters ----------------------------------------------------------------------
+
+
+def _resolve_hwaccel(requested: str, ffmpeg: FFmpegInfo, warn: Callable[[str], None]) -> str:
+    """Keep the request only if FFmpeg has a matching hardware encoder; otherwise use software.
+
+    `auto` stays `auto`: the test encode that decides whether the accelerator really works belongs
+    to the encoder choice of the renderer.
+    """
+    if requested == "none":
+        return "none"
+    if requested == "auto":
+        if ffmpeg.hw_encoders:
+            return "auto"
+        warn("hwaccel auto: no hardware encoder available in FFmpeg, using software encoding")
+        return "none"
+    if any(name.endswith(f"_{requested}") for name in ffmpeg.hw_encoders):
+        return requested
+    warn(f"hwaccel {requested}: FFmpeg has no {requested} encoder, using software encoding")
+    return "none"
 
 
 def _derive(

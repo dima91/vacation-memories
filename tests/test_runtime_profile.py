@@ -250,6 +250,34 @@ class TestOllama:
         write_cgroup_v2(env, memory_max=2 * GIB, memory_current=0)
         assert profile_for(tmp_path, env, no_ai=False).usable_ram_bytes == 2 * GIB
 
+    def test_model_on_a_remote_host_reserves_nothing_here(self, tmp_path):
+        env = make_env(tmp_path / "sys", mem_available_bytes=10 * GIB, ollama=ollama_with_model())
+        profile = profile_for(tmp_path, env, no_ai=False, ollama_url="http://gpu-box:11434", allow_remote_ollama=True)
+        assert profile.ollama.model_present is True
+        assert profile.model_reserved_bytes == 0
+        assert profile.usable_ram_bytes == 10 * GIB
+
+    @pytest.mark.parametrize("payload", [None, "oops", 7, {"a": 1}, [1, "x", None]])
+    def test_malformed_model_lists_are_treated_as_empty_not_a_crash(self, tmp_path, payload):
+        env = make_env(tmp_path / "sys", ollama={"tags": payload, "ps": payload})
+        ollama = profile_for(tmp_path, env, no_ai=False).ollama
+        assert ollama.reachable is True
+        assert ollama.model_present is False and ollama.model_loaded is False
+        assert ollama.models == ()
+
+    def test_malformed_entries_are_skipped_but_valid_ones_still_count(self, tmp_path):
+        state = ollama_with_model(loaded={"size_vram": 0})
+        state["tags"] = [None, "junk", *state["tags"]]
+        state["ps"] = [42, *state["ps"]]
+        ollama = profile_for(tmp_path, make_env(tmp_path / "sys", ollama=state), no_ai=False).ollama
+        assert ollama.model_present and ollama.model_loaded and ollama.placement == "cpu"
+
+    def test_non_dict_response_is_treated_as_unreachable_or_empty(self, tmp_path):
+        env = make_env(tmp_path / "sys", ollama={"tags": [], "ps": []})
+        env.http_get_json = lambda url: ["not", "a", "dict"]
+        ollama = profile_for(tmp_path, env, no_ai=False).ollama
+        assert ollama.model_present is False
+
     def test_reservation_cannot_make_the_ram_negative(self, tmp_path):
         env = make_env(tmp_path / "sys", mem_available_bytes=GIB, ollama=ollama_with_model())
         assert profile_for(tmp_path, env, no_ai=False).usable_ram_bytes == 0
@@ -302,9 +330,38 @@ class TestDerivedParameters:
         assert profile.jobs == 6 and profile.threads_per_job == 1
         assert "cores" in caplog.text
 
-    def test_hwaccel_is_recorded_as_requested(self, tmp_path):
-        assert profile_for(tmp_path).hwaccel == "none"
-        assert profile_for(tmp_path, hwaccel="auto").hwaccel == "auto"
+    def accelerated_env(self, tmp_path):
+        return make_env(tmp_path / "sys", encoders=("libx264", "aac", "h264_vaapi"), hwaccels=("vaapi",))
+
+    def test_software_is_the_default(self, tmp_path):
+        profile = profile_for(tmp_path, self.accelerated_env(tmp_path))
+        assert (profile.hwaccel, profile.hwaccel_requested) == ("none", "none")
+        assert profile.warnings == []
+
+    def test_auto_is_kept_when_a_hardware_encoder_exists(self, tmp_path):
+        profile = profile_for(tmp_path, self.accelerated_env(tmp_path), hwaccel="auto")
+        assert (profile.hwaccel, profile.hwaccel_requested) == ("auto", "auto")
+
+    def test_auto_without_any_acceleration_falls_back_to_software_with_a_warning(self, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING):
+            profile = profile_for(tmp_path, make_env(tmp_path / "sys"), hwaccel="auto")
+        assert (profile.hwaccel, profile.hwaccel_requested) == ("none", "auto")
+        assert "hwaccel" in caplog.text and "software" in caplog.text
+
+    def test_named_accelerator_that_ffmpeg_has_is_kept(self, tmp_path):
+        assert profile_for(tmp_path, self.accelerated_env(tmp_path), hwaccel="vaapi").hwaccel == "vaapi"
+
+    def test_named_accelerator_that_ffmpeg_lacks_falls_back_to_software_with_a_warning(self, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING):
+            profile = profile_for(tmp_path, self.accelerated_env(tmp_path), hwaccel="qsv")
+        assert (profile.hwaccel, profile.hwaccel_requested) == ("none", "qsv")
+        assert "qsv" in caplog.text
+
+    def test_report_and_json_show_both_the_requested_and_the_resolved_value(self, tmp_path):
+        profile = profile_for(tmp_path, make_env(tmp_path / "sys"), hwaccel="vaapi")
+        assert profile.to_dict()["derived"]["hwaccel"] == "none"
+        assert profile.to_dict()["derived"]["hwaccel_requested"] == "vaapi"
+        assert "requested vaapi" in "\n".join(format_profile(profile))
 
 
 class TestRecordAndReport:
