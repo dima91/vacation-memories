@@ -1,0 +1,7 @@
+# Intel integrated GPU for Ollama (Vulkan). Remove this file from COMPOSE_FILE on machines without /dev/dri.
+services:
+  ollama:
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      - OLLAMA_IGPU_ENABLE=1

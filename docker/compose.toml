@@ -1,0 +1,5 @@
+input = "/media"
+workdir = "/work"
+ollama_url = "http://ollama:11434"
+allow_remote_ollama = true
+require_ai = true

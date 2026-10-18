@@ -1,0 +1,8 @@
+# Only for hosts whose Docker daemon has SELinux enabled (Fedora, RHEL and derivatives).
+services:
+  app:
+    security_opt:
+      - label=disable
+  dev:
+    security_opt:
+      - label=disable
