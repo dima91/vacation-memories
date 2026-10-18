@@ -41,6 +41,7 @@ LABEL org.opencontainers.image.title="vacation-memories" \
       org.opencontainers.image.version="${APP_VERSION}"
 COPY --from=builder /opt/venv /opt/venv
 COPY vacation_memories /app/vacation_memories
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app \
+    IMAGE_VERSION=${APP_VERSION}
 USER app
 ENTRYPOINT ["python", "-m", "vacation_memories"]
