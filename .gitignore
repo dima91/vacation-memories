@@ -1,0 +1,11 @@
+.claude/settings.local.json
+.env
+dev-media/
+music/
+work/
+eval/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.partial.mp4
+*.it.md
