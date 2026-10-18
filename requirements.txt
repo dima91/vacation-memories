@@ -1,1 +1,4 @@
+numpy==2.2.5
+pillow==11.2.1
+pillow-heif==0.22.0
 tzdata==2025.2
