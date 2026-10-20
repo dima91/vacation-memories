@@ -202,3 +202,36 @@ class TestAiFlags:
     def test_require_ai_from_the_configuration_is_kept_without_no_ai(self, tmp_path):
         config = write_config(tmp_path, "require_ai = true\n")
         assert resolve(cli={"config": config}).require_ai is True
+
+
+def test_rendering_defaults_come_from_one_place():
+    from vacation_memories.render_config import RenderConfig
+    from vacation_memories.transitions import TransitionRules
+
+    settings = resolve()
+    assert (settings.transition_duration, settings.transition_max_fraction, settings.transition_min_duration) == (0.8, 0.25, 0.2)
+    assert (settings.fade_in_seconds, settings.fade_out_seconds, settings.duration_tolerance) == (1.0, 3.0, 0.2)
+    assert RenderConfig.from_settings(settings) == RenderConfig()
+    assert RenderConfig().rules == TransitionRules()
+
+
+def test_rendering_options_follow_the_usual_precedence(tmp_path):
+    from vacation_memories.render_config import RenderConfig
+
+    config = write_config(tmp_path, "transition_duration = 1.2\ntransition_min_duration = 0.1\nfade_out_seconds = 5\n")
+    env = {"VACATION_MEMORIES_CONFIG": str(config), "VACATION_MEMORIES_FADE_OUT_SECONDS": "2.5"}
+    settings = resolve(cli={"duration_tolerance": 0.5}, env=env)
+    render = RenderConfig.from_settings(settings)
+    assert render.rules.default_seconds == 1.2 and render.rules.min_seconds == 0.1
+    assert render.fade_out_seconds == 2.5 and render.duration_tolerance == 0.5
+    assert settings.sources["transition_duration"] == "config" and settings.sources["fade_out_seconds"] == "env"
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["transition_duration = -1\n", "transition_max_fraction = 0\n", "transition_max_fraction = 0.6\n",
+     'transition_min_duration = "short"\n', "fade_in_seconds = -0.5\n", "duration_tolerance = nan\n"],
+)
+def test_invalid_rendering_options_are_config_errors(tmp_path, text):
+    with pytest.raises(ConfigError):
+        resolve(cli={"config": write_config(tmp_path, text)})
