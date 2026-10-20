@@ -2,3 +2,12 @@ numpy==2.2.5
 pillow==11.2.1
 pillow-heif==0.22.0
 tzdata==2025.2
+opencv-python-headless==4.11.0.86
+scenedetect==0.6.6
+imagehash==4.3.2
+# Transitive dependencies of scenedetect and imagehash, pinned for reproducible images.
+click==8.5.0
+platformdirs==4.13.5
+PyWavelets==1.10.0
+scipy==1.18.1
+tqdm==4.70.1
