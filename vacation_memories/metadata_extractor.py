@@ -20,7 +20,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from PIL import Image
 
 from vacation_memories.cache_manager import CacheManager
+from vacation_memories.media_probe import ProbeError, is_variable_frame_rate, parse_video_stream, stream_rotation
 from vacation_memories.media_scanner import MediaFile, heic_available
+from vacation_memories.process import ToolRunner
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +43,9 @@ class MediaMetadata:
     """`width` and `height` are the displayed size, after orientation or rotation.
 
     `exif_orientation` (photos, 1-8) and `rotation` (clips, degrees from the display matrix, as
-    reported by ffprobe) are kept for the renderer. `assumed_tz` is set only when the date comes
-    from `mtime`.
+    reported by ffprobe) are kept for the renderer. `is_vfr` flags clips with a variable frame
+    rate (typical of phones), which the renderer converts to a constant one. `assumed_tz` is set
+    only when the date comes from `mtime`.
     """
 
     kind: str
@@ -54,6 +57,7 @@ class MediaMetadata:
     fps: float | None = None
     exif_orientation: int = 1
     rotation: int = 0
+    is_vfr: bool = False
     assumed_tz: str | None = None
 
     def to_dict(self) -> dict:
@@ -67,8 +71,8 @@ class MediaMetadata:
 
 
 def metadata_params(assume_tz: str | None) -> str:
-    """Cache parameters that change the extraction result."""
-    return f"assume_tz={assume_tz or ''}"
+    """Cache parameters that change the extraction result (`fields` changes with the stored fields)."""
+    return f"assume_tz={assume_tz or ''};fields=2"
 
 
 def extract_metadata(media: MediaFile, assume_tz: str | None = None) -> MediaMetadata:
@@ -198,7 +202,7 @@ def _extract_video(media: MediaFile, assume_tz: str | None, zone: ZoneInfo | Non
     if duration is None:
         raise MetadataError("unknown duration")
 
-    rotation = _rotation(video)
+    rotation, _ = stream_rotation(video)
     width, height = video["width"], video["height"]
     if rotation in (90, 270):
         width, height = height, width
@@ -209,7 +213,7 @@ def _extract_video(media: MediaFile, assume_tz: str | None, zone: ZoneInfo | Non
         captured, tz_label = _mtime_fallback(media, zone, assume_tz)
         source = "mtime"
     return MediaMetadata("video", width, height, captured, source, duration=duration,
-                         fps=_fps(video), rotation=rotation, assumed_tz=tz_label)
+                         fps=_fps(video), rotation=rotation, is_vfr=_is_vfr(media, video), assumed_tz=tz_label)
 
 
 def _first_float(*values) -> float | None:
@@ -234,15 +238,12 @@ def _fps(video: dict) -> float | None:
     return None
 
 
-def _rotation(video: dict) -> int:
-    for side_data in video.get("side_data_list", []):
-        if "rotation" in side_data:
-            return round(float(side_data["rotation"])) % 360
-    legacy = video.get("tags", {}).get("rotate")  # old files: clockwise degrees
+def _is_vfr(media: MediaFile, video: dict) -> bool:
     try:
-        return (-int(legacy)) % 360 if legacy is not None else 0
-    except ValueError:
-        return 0
+        return is_variable_frame_rate(media.path, parse_video_stream(video), ToolRunner())
+    except ProbeError as error:
+        logger.warning("%s: cannot tell whether the frame rate is variable: %s", media.rel_path, error)
+        return False
 
 
 def _container_date(info: dict, video: dict) -> datetime | None:

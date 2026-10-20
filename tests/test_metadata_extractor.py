@@ -194,3 +194,25 @@ def test_load_metadata_uses_the_cache_and_invalidates_on_changed_parameters(refe
         other_zone = me.load_metadata(selection, cache, assume_tz="Pacific/Auckland")
         assert len(calls) == 4
         assert other_zone[0][1].capture_datetime != first[0][1].capture_datetime
+
+
+def test_constant_rate_clips_are_not_flagged_as_variable(reference):
+    _root, _manifest, files = reference
+    video = me.extract_metadata(files[Path("2023-07-15_town/VID_0001.mp4")], assume_tz="UTC")
+    assert video.is_vfr is False
+
+
+def test_variable_frame_rate_clip_is_flagged(tmp_path):
+    from render_fakes import vfr_clip
+
+    clip = vfr_clip(tmp_path / "phone.mp4")
+    meta = me.extract_metadata(media_at(clip, "video", tmp_path), assume_tz="UTC")
+    assert meta.is_vfr is True
+    assert me.MediaMetadata.from_dict(meta.to_dict()) == meta
+
+
+def test_old_cache_entries_are_not_reused_after_the_vfr_field_was_added(tmp_path):
+    media = MediaFile(Path("/media/a.mp4"), Path("a.mp4"), "video", 10, 1)
+    with CacheManager(tmp_path) as cache:
+        cache.put_metadata(media, "assume_tz=UTC", {"kind": "video"})  # parameters of the earlier version
+        assert cache.get_metadata(media, me.metadata_params("UTC")) is None
