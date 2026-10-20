@@ -14,11 +14,16 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
+from vacation_memories.transitions import DEFAULT_DISSOLVE_SECONDS, MAX_DISSOLVE_FRACTION, MIN_DISSOLVE_SECONDS
+
 ENV_PREFIX = "VACATION_MEMORIES_"
 CONFIG_ENV = ENV_PREFIX + "CONFIG"
 DEFAULT_MODEL = "qwen3-vl:4b-instruct-q4_K_M"
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 OLLAMA_DEFAULT_PORT = 11434
+DEFAULT_FADE_IN_SECONDS = 1.0  # from black at the start of the video; at most 1 s
+DEFAULT_FADE_OUT_SECONDS = 3.0  # to black at the end, in sync with the fade-out of the music
+DEFAULT_DURATION_TOLERANCE = 0.2  # seconds between the final file and the planned duration
 MAX_NICE = 19
 _SOURCE_RANK = {"cli": 0, "env": 1, "config": 2}
 
@@ -48,6 +53,12 @@ class Settings:
     require_ai: bool
     no_ai: bool
     model: str
+    transition_duration: float
+    transition_max_fraction: float
+    transition_min_duration: float
+    fade_in_seconds: float
+    fade_out_seconds: float
+    duration_tolerance: float
     sources: dict[str, str] = field(default_factory=dict)
 
 
@@ -76,6 +87,32 @@ def _positive_integer(value: object) -> int:
     number = _integer(value)
     if number < 1:
         raise ValueError("must be at least 1")
+    return number
+
+
+def _float(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError("expected a number")
+    try:
+        number = float(value)
+    except ValueError:
+        raise ValueError("expected a number") from None
+    if number != number or number in (float("inf"), float("-inf")):
+        raise ValueError("expected a finite number")
+    return number
+
+
+def _non_negative_float(value: object) -> float:
+    number = _float(value)
+    if number < 0:
+        raise ValueError("must not be negative")
+    return number
+
+
+def _fraction(value: object) -> float:
+    number = _float(value)
+    if not 0 < number <= 0.5:
+        raise ValueError("must be greater than 0 and at most 0.5")
     return number
 
 
@@ -155,6 +192,12 @@ _PARSERS: dict[str, Callable[[object], object]] = {
     "require_ai": _boolean,
     "no_ai": _boolean,
     "model": _text,
+    "transition_duration": _non_negative_float,
+    "transition_max_fraction": _fraction,
+    "transition_min_duration": _non_negative_float,
+    "fade_in_seconds": _non_negative_float,
+    "fade_out_seconds": _non_negative_float,
+    "duration_tolerance": _non_negative_float,
 }
 _DEFAULTS: dict[str, object] = {
     "workdir": Path("work"),
@@ -174,6 +217,12 @@ _DEFAULTS: dict[str, object] = {
     "threads_per_job": None,
     "block_size": None,
     "cache_memory_mb": None,
+    "transition_duration": DEFAULT_DISSOLVE_SECONDS,
+    "transition_max_fraction": MAX_DISSOLVE_FRACTION,
+    "transition_min_duration": MIN_DISSOLVE_SECONDS,
+    "fade_in_seconds": DEFAULT_FADE_IN_SECONDS,
+    "fade_out_seconds": DEFAULT_FADE_OUT_SECONDS,
+    "duration_tolerance": DEFAULT_DURATION_TOLERANCE,
 }
 
 
