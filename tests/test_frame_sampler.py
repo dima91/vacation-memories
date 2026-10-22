@@ -122,3 +122,46 @@ def test_corrupt_photo_raises_sampling_error(tmp_path):
     (tmp_path / "bad.jpg").write_bytes(b"not a jpeg" * 100)
     with pytest.raises(SamplingError):
         photo_analysis_frame(tmp_path / "bad.jpg")
+
+
+class TestColorFramesForTheModel:
+    def test_a_photo_keeps_its_colors_and_its_upright_orientation(self, tmp_path):
+        path = tmp_path / "turned.jpg"
+        sm.make_photo(path, 1, 320, 240, exif_orientation=6)
+        image = frame_sampler.photo_color_frame(path)
+        assert image.mode == "RGB"
+        assert image.size == (240, 320)
+        channels = np.asarray(image).reshape(-1, 3).std(axis=0)
+        assert channels.min() > 5  # not a grayscale copy
+
+    def test_an_unreadable_photo_is_a_sampling_error(self, tmp_path):
+        path = tmp_path / "broken.jpg"
+        path.write_bytes(b"not an image")
+        with pytest.raises(SamplingError):
+            frame_sampler.photo_color_frame(path)
+
+    @pytest.mark.parametrize("timestamp, scene", [(1.0, 1), (3.0, 2), (5.0, 3)])
+    def test_a_clip_frame_comes_from_the_requested_scene(self, three_scenes, timestamp, scene):
+        image = frame_sampler.video_color_frame(three_scenes, timestamp)
+        assert image.mode == "RGB"
+
+        def distance_to(scene_id):
+            reference = sm.render_scene_frame(scene_id, *image.size, t=timestamp).convert("RGB")
+            return np.abs(np.asarray(image, dtype=float) - np.asarray(reference, dtype=float)).mean()
+
+        assert min((1, 2, 3), key=distance_to) == scene
+
+    def test_a_rotated_clip_arrives_upright(self, tmp_path):
+        path = tmp_path / "rotated.mp4"
+        sm.make_video(path, [(5, 1.0)], 320, 180, fps=10, rotation=90)
+        assert frame_sampler.video_color_frame(path, 0.5).size == (180, 320)
+
+    def test_a_timestamp_past_the_end_is_a_sampling_error(self, three_scenes):
+        with pytest.raises(SamplingError):
+            frame_sampler.video_color_frame(three_scenes, 60.0)
+
+    def test_an_unreadable_clip_is_a_sampling_error(self, tmp_path):
+        path = tmp_path / "broken.mp4"
+        path.write_bytes(b"not a clip")
+        with pytest.raises(SamplingError):
+            frame_sampler.video_color_frame(path, 0.0)
