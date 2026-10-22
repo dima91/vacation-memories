@@ -70,6 +70,35 @@ def photo_analysis_frame(path: Path) -> np.ndarray:
     return to_analysis_gray(gray)
 
 
+def photo_color_frame(path: Path) -> Image.Image:
+    """Full-size RGB image of a photo, upright according to its EXIF orientation (for the vision model)."""
+    heic_available()
+    try:
+        with Image.open(path) as image:
+            return ImageOps.exif_transpose(image).convert("RGB")
+    except Exception as error:
+        raise SamplingError(f"unreadable photo: {error}") from error
+
+
+def video_color_frame(path: Path, timestamp: float) -> Image.Image:
+    """RGB frame of a clip at `timestamp` seconds from its first frame, upright (for the vision model)."""
+    capture = cv2.VideoCapture(str(path))
+    try:
+        if not capture.isOpened():
+            raise SamplingError("cannot open the clip")
+        capture.set(cv2.CAP_PROP_ORIENTATION_AUTO, 1)
+        if not capture.grab():
+            raise SamplingError("no decodable frames")
+        first_time = capture.get(cv2.CAP_PROP_POS_MSEC)  # the decoder's own clock does not always start at 0
+        capture.set(cv2.CAP_PROP_POS_MSEC, first_time + timestamp * 1000.0)
+        ok, frame = capture.read()
+        if not ok:
+            raise SamplingError(f"cannot decode the frame at {timestamp:.2f}s")
+    finally:
+        capture.release()
+    return Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+
 def scan_video(
     path: Path,
     analyze: Callable[[np.ndarray], T],

@@ -12,10 +12,14 @@ from pathlib import Path
 
 from vacation_memories.media_scanner import MediaFile
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DB_NAME = "cache.sqlite3"
 
-_SCHEMA = """
+NO_TIMESTAMP_MS = -1  # photos have a single frame
+
+
+_SCHEMA = (
+    """
 CREATE TABLE metadata (
     rel_path BLOB PRIMARY KEY,
     size INTEGER NOT NULL,
@@ -23,7 +27,20 @@ CREATE TABLE metadata (
     params TEXT NOT NULL,
     data TEXT NOT NULL
 )
-"""
+""",
+    """
+CREATE TABLE vision (
+    rel_path BLOB NOT NULL,
+    timestamp_ms INTEGER NOT NULL,
+    params TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    mtime_ns INTEGER NOT NULL,
+    data TEXT NOT NULL,
+    PRIMARY KEY (rel_path, timestamp_ms, params)
+)
+""",
+)
+_TABLES = ("metadata", "vision")
 
 
 class CacheManager:
@@ -42,8 +59,10 @@ class CacheManager:
             return
         with self._conn:
             # The cache only holds derived data: an incompatible version is rebuilt from scratch.
-            self._conn.execute("DROP TABLE IF EXISTS metadata")
-            self._conn.execute(_SCHEMA)
+            for table in _TABLES:
+                self._conn.execute(f"DROP TABLE IF EXISTS {table}")
+            for statement in _SCHEMA:
+                self._conn.execute(statement)
             self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def get_metadata(self, media: MediaFile, params: str) -> dict | None:
@@ -69,6 +88,32 @@ class CacheManager:
     def count_metadata(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM metadata").fetchone()[0]
 
+    def get_vision(self, media: MediaFile, timestamp: float | None, params: str) -> dict | None:
+        """Return the cached answer of the vision model for one frame, or None if missing or stale.
+
+        `params` holds what changes the answer (model, prompt, resolution); `timestamp` is seconds
+        into a clip, or None for a photo.
+        """
+        row = self._conn.execute(
+            "SELECT size, mtime_ns, data FROM vision WHERE rel_path = ? AND timestamp_ms = ? AND params = ?",
+            (os.fsencode(media.rel_path), _timestamp_ms(timestamp), params),
+        ).fetchone()
+        if row is None or row[:2] != (media.size, media.mtime_ns):
+            return None
+        return json.loads(row[2])
+
+    def put_vision(self, media: MediaFile, timestamp: float | None, params: str, data: dict) -> None:
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO vision (rel_path, timestamp_ms, params, size, mtime_ns, data) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (os.fsencode(media.rel_path), _timestamp_ms(timestamp), params, media.size, media.mtime_ns,
+                 json.dumps(data)),
+            )
+
+    def count_vision(self) -> int:
+        return self._conn.execute("SELECT COUNT(*) FROM vision").fetchone()[0]
+
     def close(self) -> None:
         self._conn.close()
 
@@ -77,3 +122,7 @@ class CacheManager:
 
     def __exit__(self, *exc_info) -> None:
         self.close()
+
+
+def _timestamp_ms(timestamp: float | None) -> int:
+    return NO_TIMESTAMP_MS if timestamp is None else round(timestamp * 1000)

@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from vacation_memories import __version__, exit_codes
+from vacation_memories.bench import DEFAULT_IMAGE_COUNT, run_bench_vision
 from vacation_memories.config import ConfigError, Settings, ollama_url_is_local, resolve_settings
 from vacation_memories.doctor import format_report, has_blocking_failures, run_doctor
 from vacation_memories.logging_setup import setup_logging
@@ -33,6 +34,9 @@ def _common_options() -> argparse.ArgumentParser:
     parser.add_argument("--jobs", default=unset, help="parallel processes: auto or a number")
     parser.add_argument("--hwaccel", default=unset, help="auto, none or an accelerator name")
     parser.add_argument("--ollama-url", default=unset, help="Ollama server URL")
+    parser.add_argument("--model", default=unset, help="vision model served by Ollama")
+    parser.add_argument("--ai-frames", default=unset, help="analyze exactly this many frames with the vision model")
+    parser.add_argument("--ai-time-budget", default=unset, help="seconds the AI analysis may take (not with --ai-frames)")
     parser.add_argument("--allow-remote-ollama", action="store_const", const=True, default=unset)
     parser.add_argument("--require-ai", action="store_const", const=True, default=unset)
     parser.add_argument("--no-ai", action="store_const", const=True, default=unset)
@@ -44,6 +48,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="vacation-memories", parents=[common], allow_abbrev=False)
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("doctor", parents=[common], allow_abbrev=False, help="check the installation")
+    bench = commands.add_parser("bench", parents=[common], allow_abbrev=False, help="measure the machine")
+    bench_commands = bench.add_subparsers(dest="bench_command", required=True)
+    vision = bench_commands.add_parser(
+        "vision", parents=[common], allow_abbrev=False, help="seconds per frame of the vision model"
+    )
+    vision.add_argument("--images", type=Path, help="folder with photos to use instead of synthetic images")
+    vision.add_argument("--count", type=int, default=DEFAULT_IMAGE_COUNT, help="number of images (default 5)")
     return parser
 
 
@@ -56,7 +67,7 @@ def main(
     """Run the CLI; `environ` and `detection_env` let tests replace the process environment and the machine."""
     args = build_parser().parse_args(argv)
     environ = os.environ if environ is None else environ
-    options = {key: value for key, value in vars(args).items() if key != "command"}
+    options = {key: value for key, value in vars(args).items() if key not in _COMMAND_ARGUMENTS}
     if args.command is None:
         # Nothing to run yet, but options that were given are still checked, not silently ignored.
         if options:
@@ -66,10 +77,12 @@ def main(
                 return _usage_error(error)
         print(f"vacation-memories {__version__}")
         return exit_codes.OK
-    return _run(args.command, options, environ, detection_env)
+    return _run(args, options, environ, detection_env)
 
 
-def _run(command: str, options: dict, environ: Mapping[str, str], detection_env: DetectionEnv | None) -> int:
+def _run(
+    args: argparse.Namespace, options: dict, environ: Mapping[str, str], detection_env: DetectionEnv | None
+) -> int:
     os.umask(0o077)
     _force_utf8_streams()
 
@@ -107,10 +120,10 @@ def _run(command: str, options: dict, environ: Mapping[str, str], detection_env:
             "the Ollama URL %s is not local: the images travel in base64 over unencrypted HTTP", settings.ollama_url
         )
 
-    return _COMMANDS[command](settings, detection_env, record_profile=workdir_error is None)
+    return _COMMANDS[args.command](args, settings, detection_env, record_profile=workdir_error is None)
 
 
-def _doctor(settings: Settings, detection_env: DetectionEnv | None, *, record_profile: bool) -> int:
+def _detect_and_record(settings: Settings, detection_env: DetectionEnv | None, *, record_profile: bool):
     profile = detect_profile(settings, detection_env)
     if record_profile:
         target = settings.workdir / "runtime_profile.json"
@@ -118,13 +131,31 @@ def _doctor(settings: Settings, detection_env: DetectionEnv | None, *, record_pr
             write_runtime_profile(profile, target)
         except OSError as error:
             logger.warning("cannot save %s: %s", target, error.strerror or error)
+    return profile
+
+
+def _doctor(
+    args: argparse.Namespace, settings: Settings, detection_env: DetectionEnv | None, *, record_profile: bool
+) -> int:
+    profile = _detect_and_record(settings, detection_env, record_profile=record_profile)
     checks = run_doctor(settings, profile)
     for line in format_report(checks, profile):
         print(line)
     return exit_codes.REQUIREMENTS if has_blocking_failures(checks) else exit_codes.OK
 
 
-_COMMANDS = {"doctor": _doctor}
+def _bench(
+    args: argparse.Namespace, settings: Settings, detection_env: DetectionEnv | None, *, record_profile: bool
+) -> int:
+    profile = _detect_and_record(settings, detection_env, record_profile=record_profile)
+    try:
+        return run_bench_vision(settings, profile, detection_env, images=args.images, count=args.count)
+    except ConfigError as error:
+        return _usage_error(error)
+
+
+_COMMANDS = {"doctor": _doctor, "bench": _bench}
+_COMMAND_ARGUMENTS = frozenset({"command", "bench_command", "images", "count"})  # not settings
 
 
 def _usage_error(error: Exception) -> int:
