@@ -407,3 +407,60 @@ def test_detection_env_defaults_point_to_the_real_system():
     env = DetectionEnv()
     assert env.meminfo_path == Path("/proc/meminfo")
     assert env.cgroup_root == Path("/sys/fs/cgroup")
+
+
+class TestRecordingWhereTheModelRuns:
+    """After the AI warm-up the model is loaded: its placement is read again and written in the profile file."""
+
+    @pytest.mark.parametrize("loaded, placement", [
+        ({"size_vram": MODEL_SIZE}, "gpu"),
+        ({"size_vram": MODEL_SIZE // 2}, "mixed"),
+        ({"size_vram": 0}, "cpu"),
+        (None, "unknown"),
+    ])
+    def test_the_loaded_model_is_looked_up_in_api_ps(self, tmp_path, loaded, placement):
+        from vacation_memories.runtime_profile import loaded_model_placement
+
+        env = make_env(tmp_path / "sys", ollama=ollama_with_model(loaded=loaded))
+        assert loaded_model_placement(env, "http://ollama:11434", MODEL) == placement
+
+    def test_an_unreachable_server_gives_unknown(self, tmp_path):
+        from vacation_memories.runtime_profile import loaded_model_placement
+
+        env = make_env(tmp_path / "sys", ollama=None)
+        assert loaded_model_placement(env, "http://ollama:11434", MODEL) == "unknown"
+
+    def test_the_profile_file_is_updated_in_place(self, tmp_path):
+        from vacation_memories.runtime_profile import record_model_placement
+
+        env = make_env(tmp_path / "sys", ollama=ollama_with_model())
+        profile = profile_for(tmp_path, env, no_ai=False)
+        path = tmp_path / "runtime_profile.json"
+        write_runtime_profile(profile, path)
+        before = json.loads(path.read_text())
+        assert before["ollama"]["placement"] == "unknown" and before["ollama"]["model_loaded"] is False
+
+        assert record_model_placement(path, "gpu") is True
+        after = json.loads(path.read_text())
+        assert after["ollama"]["placement"] == "gpu" and after["ollama"]["model_loaded"] is True
+        assert {k: v for k, v in after.items() if k != "ollama"} == {k: v for k, v in before.items() if k != "ollama"}
+        assert after["ollama"]["model"] == before["ollama"]["model"]
+
+    def test_unknown_leaves_the_file_alone(self, tmp_path):
+        from vacation_memories.runtime_profile import record_model_placement
+
+        profile = profile_for(tmp_path, make_env(tmp_path / "sys", ollama=ollama_with_model()), no_ai=False)
+        path = tmp_path / "runtime_profile.json"
+        write_runtime_profile(profile, path)
+        before = path.read_text()
+        assert record_model_placement(path, "unknown") is False
+        assert path.read_text() == before
+
+    @pytest.mark.parametrize("content", [None, "not json", "[]", '{"ollama": null}'])
+    def test_a_missing_or_unusable_file_is_not_an_error(self, tmp_path, content):
+        from vacation_memories.runtime_profile import record_model_placement
+
+        path = tmp_path / "runtime_profile.json"
+        if content is not None:
+            path.write_text(content)
+        assert record_model_placement(path, "gpu") is False

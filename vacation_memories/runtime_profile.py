@@ -456,6 +456,34 @@ def detect_ollama(env: DetectionEnv, url: str, model: str, warn: Callable[[str],
     )
 
 
+def loaded_model_placement(env: DetectionEnv, url: str, model: str) -> str:
+    """Where the model runs now (gpu, cpu, mixed), or "unknown" if it is not loaded or Ollama does not answer."""
+    try:
+        running = _models(env.http_get_json(f"{url}/api/ps"))
+    except Exception as error:
+        logger.warning("cannot read the Ollama state of the loaded models: %s", error)
+        return "unknown"
+    wanted = _model_key(model)
+    loaded = next((entry for entry in running if _model_key(_entry_name(entry)) == wanted), None)
+    return "unknown" if loaded is None else _placement(loaded)
+
+
+def record_model_placement(path: Path, placement: str) -> bool:
+    """Write where the model runs into an existing `runtime_profile.json`; False if there was nothing to update."""
+    if placement == "unknown":
+        return False
+    try:
+        data = json.loads(path.read_text())
+        ollama = data["ollama"]
+        ollama["placement"] = placement
+        ollama["model_loaded"] = True
+        atomic_write_json(path, data)
+    except (OSError, ValueError, KeyError, TypeError):
+        logger.warning("cannot record where the model runs in %s", path)
+        return False
+    return True
+
+
 def _placement(loaded: dict) -> str:
     """Where a loaded model runs, from the ratio between `size_vram` and `size`, as `ollama ps` does."""
     size, in_vram = loaded.get("size") or 0, loaded.get("size_vram") or 0

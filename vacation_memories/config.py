@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
+from vacation_memories.ollama_client import DEFAULT_TIMEOUT_SECONDS
 from vacation_memories.transitions import DEFAULT_DISSOLVE_SECONDS, MAX_DISSOLVE_FRACTION, MIN_DISSOLVE_SECONDS
 
 ENV_PREFIX = "VACATION_MEMORIES_"
@@ -21,6 +22,10 @@ CONFIG_ENV = ENV_PREFIX + "CONFIG"
 DEFAULT_MODEL = "qwen3-vl:4b-instruct-q4_K_M"
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 OLLAMA_DEFAULT_PORT = 11434
+DEFAULT_AI_TIME_BUDGET_SECONDS = 600.0  # used when neither --ai-frames nor --ai-time-budget is given
+DEFAULT_AI_RESOLUTION = 512  # long side of the image sent to the model
+MIN_AI_RESOLUTION = 128
+MAX_AI_RESOLUTION = 768
 DEFAULT_FADE_IN_SECONDS = 1.0  # from black at the start of the video; at most 1 s
 DEFAULT_FADE_OUT_SECONDS = 3.0  # to black at the end, in sync with the fade-out of the music
 DEFAULT_DURATION_TOLERANCE = 0.2  # seconds between the final file and the planned duration
@@ -53,6 +58,12 @@ class Settings:
     require_ai: bool
     no_ai: bool
     model: str
+    ai_frames: int | None
+    ai_time_budget: float | None
+    ai_resolution: int
+    ai_timeout: float
+    ai_max_concurrency: int
+    ai_unload_model: bool
     transition_duration: float
     transition_max_fraction: float
     transition_min_duration: float
@@ -106,6 +117,20 @@ def _non_negative_float(value: object) -> float:
     number = _float(value)
     if number < 0:
         raise ValueError("must not be negative")
+    return number
+
+
+def _positive_float(value: object) -> float:
+    number = _float(value)
+    if number <= 0:
+        raise ValueError("must be greater than 0")
+    return number
+
+
+def _ai_resolution(value: object) -> int:
+    number = _integer(value)
+    if not MIN_AI_RESOLUTION <= number <= MAX_AI_RESOLUTION:
+        raise ValueError(f"must be between {MIN_AI_RESOLUTION} and {MAX_AI_RESOLUTION}")
     return number
 
 
@@ -192,6 +217,12 @@ _PARSERS: dict[str, Callable[[object], object]] = {
     "require_ai": _boolean,
     "no_ai": _boolean,
     "model": _text,
+    "ai_frames": _positive_integer,
+    "ai_time_budget": _positive_float,
+    "ai_resolution": _ai_resolution,
+    "ai_timeout": _positive_float,
+    "ai_max_concurrency": _positive_integer,
+    "ai_unload_model": _boolean,
     "transition_duration": _non_negative_float,
     "transition_max_fraction": _fraction,
     "transition_min_duration": _non_negative_float,
@@ -212,6 +243,12 @@ _DEFAULTS: dict[str, object] = {
     "require_ai": False,
     "no_ai": False,
     "model": DEFAULT_MODEL,
+    "ai_frames": None,
+    "ai_time_budget": None,
+    "ai_resolution": DEFAULT_AI_RESOLUTION,
+    "ai_timeout": DEFAULT_TIMEOUT_SECONDS,
+    "ai_max_concurrency": 1,
+    "ai_unload_model": True,
     "input": None,
     "assume_tz": None,
     "threads_per_job": None,
@@ -286,6 +323,7 @@ def resolve_settings(cli: Mapping[str, object], env: Mapping[str, str]) -> Setti
             sources[key] = "default"
 
     _reconcile_ai_flags(values, sources)
+    _reconcile_ai_budget(values, sources)
     # OLLAMA_HOST belongs to another program: it is only looked at when the AI is going to be used.
     if not values["no_ai"] and sources["ollama_url"] == "default" and env.get("OLLAMA_HOST"):
         try:
@@ -334,6 +372,18 @@ def _load_config_file(cli_path: object, env: Mapping[str, str]) -> tuple[dict[st
     if unknown:
         raise ConfigError(f"unknown option(s) in the configuration file {path}: {', '.join(unknown)}")
     return data, str(path)
+
+
+def _reconcile_ai_budget(values: dict[str, object], sources: dict[str, str]) -> None:
+    """A fixed number of frames and a time budget exclude each other; the higher layer wins."""
+    if values["ai_frames"] is None or values["ai_time_budget"] is None:
+        return
+    frames_source, budget_source = sources["ai_frames"], sources["ai_time_budget"]
+    if frames_source == budget_source:
+        where = "on the command line" if frames_source == "cli" else f"in the same {frames_source} layer"
+        raise ConfigError(f"--ai-frames and --ai-time-budget are mutually exclusive (both set {where})")
+    loser = "ai_time_budget" if _SOURCE_RANK[frames_source] < _SOURCE_RANK[budget_source] else "ai_frames"
+    values[loser] = None
 
 
 def _reconcile_ai_flags(values: dict[str, object], sources: dict[str, str]) -> None:

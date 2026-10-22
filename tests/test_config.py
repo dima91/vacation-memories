@@ -235,3 +235,70 @@ def test_rendering_options_follow_the_usual_precedence(tmp_path):
 def test_invalid_rendering_options_are_config_errors(tmp_path, text):
     with pytest.raises(ConfigError):
         resolve(cli={"config": write_config(tmp_path, text)})
+
+
+class TestAiSettings:
+    def test_defaults(self):
+        settings = resolve()
+        assert settings.ai_frames is None
+        assert settings.ai_time_budget is None
+        assert settings.ai_resolution == 512
+        assert settings.ai_max_concurrency == 1
+        assert settings.ai_unload_model is True
+        assert settings.ai_timeout > 0
+
+    def test_the_default_time_budget_is_defined_in_one_place(self):
+        from vacation_memories.config import DEFAULT_AI_TIME_BUDGET_SECONDS
+
+        assert DEFAULT_AI_TIME_BUDGET_SECONDS > 0
+
+    def test_model_follows_cli_then_variable_then_file(self, tmp_path):
+        config = write_config(tmp_path, 'model = "from-file"\n')
+        env = {"VACATION_MEMORIES_CONFIG": str(config), "VACATION_MEMORIES_MODEL": "from-env"}
+        assert resolve(env=env).model == "from-env"
+        assert resolve(cli={"model": "from-cli"}, env=env).model == "from-cli"
+        assert resolve(env={"VACATION_MEMORIES_CONFIG": str(config)}).model == "from-file"
+
+    def test_values_from_the_environment_and_the_file(self, tmp_path):
+        config = write_config(tmp_path, "ai_frames = 40\nai_resolution = 768\nai_max_concurrency = 2\n")
+        settings = resolve(env={"VACATION_MEMORIES_CONFIG": str(config), "VACATION_MEMORIES_AI_TIMEOUT": "30"})
+        assert (settings.ai_frames, settings.ai_resolution, settings.ai_max_concurrency) == (40, 768, 2)
+        assert settings.ai_timeout == 30
+
+    @pytest.mark.parametrize("text", [
+        "ai_frames = 0",
+        "ai_frames = -3",
+        "ai_time_budget = 0",
+        "ai_time_budget = -1.5",
+        "ai_resolution = 800",
+        "ai_resolution = 100",
+        "ai_max_concurrency = 0",
+        "ai_timeout = 0",
+        'ai_unload_model = "maybe"',
+    ])
+    def test_invalid_values_are_config_errors(self, tmp_path, text):
+        config = write_config(tmp_path, text + "\n")
+        with pytest.raises(ConfigError):
+            resolve(cli={"config": config})
+
+    def test_frames_and_time_budget_together_on_the_command_line_are_contradictory(self):
+        with pytest.raises(ConfigError, match="mutually exclusive"):
+            resolve(cli={"ai_frames": 10, "ai_time_budget": 60})
+
+    def test_frames_and_time_budget_in_the_same_file_are_contradictory(self, tmp_path):
+        config = write_config(tmp_path, "ai_frames = 10\nai_time_budget = 60\n")
+        with pytest.raises(ConfigError, match="mutually exclusive"):
+            resolve(cli={"config": config})
+
+    def test_the_command_line_beats_the_other_option_from_the_configuration(self, tmp_path):
+        config = write_config(tmp_path, "ai_frames = 10\n")
+        settings = resolve(cli={"config": config, "ai_time_budget": 60})
+        assert (settings.ai_frames, settings.ai_time_budget) == (None, 60)
+        config = write_config(tmp_path, "ai_time_budget = 60\n")
+        settings = resolve(cli={"config": config, "ai_frames": 10})
+        assert (settings.ai_frames, settings.ai_time_budget) == (10, None)
+
+    def test_the_environment_beats_the_configuration(self, tmp_path):
+        config = write_config(tmp_path, "ai_frames = 10\n")
+        settings = resolve(env={"VACATION_MEMORIES_CONFIG": str(config), "VACATION_MEMORIES_AI_TIME_BUDGET": "90"})
+        assert (settings.ai_frames, settings.ai_time_budget) == (None, 90)
