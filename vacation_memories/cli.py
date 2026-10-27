@@ -1,4 +1,7 @@
-"""Command line: global options, start-up (private files, workdir, logging) and the subcommands."""
+"""Command line: global options, start-up (private files, workdir, logging), the pipeline and the subcommands.
+
+Without a subcommand the pipeline runs (see `pipeline`); `doctor` and `bench` are subcommands.
+"""
 
 import argparse
 import logging
@@ -12,6 +15,7 @@ from vacation_memories.bench import DEFAULT_IMAGE_COUNT, run_bench_vision
 from vacation_memories.config import ConfigError, Settings, ollama_url_is_local, resolve_settings
 from vacation_memories.doctor import format_report, has_blocking_failures, run_doctor
 from vacation_memories.logging_setup import setup_logging
+from vacation_memories.pipeline import ANALYZE_ONLY, DRY_RUN, FULL, RENDER_ONLY, RunRequest, run_pipeline
 from vacation_memories.runtime_profile import DetectionEnv, detect_profile, write_runtime_profile
 from vacation_memories.workdir import prepare_workdir
 
@@ -43,9 +47,28 @@ def _common_options() -> argparse.ArgumentParser:
     return parser
 
 
+def _pipeline_options(parser: argparse.ArgumentParser) -> None:
+    unset = argparse.SUPPRESS
+    parser.add_argument("--version", action="store_true", help="print the version and exit")
+    parser.add_argument("--music", type=Path, default=unset, help="background music file")
+    parser.add_argument("--output", type=Path, default=unset,
+                        help="video file (default memories.mp4; a relative path is inside the workdir)")
+    parser.add_argument("--duration", default=unset, help="length of the video: 300, 90s, 5m, 1m30s, 05:00 (default 5m)")
+    parser.add_argument("--aspect", default=unset, help="16:9, 9:16, 1:1 or 4:3 (default 16:9)")
+    parser.add_argument("--resolution", default=unset, help="480p, 720p, 1080p, 1440p, 4k or WxH (default 1080p)")
+    parser.add_argument("--structure", default=unset, help="narrative (default) or chronological")
+    parser.add_argument("--preview", action="store_true", help="quick low-resolution render (540p, 24 fps)")
+    parser.add_argument("--resume", action="store_true", help="resume the interrupted run of this workdir")
+    modes = parser.add_argument_group("modes (mutually exclusive)")
+    modes.add_argument("--analyze-only", action="store_true", help="analysis only, saved in the cache")
+    modes.add_argument("--dry-run", action="store_true", help="analysis and plan, with estimates, no rendering")
+    modes.add_argument("--render-only", action="store_true", help="render the existing edit_plan.json")
+
+
 def build_parser() -> argparse.ArgumentParser:
     common = _common_options()
     parser = argparse.ArgumentParser(prog="vacation-memories", parents=[common], allow_abbrev=False)
+    _pipeline_options(parser)
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("doctor", parents=[common], allow_abbrev=False, help="check the installation")
     bench = commands.add_parser("bench", parents=[common], allow_abbrev=False, help="measure the machine")
@@ -68,15 +91,14 @@ def main(
     args = build_parser().parse_args(argv)
     environ = os.environ if environ is None else environ
     options = {key: value for key, value in vars(args).items() if key not in _COMMAND_ARGUMENTS}
-    if args.command is None:
-        # Nothing to run yet, but options that were given are still checked, not silently ignored.
-        if options:
-            try:
-                resolve_settings(options, environ)
-            except ConfigError as error:
-                return _usage_error(error)
+    if args.version:
         print(f"vacation-memories {__version__}")
         return exit_codes.OK
+    if args.command is None:
+        modes = [mode for mode, flag in _MODES.items() if getattr(args, flag)]
+        if len(modes) > 1:
+            return _usage_error(ConfigError(
+                "--analyze-only, --dry-run and --render-only are mutually exclusive, choose one"))
     return _run(args, options, environ, detection_env)
 
 
@@ -154,8 +176,23 @@ def _bench(
         return _usage_error(error)
 
 
-_COMMANDS = {"doctor": _doctor, "bench": _bench}
-_COMMAND_ARGUMENTS = frozenset({"command", "bench_command", "images", "count"})  # not settings
+def _pipeline(
+    args: argparse.Namespace, settings: Settings, detection_env: DetectionEnv | None, *, record_profile: bool
+) -> int:
+    if not record_profile:  # the workdir could not be prepared; the reason is in the log
+        return _usage_error(ConfigError(f"cannot use the workdir {settings.workdir}"))
+    modes = [mode for mode, flag in _MODES.items() if getattr(args, flag)]
+    request = RunRequest(mode=modes[0] if modes else FULL, resume=args.resume, preview=args.preview,
+                         mode_given=bool(modes))
+    return run_pipeline(settings, request, detection_env=detection_env)
+
+
+_COMMANDS = {"doctor": _doctor, "bench": _bench, None: _pipeline}
+_MODES = {ANALYZE_ONLY: "analyze_only", DRY_RUN: "dry_run", RENDER_ONLY: "render_only"}
+# Not settings: subcommands, their arguments and the per-run flags of the pipeline.
+_COMMAND_ARGUMENTS = frozenset({
+    "command", "bench_command", "images", "count", "version", "preview", "resume", *_MODES.values(),
+})
 
 
 def _usage_error(error: Exception) -> int:

@@ -29,7 +29,10 @@ class Reply:
 
 
 class FakeOllama:
-    def __init__(self, *, model: str = MODEL, installed: bool = True, placement: str = "gpu", delay: float = 0.0):
+    def __init__(
+        self, *, model: str = MODEL, installed: bool = True, placement: str = "gpu", delay: float = 0.0,
+        host: str = "127.0.0.1",
+    ):
         self.model = model
         self.installed = installed
         self.placement = placement
@@ -42,12 +45,16 @@ class FakeOllama:
         self.max_in_flight = 0
         self._in_flight = 0
         self._lock = threading.Lock()
-        self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
+        self._server = ThreadingHTTPServer((host, 0), self._handler())
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
 
     @property
+    def port(self) -> int:
+        return self._server.server_address[1]
+
+    @property
     def url(self) -> str:
-        return f"http://127.0.0.1:{self._server.server_address[1]}"
+        return f"http://127.0.0.1:{self.port}"
 
     def __enter__(self) -> "FakeOllama":
         self._thread.start()
