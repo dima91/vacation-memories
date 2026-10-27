@@ -126,6 +126,16 @@ final score), moment type, capture date and the reason it was chosen. Its `runti
 filled, whether a budget was redistributed, how much the AI covered, and why the video is shorter when the material
 is not enough. `render_report.json` describes the rendering and the checks of the final file.
 
+The Opening shows the best moments of the whole vacation, as quick clips in chronological order. A clip with several
+good moments is not cut into many short pieces: it gives one piece to each section, the Opening included. The clip of
+the Closing gives none to the section before it, where it would end one section and start again in the next. A further
+good moment of a clip already in the section lengthens that shot, without a break, into the next part of the same clip,
+up to 15 s (`video_shot_max_seconds`); in the Opening, and once the shot is full, the other moments are left out. A
+second piece of the same clip comes only when the section would otherwise run short, and the report says so. In the
+Closing this gives one calm, continuous shot. Such a shot says "continuous shot over N adjacent segments" in its reason, and
+`runtime.extended_shots` counts them. Targets under 60 s and the `detail` and `transition` clips keep their ordinary
+durations.
+
 ### Configuration
 
 Every option can also come from a TOML file (`--config`, or the `VACATION_MEMORIES_CONFIG` variable) or from a
@@ -141,6 +151,7 @@ music = "/music/track.mp3"
 technical_threshold = 0.3     # below it a shot is discarded as blurred, dark or badly exposed
 narrative_weight = 0.7        # with technical_weight, adds up to 1
 technical_weight = 0.3
+video_shot_max_seconds = 12   # longest continuous shot; equal to video_max_seconds (8) turns the shots off
 
 [selection.sections.opening]
 share = 0.08                  # the shares of the five sections add up to 1
@@ -210,6 +221,8 @@ The working folder has private permissions (`0700`): it holds thumbnails and met
   the AI budget allows, and the others are ranked without it.
 - When the AI labels almost everything with the same moment type, the rule "at most 3 clips of the same type in a
   row" gives way rather than the duration, and the report says so.
+- A continuous shot grows only into parts of the clip that passed the technical threshold and were not grouped as
+  near-duplicates: an almost still scene, whose parts look alike, keeps ordinary clips.
 - The scores and shares are initial values, tuned on synthetic media only.
 - Rendering above 1080p with the software encoder is much slower; use `--preview` for trials.
 

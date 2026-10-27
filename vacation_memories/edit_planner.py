@@ -6,16 +6,23 @@ Basic version of the narrative structure of section 6:
    (the extra time comes from Development) and a section too short for a single clip is merged with
    its neighbor. Short targets (or very little material) use the compressed structure: an Opening
    of at most 5 s, one chronological body and a Closing of a single clip;
-2. the Opening takes the highest `narrative_score` of the whole vacation, out of chronological order,
-   with variety of `moment_type` and days, quick clips and no `transition`;
+2. the Opening takes the highest `narrative_score` of the whole vacation, with variety of
+   `moment_type` and days, quick clips and no `transition`, and shows them in chronological order;
 3. the Closing is chosen by criteria: serene clips (`scenery` or `social`, low motion) with a high
    `technical_score`, preferring the last stretch of the vacation;
 4. the other candidates are split into three chronological bands at the quantiles of the useful
    material, in proportion to the budgets of Beginning, Development and Finale (not on calendar
    time), and each band is filled in score order and shown in chronological order;
-5. a section that runs out of material gives its unused budget to the others, in proportion to
+5. a video gives one piece per section, and the video of the Closing none to the section before
+   it, where it would end one section and start again in the next (its segments do not count as
+   material for the bands): a further good moment of a video that already has a clip in the section
+   continues that clip, without a break, into the adjacent segment of the file on the side of the
+   new moment, up to `video_shot_max_seconds`, and is skipped in the Opening or once the shot is
+   full. A second piece comes only when the section would otherwise run short. Short targets,
+   `detail` and `transition` clips keep their ordinary durations;
+6. a section that runs out of material gives its unused budget to the others, in proportion to
    their shares (first within their ranges, then beyond), never by repeating clips;
-6. clip durations are adjusted within their ranges so that every section, and the whole edit with
+7. clip durations are adjusted within their ranges so that every section, and the whole edit with
    the dissolves taken into account, lasts what was planned. If the material is not enough the
    video is shorter and the report says why.
 
@@ -41,6 +48,10 @@ COMPRESSED = "compressed"
 BODY = "body"  # Beginning, Development and Finale together, in the compressed structure
 SERENE_MOMENTS = ("scenery", "social")
 VIDEO_END_MARGIN_SECONDS = 0.1  # never cut a clip right at the end of its segment
+CONTIGUOUS_SECONDS = 1e-3  # two segments of a file closer than this continue each other
+SINGLE_PIECE_MOMENTS = ("detail", "transition")  # short by nature: never extended into a longer shot
+RUN_RULE = "moment type run"
+PIECE_RULE = "one piece per clip"
 OPENING_SAME_TYPE_PENALTY = 0.15
 OPENING_SAME_DAY_PENALTY = 0.10
 OPENING_MOTION_BONUS = 0.10
@@ -59,10 +70,19 @@ class Clip:
     duration: float
     reason: str
     transition: TransitionRequest = field(default_factory=TransitionRequest)
+    windows: list[RankedCandidate] = field(default_factory=list)  # contiguous segments of the shot, in file order
+
+    def __post_init__(self) -> None:
+        if not self.windows:
+            self.windows = [self.item]
 
     @property
     def preferred(self) -> float:
         return (self.min_duration + self.max_duration) / 2
+
+    @property
+    def extended(self) -> bool:
+        return len(self.windows) > 1
 
 
 @dataclass
@@ -71,13 +91,13 @@ class Section:
     share: float  # proportion used when budget is redistributed
     budget: float
     allowed: tuple[float, float] | None  # range in seconds, None for the compressed and chronological sections
-    chronological: bool
     pool: list[RankedCandidate] = field(default_factory=list)
-    clips: list[Clip] = field(default_factory=list)
+    clips: list[Clip] = field(default_factory=list)  # in chronological order
     initial_budget: float = 0.0
     redistributed: bool = False
     ran_out: bool = False
     relaxed_runs: bool = False
+    relaxed_pieces: bool = False
 
     def __post_init__(self) -> None:
         self.initial_budget = self.budget
@@ -124,6 +144,14 @@ class _Planner:
         self.short = target < config.short_target_seconds
         self.index = {item.id: position for position, item in enumerate(ranking.ranked)}
         self.useful = [item for item in ranking.ranked if self._usable(item)]
+        self.file_windows: dict = defaultdict(list)  # the ranked segments of every clip, in file order
+        for item in ranking.ranked:
+            if item.candidate.kind == VIDEO:
+                self.file_windows[item.candidate.rel_path].append(item)
+        for windows in self.file_windows.values():
+            windows.sort(key=lambda item: item.candidate.start)
+        self.window_position = {item.id: position for windows in self.file_windows.values()
+                                for position, item in enumerate(windows)}
         self.used: set[str] = set()
         self.closest = np.zeros(len(ranking.ranked), dtype=np.float32)  # similarity to the chosen clips
         self.file_seconds: Counter = Counter()
@@ -162,7 +190,7 @@ class _Planner:
     def _make_sections(self) -> list[Section]:
         config, target = self.config, self.target
         if self.structure == CHRONOLOGICAL:
-            return [Section(CHRONOLOGICAL, 1.0, target, None, True, pool=list(self.useful))]
+            return [Section(CHRONOLOGICAL, 1.0, target, None, pool=list(self.useful))]
 
         shares = config.sections
         self.compressed = target < config.short_target_seconds or len(self.useful) < config.compressed_min_clips
@@ -172,10 +200,10 @@ class _Planner:
                 opening = 0.0
             closing = max(config.closing_short_min_seconds, shares["closing"].share * target)
             sections = [
-                Section("opening", shares["opening"].share, opening, None, False),
+                Section("opening", shares["opening"].share, opening, None),
                 Section(BODY, sum(shares[name].share for name in ("beginning", "development", "finale")),
-                        target - opening - closing, None, True),
-                Section("closing", shares["closing"].share, closing, None, True),
+                        target - opening - closing, None),
+                Section("closing", shares["closing"].share, closing, None),
             ]
             return [section for section in sections if section.budget > 0]
 
@@ -190,8 +218,7 @@ class _Planner:
                 budgets[neighbor] += budgets[name]
                 budgets[name] = 0.0
         return [
-            Section(name, shares[name].share, budgets[name],
-                    (shares[name].min * target, shares[name].max * target), name != "opening")
+            Section(name, shares[name].share, budgets[name], (shares[name].min * target, shares[name].max * target))
             for name in SECTIONS
             if budgets[name] > 0
         ]
@@ -205,7 +232,11 @@ class _Planner:
         if len(bands) == 1:
             bands[0].pool = remaining
             return
-        weights = [self._range(item, bands[0].name)[2] for item in remaining]
+        # The segments of the Closing's videos cannot fill the band before it: they are not its material.
+        closing_files = {clip.item.candidate.rel_path for section in self.sections if section.name == "closing"
+                         for clip in section.clips if clip.item.candidate.kind == VIDEO}
+        weights = [0.0 if item.candidate.rel_path in closing_files else self._range(item, bands[0].name)[2]
+                   for item in remaining]
         cumulative = np.cumsum(weights) if weights else np.array([])
         total = float(cumulative[-1]) if len(cumulative) else 0.0
         budget_total = sum(band.budget for band in bands)
@@ -340,7 +371,7 @@ class _Planner:
                     run += 1
                     other += step
             if run > self.config.max_same_moment_run:
-                return "moment type run"
+                return RUN_RULE
         for other in (position - 1, position, position + 1):
             if 0 <= other < len(sequence) and not self._is_link(sequence, other):
                 return "transition not between days"
@@ -358,13 +389,10 @@ class _Planner:
         return before != day or after != day
 
     def _insert(self, section: Section, clip: Clip, strict_runs: bool) -> str | None:
-        """Put the clip in its place (chronological, or at the end) if no rule is broken."""
+        """Put the clip in its chronological place if no rule is broken."""
         offset = sum(len(other.clips) for other in self.sections[: self.sections.index(section)])
-        if section.chronological:
-            keys = [(c.item.captured_at, c.item.id) for c in section.clips]
-            place = bisect.bisect(keys, (clip.item.captured_at, clip.item.id))
-        else:
-            place = len(section.clips)
+        keys = [(c.item.captured_at, c.item.id) for c in section.clips]
+        place = bisect.bisect(keys, (clip.item.captured_at, clip.item.id))
         section.clips.insert(place, clip)
         problem = self._breaks_rules(self._sequence(), offset + place, strict_runs)
         if problem:
@@ -372,39 +400,122 @@ class _Planner:
         return problem
 
     def _fill(self, section: Section, score=None, reason=None) -> None:
-        """Add clips in score order until the section's budget is covered or the material runs out."""
+        """Add clips in score order until the section's budget is covered or the material runs out.
+
+        The variety rules give way one at a time, and only when the section would otherwise stay
+        short (rather than the duration): first one piece per clip, then the runs of a moment type.
+        """
         score = score or self._body_score(section)
         reason = reason or (lambda item, value: f"{section.name}: score {value:.2f}")
-        for strict_runs in (True, False):
-            rejected: set[str] = set()
-            blocked_by_runs = False
-            while True:
-                best = None
-                totals = self._totals(section)
-                for item in section.pool:
-                    if item.id in self.used or item.id in rejected:
-                        continue
-                    clip = self._make_clip(item, section, "")
-                    if clip is None or not self._fits(clip, section, totals):
-                        continue
-                    value = score(item)
-                    if best is None or value > best[0]:
-                        best = (value, clip)
-                if best is None:
-                    break
-                value, clip = best
-                clip.reason = reason(clip.item, value)
-                problem = self._allowed(clip) or self._insert(section, clip, strict_runs)
-                if problem:
-                    rejected.add(clip.item.id)
-                    blocked_by_runs = blocked_by_runs or problem == "moment type run"
-                    continue
-                self._accept(clip, section)
-            covered = self._totals(section)[2] >= section.budget - _EPSILON
-            if covered or not blocked_by_runs:
+        one_piece, strict_runs = True, True
+        while True:
+            blocked = self._fill_round(section, score, reason, one_piece, strict_runs)
+            if self._totals(section)[2] >= section.budget - _EPSILON:
                 break
-            section.relaxed_runs = True  # not enough variety: the rule gives way rather than the duration
+            if one_piece and PIECE_RULE in blocked:
+                one_piece, section.relaxed_pieces = False, True
+            elif strict_runs and RUN_RULE in blocked:
+                strict_runs, section.relaxed_runs = False, True
+            else:
+                break
         section.ran_out = self._totals(section)[2] < section.budget - _EPSILON
+
+    def _fill_round(self, section: Section, score, reason, one_piece: bool, strict_runs: bool) -> set[str]:
+        """Choose until nothing else fits; returns the variety rules that turned candidates away."""
+        rejected: set[str] = set()
+        blocked: set[str] = set()
+        while True:
+            best = None
+            totals = self._totals(section)
+            for item in section.pool:
+                if item.id in self.used or item.id in rejected:
+                    continue
+                clip = self._make_clip(item, section, "")
+                if clip is None or not self._fits(clip, section, totals):
+                    continue
+                value = score(item)
+                if best is None or value > best[0]:
+                    best = (value, clip)
+            if best is None:
+                return blocked
+            value, clip = best
+            if self._extend_shot(section, clip.item):
+                continue
+            clip.reason = reason(clip.item, value)
+            problem = ((PIECE_RULE if one_piece and self._has_piece(section, clip.item) else None)
+                       or self._allowed(clip) or self._insert(section, clip, strict_runs))
+            if problem:
+                rejected.add(clip.item.id)
+                blocked.add(problem)
+                continue
+            self._accept(clip, section)
+
+    def _has_piece(self, section: Section, item: RankedCandidate) -> bool:
+        path = item.candidate.rel_path
+        return item.candidate.kind == VIDEO and any(
+            clip.item.candidate.rel_path == path for other in self._sharing_pieces(section) for clip in other.clips)
+
+    def _sharing_pieces(self, section: Section) -> list[Section]:
+        """The Closing and the section before it share their videos: one would end where the other starts."""
+        last = len(self.sections) - 1
+        if last > 0 and self.sections[last].name == "closing" and self.sections.index(section) >= last - 1:
+            return self.sections[last - 1:]
+        return [section]
+
+    def _extend_shot(self, section: Section, moment: RankedCandidate) -> bool:
+        """A further good moment of a video already in the section lengthens its nearest shot, if one can grow."""
+        if self.short or section.name == "opening" or moment.candidate.kind != VIDEO:
+            return False
+        if moment.moment_type in SINGLE_PIECE_MOMENTS:
+            return False
+        shots = [clip for clip in section.clips if clip.item.candidate.rel_path == moment.candidate.rel_path
+                 and clip.item.moment_type not in SINGLE_PIECE_MOMENTS]
+        shots.sort(key=lambda clip: abs(clip.item.candidate.start - moment.candidate.start))
+        for shot in shots:
+            sides = (1, -1) if moment.candidate.start > shot.item.candidate.start else (-1, 1)
+            for step in sides:
+                window = self._neighbor(shot, step)
+                if window is not None and self._lengthen(section, shot, window, step):
+                    return True
+        return False
+
+    def _neighbor(self, shot: Clip, step: int) -> RankedCandidate | None:
+        """The free segment that continues the shot before (`step` -1) or after (1) it, in the same file."""
+        windows = self.file_windows[shot.item.candidate.rel_path]
+        edge = shot.windows[0] if step < 0 else shot.windows[-1]
+        position = self.window_position[edge.id] + step
+        if not 0 <= position < len(windows):
+            return None
+        neighbor = windows[position]
+        earlier, later = (neighbor, edge) if step < 0 else (edge, neighbor)
+        if abs(later.candidate.start - earlier.candidate.end) > CONTIGUOUS_SECONDS or neighbor.id in self.used:
+            return None
+        return neighbor
+
+    def _lengthen(self, section: Section, shot: Clip, window: RankedCandidate, step: int) -> bool:
+        """Add `window` to the shot if it makes the shot longer within the file cap and the section's budget."""
+        config = self.config
+        windows = [window, *shot.windows] if step < 0 else [*shot.windows, window]
+        available = windows[-1].candidate.end - windows[0].candidate.start - VIDEO_END_MARGIN_SECONDS
+        high = min(config.video_shot_max_seconds, available)
+        if high <= shot.max_duration + _EPSILON:
+            return False
+        low = min(max(shot.min_duration, config.video_max_seconds), high)  # a longer shot is never a short clip
+        path = shot.item.candidate.rel_path
+        added = high - shot.max_duration
+        if self.file_seconds[path] + added > self.file_cap + _EPSILON:
+            return False
+        minimum = self._totals(section)[0] - self._contribution(section.name, shot.min_duration)
+        if minimum + self._contribution(section.name, low) > section.budget + _EPSILON:
+            return False
+        shot.windows = windows
+        shot.min_duration, shot.max_duration, shot.duration = low, high, (low + high) / 2
+        self.used.add(window.id)
+        self.closest = np.maximum(self.closest, self.ranking.similarity[self.index[window.id]])
+        self.file_seconds[path] += added
+        if shot.item.moment_type:
+            self.moment_seconds[shot.item.moment_type] += added
+        return True
 
     def _body_score(self, section: Section):
         config = self.config
@@ -449,18 +560,6 @@ class _Planner:
                     - OPENING_SAME_TYPE_PENALTY * same_type - OPENING_SAME_DAY_PENALTY * same_day)
 
         self._fill(section, score, lambda item, value: f"opening: narrative score {item.narrative_score:.2f}")
-        section.clips[:] = self._varied_order(section.clips)
-
-    def _varied_order(self, clips: list[Clip]) -> list[Clip]:
-        """Best first, never the same moment type twice in a row when there is a choice."""
-        remaining = sorted(clips, key=lambda clip: -clip.item.narrative_score)
-        ordered: list[Clip] = []
-        while remaining:
-            last = ordered[-1].item.moment_type if ordered else None
-            pick = next((c for c in remaining if last is None or c.item.moment_type != last), remaining[0])
-            remaining.remove(pick)
-            ordered.append(pick)
-        return ordered
 
     def _fill_closing(self, section: Section) -> None:
         candidates = [item for item in self.useful if item.id not in self.used and item.moment_type != "transition"]
@@ -592,12 +691,17 @@ class _Planner:
             candidate = item.candidate
             start = end = None
             duration = clip.duration
+            reason = clip.reason
             if candidate.kind == VIDEO:
+                # Centered on the moment that chose the clip, inside the segments of its shot.
+                first, last = clip.windows[0].candidate, clip.windows[-1].candidate
                 middle = (candidate.start + candidate.end) / 2
-                start = min(max(candidate.start, middle - duration / 2), candidate.end - VIDEO_END_MARGIN_SECONDS - duration)
-                start = max(candidate.start, round(start, 6))
+                start = min(max(first.start, middle - duration / 2), last.end - VIDEO_END_MARGIN_SECONDS - duration)
+                start = max(first.start, round(start, 6))
                 end = round(start + duration, 6)
                 duration = end - start
+                if clip.extended:
+                    reason += f"; continuous shot over {len(clip.windows)} adjacent segments"
             score = {
                 "final": round(item.final_score, 4),
                 "technical_score": round(item.technical_score, 4),
@@ -608,7 +712,7 @@ class _Planner:
                 source=candidate.rel_path.as_posix(), kind=candidate.kind, duration=round(duration, 6),
                 start=start, end=end, transition_in=clip.transition, score=score,
                 moment_type=item.moment_type, category=item.category, section=clip.section,
-                description=item.ai.description if item.ai else None, reason=clip.reason,
+                description=item.ai.description if item.ai else None, reason=reason,
                 captured_at=item.captured_at.isoformat(timespec="milliseconds"), date_source=item.date_source,
                 assumed_tz=item.assumed_tz,
             ))
@@ -637,6 +741,7 @@ class _Planner:
                 "ran_out_of_material": section.ran_out,
                 "allowed_range": None if section.allowed is None else [round(v, 3) for v in section.allowed],
                 "moment_runs_relaxed": section.relaxed_runs,
+                "video_pieces_relaxed": section.relaxed_pieces,
             })
 
         insufficient = not sequence or sum(section.budget for section in self.sections) < self.target - 0.5
@@ -650,6 +755,8 @@ class _Planner:
                 "discarded scene or repeated clip is used to fill the gap"
             )
         for section in self.sections:
+            if section.relaxed_pieces:
+                warnings.append(f"{section.name}: not enough other material, some clips give more than one piece")
             if section.relaxed_runs:
                 warnings.append(
                     f"{section.name}: not enough variety of moment_type, more than "
@@ -662,6 +769,7 @@ class _Planner:
             "planned_duration": planned,
             "insufficient_material": insufficient,
             "clips": len(sequence),
+            "extended_shots": sum(1 for clip in sequence if clip.extended),
             "usable_candidates": len(self.useful),
             "sections": sections,
             "warnings": warnings,

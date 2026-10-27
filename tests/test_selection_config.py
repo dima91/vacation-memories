@@ -28,6 +28,7 @@ technical_threshold = 0.3
 narrative_weight = 0.7
 technical_weight = 0.3
 max_same_moment_run = 2
+video_shot_max_seconds = 12
 
 [selection.sections.opening]
 share = 0.08
@@ -39,7 +40,7 @@ detail = 0.2
 """)
     selection = settings.selection
     assert selection.technical_threshold == 0.3 and selection.narrative_weight == 0.7
-    assert selection.max_same_moment_run == 2
+    assert selection.max_same_moment_run == 2 and selection.video_shot_max_seconds == 12
     assert selection.sections["opening"].share == 0.08 and selection.sections["opening"].max == 0.15
     assert selection.moment_shares["detail"] == 0.2 and selection.moment_shares["scenery"] == 0.25
 
@@ -57,6 +58,7 @@ def test_without_the_table_the_defaults_apply(tmp_path):
         "[selection]\ntechnical_threshold = 'high'\n",
         "[selection]\nmax_same_moment_run = 2.5\n",
         "[selection]\nphoto_min_seconds = 5.0\n",  # above photo_max_seconds
+        "[selection]\nvideo_shot_max_seconds = 6.0\n",  # shorter than an ordinary video clip
         "[selection.sections.opening]\nshare = 0.3\n",  # shares no longer add up to 1
         "[selection.sections.prologue]\nshare = 0.1\n",
         "[selection.sections.opening]\nweight = 0.1\n",

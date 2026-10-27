@@ -89,6 +89,7 @@ class SelectionConfig:
     photo_max_seconds: float = 4.0
     video_min_seconds: float = 3.0
     video_max_seconds: float = 8.0
+    video_shot_max_seconds: float = 15.0  # a video with more good moments gives fewer, longer continuous shots
     short_photo_min_seconds: float = 2.0
     short_photo_max_seconds: float = 3.0
     short_video_min_seconds: float = 2.0
@@ -160,6 +161,7 @@ def validate(config: SelectionConfig) -> None:
     if config.max_same_moment_run < 1 or config.compressed_min_clips < 1:
         raise ValueError("selection.max_same_moment_run and selection.compressed_min_clips must be at least 1")
     pairs = [("photo_min_seconds", "photo_max_seconds"), ("video_min_seconds", "video_max_seconds"),
+             ("video_max_seconds", "video_shot_max_seconds"),
              ("short_photo_min_seconds", "short_photo_max_seconds"),
              ("short_video_min_seconds", "short_video_max_seconds"),
              ("closing_photo_min_seconds", "closing_photo_max_seconds"),

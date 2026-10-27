@@ -1,8 +1,9 @@
+from collections import defaultdict
 from dataclasses import replace
 from datetime import timedelta
 
 import pytest
-from selection_fakes import START, ranked, ranking_of, vacation
+from selection_fakes import START, ranked, ranking_of, shot, vacation
 
 from vacation_memories.edit_plan import OutputSpec, plan_from_dict
 from vacation_memories.edit_planner import plan_edit
@@ -42,6 +43,39 @@ def assert_chronological(elements):
     assert times == sorted(times)
 
 
+RIDE = "day2/ride.mp4"
+RIDE_POINTS = (2, 9, 16, 23)  # the good moments of a 5-minute scene in 10 s windows
+
+
+def ride(points=RIDE_POINTS, *, name=RIDE, strong=0.95, when=START + timedelta(days=1, hours=4), **options):
+    return shot(name, when, [strong if n in points else 0.3 for n in range(30)], **options)
+
+
+def pieces(result, source, *names):
+    return [e for e in result.plan.elements if e.source == source and (not names or e.section in names)]
+
+
+def assert_shots_are_continuous(result, items):
+    """Every clip covers only segments of the ranking, contiguous in its file, and no source time is used twice."""
+    windows = defaultdict(list)
+    for item in items:
+        if item.candidate.kind == "video":
+            windows[item.candidate.rel_path.as_posix()].append((item.candidate.start, item.candidate.end))
+    used = defaultdict(list)
+    for element in result.plan.elements:
+        if element.kind != "video":
+            continue
+        covering = sorted(w for w in windows[element.source] if w[0] < element.end and w[1] > element.start)
+        assert covering[0][0] <= element.start + 1e-6 and covering[-1][1] >= element.end - 1e-6, element
+        for (_, end), (start, _) in zip(covering, covering[1:]):
+            assert start == pytest.approx(end), f"{element.source}: a gap between {end} and {start}"
+        used[element.source].append((element.start, element.end))
+    for source, spans in used.items():
+        spans.sort()
+        for (_, end), (start, _) in zip(spans, spans[1:]):
+            assert start >= end - 1e-6, f"{source}: the same source time is used twice"
+
+
 class TestNarrativeStructure:
     @pytest.mark.parametrize("weights", [None, [8, 1, 1]], ids=["uniform", "80% on one day"])
     def test_budgets_stay_in_their_ranges_and_add_up_to_the_duration(self, weights):
@@ -77,7 +111,7 @@ class TestNarrativeStructure:
         assert opening and not opening & set(later)
         assert len(later) == len(set(later))
 
-    def test_the_opening_takes_the_best_moments_out_of_order_with_quick_clips_and_no_transition(self):
+    def test_the_opening_shows_the_best_moments_in_time_order_with_quick_clips_and_no_transition(self):
         items = vacation(200, moments=MOMENTS + ["transition"])
         result = plan(items, 300)
         opening = elements_of(result, "opening")
@@ -86,6 +120,7 @@ class TestNarrativeStructure:
         assert all(e.duration <= CONFIG.opening_clip_max_seconds + 0.05 for e in opening)
         assert all(e.moment_type != "transition" for e in opening)
         assert len({e.captured_at[:10] for e in opening}) > 1  # variety of days
+        assert_chronological(opening)
 
     def test_the_closing_is_a_calm_clip_with_the_longest_dissolve_its_neighbor_allows(self):
         items = vacation(200, moments=MOMENTS)
@@ -226,6 +261,103 @@ class TestMomentTypes:
         scenery = [e.duration for e in body if e.moment_type == "scenery"]
         assert details and max(details) <= CONFIG.detail_max_seconds + 0.05
         assert scenery and min(scenery) >= CONFIG.photo_min_seconds + CONFIG.scenery_extra_seconds - 0.05
+
+
+class TestContinuousShots:
+    @pytest.mark.parametrize("target", [180, 300])
+    def test_a_video_with_several_good_moments_gives_fewer_longer_shots(self, target):
+        items = vacation(60, moments=MOMENTS) + ride()  # long action-camera footage is much of the material
+        result = plan(items, target)
+        disabled = plan(items, target, config=replace(CONFIG, video_shot_max_seconds=CONFIG.video_max_seconds))
+        body = pieces(result, RIDE, *BODY)
+        assert len(body) < len(pieces(disabled, RIDE, *BODY))
+        assert max(e.duration for e in body) > CONFIG.video_max_seconds
+        assert all(e.duration <= CONFIG.video_shot_max_seconds + 0.05 for e in body)
+        assert result.report["extended_shots"] >= 1 and disabled.report["extended_shots"] == 0
+        assert result.plan.planned_duration == pytest.approx(disabled.plan.planned_duration, rel=0.05)
+        assert_shots_are_continuous(result, items)
+
+    def test_the_moment_that_chose_the_shot_stays_inside_it(self):
+        result = plan(vacation(150, moments=MOMENTS) + ride(), 180)
+        long = [e for e in pieces(result, RIDE) if e.duration > CONFIG.video_max_seconds]
+        assert long
+        for element in long:
+            assert "continuous shot" in element.reason
+            assert any(element.start <= 10.0 * point + 5.0 <= element.end for point in RIDE_POINTS)
+
+    def test_a_video_with_one_good_moment_keeps_a_normal_clip(self):
+        result = plan(vacation(150, moments=MOMENTS) + ride(points=(12,), strong=0.85), 180)
+        found = pieces(result, RIDE)
+        assert len(found) == 1 and found[0].section in BODY
+        assert found[0].duration <= CONFIG.video_max_seconds + 0.05
+
+    def test_shots_only_continue_into_free_adjacent_segments_of_the_same_file(self):
+        segments = ride()
+        missing = segments[3]  # below the threshold or a duplicate: not in the ranking
+        other = ride(name="day2/other.mp4", points=(3, 10))
+        items = vacation(150, moments=MOMENTS) + [s for s in segments if s is not missing] + other
+        result = plan(items, 300)
+        assert_shots_are_continuous(result, items)
+        assert not any(e.start < missing.candidate.end and e.end > missing.candidate.start
+                       for e in pieces(result, RIDE))
+
+    def test_the_file_cap_and_the_duration_still_hold(self):
+        items = vacation(150, moments=MOMENTS) + ride(points=range(0, 30, 2))
+        result = plan(items, 180)
+        assert sum(e.duration for e in pieces(result, RIDE)) <= CONFIG.max_file_share * 180 + 0.05
+        assert result.plan.planned_duration == pytest.approx(180, rel=0.05)
+        assert_shots_are_continuous(result, items)
+
+    def test_details_and_short_targets_keep_their_durations(self):
+        loose = replace(CONFIG, min_file_cap_seconds=60.0)  # the file cap alone would stop the shots
+        details = plan(vacation(150, moments=MOMENTS) + ride(moment="detail"), 180, config=loose)
+        assert all(e.duration <= CONFIG.detail_max_seconds + 0.05 for e in pieces(details, RIDE))
+        short = plan(vacation(100, moments=MOMENTS) + ride(), 45, config=loose)
+        assert pieces(short, RIDE, "body")
+        assert all(e.duration <= CONFIG.short_video_max_seconds + 0.05 for e in pieces(short, RIDE, "body"))
+
+    @pytest.mark.parametrize("target", [180, 300])
+    def test_a_video_gives_one_piece_per_section_the_opening_too(self, target):
+        items = vacation(150, moments=MOMENTS) + ride()
+        result = plan(items, target)
+        found = pieces(result, RIDE)
+        assert pieces(result, RIDE, "opening") and pieces(result, RIDE, *BODY)
+        assert len(found) == len({e.section for e in found})
+        assert not any(section["video_pieces_relaxed"] for section in result.report["sections"])
+        assert_shots_are_continuous(result, items)
+
+    def test_a_second_piece_comes_only_when_the_section_would_run_short(self):
+        # Two long clips and a few photos: one piece per clip cannot fill 3 minutes.
+        items = vacation(12, moments=MOMENTS) + ride() + ride(name="day2/walk.mp4", when=START + timedelta(days=1, hours=6))
+        result = plan(items, 180)
+        relaxed = [section for section in result.report["sections"] if section["video_pieces_relaxed"]]
+        assert relaxed
+        assert len(pieces(result, RIDE, relaxed[0]["name"])) > 1
+        assert any("more than one piece" in warning for warning in result.report["warnings"])
+        assert_shots_are_continuous(result, items)
+
+    def test_the_closing_is_one_continuous_shot(self):
+        late = START + timedelta(days=2, hours=11, minutes=40)  # serene, at the very end of the vacation
+        items = vacation(150, moments=MOMENTS) + ride(when=late, moment="scenery", motion_level=0.0)
+        result = plan(items, 180)
+        closing = pieces(result, RIDE, "closing")
+        assert len(closing) == 1 and closing[0].duration > CONFIG.closing_video_max_seconds
+        assert "continuous shot" in closing[0].reason
+        assert all(e.duration <= CONFIG.opening_clip_max_seconds + 0.05 for e in pieces(result, RIDE, "opening"))
+        assert result.plan.planned_duration == pytest.approx(180, rel=0.05)
+        assert_shots_are_continuous(result, items)
+
+    @pytest.mark.parametrize("target", [45, 180])
+    def test_the_video_of_the_closing_stays_out_of_the_section_before_it(self, target):
+        # Without the rule the same video would end the Finale (or the body) and start again in the Closing.
+        late = START + timedelta(days=2, hours=11, minutes=40)
+        items = vacation(150, moments=MOMENTS) + ride(when=late, moment="scenery", motion_level=0.0)
+        result = plan(items, target)
+        before_closing = list(sections(result))[-2]
+        assert pieces(result, RIDE, "closing")
+        assert not pieces(result, RIDE, before_closing)
+        assert not any(section["video_pieces_relaxed"] for section in result.report["sections"])
+        assert result.plan.planned_duration == pytest.approx(target, rel=0.05)
 
 
 class TestThePlan:

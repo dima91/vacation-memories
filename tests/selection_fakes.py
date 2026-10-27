@@ -1,5 +1,6 @@
 """Synthetic candidates with known scores, for the ranking and planning tests (no media involved)."""
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -42,6 +43,21 @@ def ranked(name: str, when: datetime, *, moment: str | None = None, value: int |
     final = 0.65 * narrative + 0.35 * technical
     return RankedCandidate(item, when, "exif", None, ai, technical, narrative, final, motion_level,
                            {"uniqueness": narrative})
+
+
+def shot(name: str, when: datetime, narratives: list[float], *, seconds: float = 10.0, moment: str | None = "action",
+         motion_level: float = 0.5) -> list[RankedCandidate]:
+    """Contiguous segments of one clip, `seconds` each, with the given narrative scores (a long scene in windows)."""
+    items = []
+    for number, narrative in enumerate(narratives):
+        start = number * seconds
+        value = None if moment is None else max(1, min(5, round(1 + 4 * narrative)))
+        item = ranked(name, when + timedelta(seconds=start), moment=moment, value=value, narrative=narrative,
+                      kind="video", seconds=seconds, motion_level=motion_level)
+        segment = replace(item.candidate, id=f"{name}#{start:.3f}-{start + seconds:.3f}", start=start,
+                          end=start + seconds)
+        items.append(replace(item, candidate=segment))
+    return items
 
 
 def ranking_of(items: list[RankedCandidate], *, ai_used: bool = True) -> Ranking:
