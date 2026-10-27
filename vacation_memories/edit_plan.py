@@ -5,7 +5,8 @@ as FFprobe exposes it (a container whose first timestamp is not zero does not sh
 `source` is the path relative to `--input`.
 
 Every element carries what the planner knows (scores, moment type, category, section, description,
-reason), but the renderer needs only `source`, `type`, the extent and `transition_in`. A
+reason, and the capture date with its source and, for the `mtime` fallback, the assumed time zone),
+but the renderer needs only `source`, `type`, the extent and `transition_in`. A
 transition written by hand is not trusted: the renderer reduces it to the limits of section 8.
 Unknown keys are rejected, so a typo in a hand-edited plan is an error and not a silent no-op.
 """
@@ -36,7 +37,9 @@ MAX_FPS = 240
 NTSC_NUMERATORS = (24000, 30000, 48000, 60000, 120000)
 NTSC_TOLERANCE = 0.005
 SCORE_KEYS = ("final", "technical_score", "narrative_score", "components")
-DESCRIPTIVE_KEYS = ("moment_type", "category", "section", "description", "reason")
+DESCRIPTIVE_KEYS = (
+    "moment_type", "category", "section", "description", "reason", "captured_at", "date_source", "assumed_tz",
+)
 _ELEMENT_KEYS = {
     "source", "type", "start", "end", "duration", "score", "transition_in", "timestamp", *DESCRIPTIVE_KEYS,
 }
@@ -78,6 +81,9 @@ class PlanElement:
     section: str | None = None
     description: str | None = None
     reason: str | None = None
+    captured_at: str | None = None  # naive ISO date and time, as written in the metadata
+    date_source: str | None = None  # "exif", "container" or "mtime"
+    assumed_tz: str | None = None  # only for the mtime fallback
     timestamp: float | None = None  # destination, computed by `finalize_timeline`
 
     def to_dict(self) -> dict:
