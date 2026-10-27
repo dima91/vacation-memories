@@ -125,3 +125,39 @@ def test_populate_creates_the_reference_set_and_manifest(tmp_path):
 def test_main_populates_the_folder(tmp_path, capsys):
     assert sm.main([str(tmp_path / "out"), "--seed", "3"]) == 0
     assert any((tmp_path / "out").rglob("*.mp4"))
+
+
+def test_mosaic_scenes_are_sharp_and_all_different_for_the_perceptual_hash():
+    from vacation_memories.duplicate_detector import HashBackend
+    from vacation_memories.frame_sampler import to_analysis_gray
+    from vacation_memories.quality_analyzer import measure_frame
+
+    backend = HashBackend()
+    grays = [to_analysis_gray(np.asarray(sm.render_mosaic_frame(n, 320, 240).convert("L"))) for n in range(30)]
+    assert min(measure_frame(gray).technical_score for gray in grays) > 0.8
+    signatures = np.stack([backend.signature(gray) for gray in grays])
+    similarity = backend.similarity(signatures, signatures)
+    np.fill_diagonal(similarity, 0)
+    assert similarity.max() < backend.threshold
+    blurred = to_analysis_gray(np.asarray(sm.render_mosaic_frame(1, 320, 240, blur=8).convert("L")))
+    assert measure_frame(blurred).technical_score < 0.3
+
+
+def test_populate_vacation_spreads_the_material_over_the_days(tmp_path):
+    manifest = sm.populate_vacation(tmp_path, photos=16, videos=2, days=2, day_weights=[3, 1],
+                                    video_scenes=(2.0, 2.0))
+    assert len(manifest) == 18
+    days = [item.capture_datetime.date() for item in manifest]
+    assert days.count(min(days)) == 14 and len(set(days)) == 2  # 3:1 of 18 files, largest remainder
+    assert sorted(item.capture_datetime for item in manifest)[0].hour == 8
+    videos = [item for item in manifest if item.expected_kind == "video"]
+    assert len(videos) == 2 and all(item.duration == 4.0 for item in videos)
+    info = ffprobe(tmp_path / videos[0].rel_path)
+    assert info["format"]["tags"]["creation_time"].startswith(videos[0].capture_datetime.strftime("%Y-%m-%dT%H:%M"))
+    with Image.open(tmp_path / manifest[0].rel_path) as image:
+        assert image.getexif().get_ifd(0x8769)[0x9003] == manifest[0].capture_datetime.strftime("%Y:%m:%d %H:%M:%S")
+
+
+def test_main_populates_a_vacation(tmp_path, capsys):
+    assert sm.main([str(tmp_path), "--vacation", "--photos", "3", "--videos", "0", "--days", "1"]) == 0
+    assert "wrote 3 files" in capsys.readouterr().out

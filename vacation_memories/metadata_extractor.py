@@ -12,6 +12,7 @@ time zone of the machine that runs the job. Only the `mtime` fallback uses a tim
 import json
 import logging
 import subprocess
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from fractions import Fraction
@@ -84,13 +85,25 @@ def extract_metadata(media: MediaFile, assume_tz: str | None = None) -> MediaMet
 
 
 def load_metadata(
-    files: list[MediaFile], cache: CacheManager, assume_tz: str | None = None
+    files: list[MediaFile],
+    cache: CacheManager,
+    assume_tz: str | None = None,
+    *,
+    check: Callable[[], None] | None = None,
+    progress: Callable[[], None] | None = None,
 ) -> list[tuple[MediaFile, MediaMetadata]]:
-    """Metadata of every readable file, using the cache. Unusable files are logged and skipped."""
+    """Metadata of every readable file, using the cache. Unusable files are logged and skipped.
+
+    `check` is called before every file and may raise to stop; `progress` after every file.
+    """
     _resolve_zone(assume_tz)
     params = metadata_params(assume_tz)
     loaded = []
     for media in files:
+        if check:
+            check()
+        if progress:
+            progress()
         cached = cache.get_metadata(media, params)
         if cached is not None:
             loaded.append((media, MediaMetadata.from_dict(cached)))

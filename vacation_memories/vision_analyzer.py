@@ -29,7 +29,7 @@ from vacation_memories.cache_manager import CacheManager
 from vacation_memories.config import DEFAULT_AI_TIME_BUDGET_SECONDS
 from vacation_memories.frame_sampler import SamplingError, photo_color_frame, video_color_frame
 from vacation_memories.media_scanner import MediaFile
-from vacation_memories.ollama_client import OllamaClient, OllamaError
+from vacation_memories.ollama_client import OllamaAborted, OllamaClient, OllamaError
 from vacation_memories.technical_analysis import Candidate
 from vacation_memories.vision_schema import (
     PROMPT,
@@ -82,7 +82,10 @@ class VisionAnalyzer:
         return f"model={self.model}|prompt={prompt_fingerprint()}|resolution={self.resolution}"
 
     def analyze_image(self, image: Image.Image) -> VisionResult | None:
-        """The validated answer, or None if the model did not give a usable one after the retry."""
+        """The validated answer, or None if the model did not give a usable one after the retry.
+
+        Raises `OllamaAborted` when the job is stopping: that is not a failure of the model.
+        """
         encoded = prepare_image(image, self.resolution)
         for attempt in range(1, ATTEMPTS + 1):
             try:
@@ -90,6 +93,8 @@ class VisionAnalyzer:
                     prompt=PROMPT, image_b64=encoded, schema=RESPONSE_SCHEMA, num_predict=NUM_PREDICT
                 )
                 return VisionResult.from_response(json.loads(content))
+            except OllamaAborted:
+                raise
             except (OllamaError, VisionResponseError, ValueError) as error:
                 logger.warning("vision request failed (attempt %d of %d): %s", attempt, ATTEMPTS, error)
         return None
@@ -104,7 +109,7 @@ class VisionAnalyzer:
 
     def close(self) -> None:
         """At the end of the job: free the model's memory (unless configured otherwise)."""
-        if not self.unload_model:
+        if not self.unload_model or self.client.aborted:
             return
         try:
             self.client.unload()
@@ -160,6 +165,7 @@ class _Done:
     failure: str | None = None  # "frame" (cannot be decoded) or "model" (no usable answer)
     seconds: float = 0.0
     skipped: bool = False
+    stopped: bool = False  # the job is stopping
 
 
 def prioritize(candidates: list[Candidate]) -> list[Candidate]:
@@ -179,11 +185,13 @@ def analyze_candidates(
     probe_placement: Callable[[], str] | None = None,
     progress: Callable[[int, int], None] | None = None,
     clock: Callable[[], float] = time.monotonic,
+    stop: Callable[[], bool] | None = None,
 ) -> AiOutcome:
     """Analyze the candidates in priority order within `frames` or `time_budget` seconds.
 
     `media_by_path` maps each candidate's relative path to its file. `probe_placement` is called
-    once after the warm-up, when the model is loaded, and returns where it runs.
+    once after the warm-up, when the model is loaded, and returns where it runs. When `stop`
+    returns true no further frame is sent (the job is stopping); the caller decides what follows.
     """
     if frames is not None and time_budget is not None:
         raise ValueError("frames and time_budget are mutually exclusive")
@@ -216,7 +224,7 @@ def analyze_candidates(
 
     if to_compute:
         logger.info("AI analysis: %d frame(s) to analyze, %d already in the cache", len(to_compute), coverage.from_cache)
-        _compute(run, to_compute, warmup_frames, max_concurrency, probe_placement)
+        _compute(run, to_compute, warmup_frames, max_concurrency, probe_placement, stop or (lambda: False))
     logger.info("AI analysis done: %s", coverage.to_dict())
     return AiOutcome(run.results, coverage)
 
@@ -251,7 +259,9 @@ class _Run:
 
     def record(self, done: _Done) -> None:
         """Fold in the outcome of a frame that was sent to the model; stop after repeated failures."""
-        if done.skipped:
+        if done.stopped:
+            self._advance(1)
+        elif done.skipped:
             self.coverage.skipped_after_failures += 1
             self._advance(1)
         elif done.result is not None:
@@ -293,11 +303,14 @@ def _compute(
     warmup_frames: int,
     max_concurrency: int,
     probe_placement: Callable[[], str] | None,
+    stopping: Callable[[], bool],
 ) -> None:
     coverage = run.coverage
     stop = threading.Event()
 
     def work(target: _Target) -> _Done:
+        if stopping():
+            return _Done(target, stopped=True)
         if stop.is_set():
             return _Done(target, skipped=True)
         start = run.clock()
@@ -306,13 +319,16 @@ def _compute(
         except SamplingError as error:
             logger.warning("cannot read %s for the AI analysis: %s", target.media.rel_path, error)
             return _Done(target, failure="frame")
-        result = run.analyzer.analyze_image(image)
+        try:
+            result = run.analyzer.analyze_image(image)
+        except OllamaAborted:
+            return _Done(target, stopped=True)
         return _Done(target, result, None if result else "model", run.clock() - start)
 
     # Warm-up, one request at a time: it measures the speed of the machine and loads the model.
     timings: list[float] = []
     consumed = 0
-    while consumed < len(targets) and len(timings) < warmup_frames and not coverage.aborted:
+    while consumed < len(targets) and len(timings) < warmup_frames and not coverage.aborted and not stopping():
         done = work(targets[consumed])
         consumed += 1
         run.record(done)

@@ -123,6 +123,12 @@ class Progress:
             logger.info("%s: %d/%d", self._name, self._done, self._total)
         self._publish(force=self._done >= self._total)
 
+    def advance_to(self, done: int) -> None:
+        """Set the items done, for a phase that counts and logs its own progress (only `status.json` follows)."""
+        with self._lock:
+            self._done = done
+        self._publish(force=self._done >= self._total)
+
     def _publish(self, force: bool = False) -> None:
         """Write `status.json`, at most every few seconds (it is an atomic write with an fsync)."""
         if self.status is None:
@@ -184,7 +190,7 @@ def _render(plan, input_dir, workdir, output, options, ffmpeg, controller, statu
 
     if not plan.elements:
         raise PlanError("the plan has no elements to render")
-    final_path = _output_path(output, workdir, input_dir, options.preview)
+    final_path = resolve_output(output, workdir, input_dir, options.preview)
     spec = preview_output(plan.output, config) if options.preview else plan.output
     size, fps = (spec.width, spec.height), spec.frame_rate
     ffmpeg = ffmpeg or detect_ffmpeg(DetectionEnv(), logger.warning)
@@ -340,7 +346,8 @@ def _require_ffmpeg(ffmpeg: FFmpegInfo) -> None:
         raise RenderError("FFmpeg lacks: " + ", ".join(missing), exit_codes.REQUIREMENTS)
 
 
-def _output_path(output: Path, workdir: Path, input_dir: Path, preview: bool) -> Path:
+def resolve_output(output: Path, workdir: Path, input_dir: Path, preview: bool) -> Path:
+    """The final path of the video: relative to the workdir, never inside the input, in an existing folder."""
     path = output if output.is_absolute() else workdir / output
     path = Path(os.path.abspath(path))
     if path.suffix.lower() != ".mp4":

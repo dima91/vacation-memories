@@ -69,6 +69,7 @@ class ShutdownController:
         self.grace = grace
         self.signum: int | None = None
         self._children: set[subprocess.Popen] = set()
+        self._callbacks: list[Callable[[], None]] = []
         self._previous: dict[int, object] = {}
 
     @property
@@ -80,11 +81,17 @@ class ShutdownController:
             raise Interrupted(self.signum)
 
     def request(self, signum: int) -> None:
-        """Record the first signal and stop every child."""
+        """Record the first signal, stop every child and run the shutdown callbacks."""
         if self.signum is None:
             self.signum = signum
+        for callback in list(self._callbacks):
+            callback()
         for child in list(self._children):
             _terminate_group(child, self.grace)
+
+    def on_shutdown(self, callback: Callable[[], None]) -> None:
+        """Call `callback` when a signal arrives (e.g. to cut off a network request); it must not block."""
+        self._callbacks.append(callback)
 
     def register(self, child: subprocess.Popen) -> None:
         self._children.add(child)

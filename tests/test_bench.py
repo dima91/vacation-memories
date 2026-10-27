@@ -8,13 +8,14 @@ import pytest
 from fake_ollama import VALID_ANSWER, Reply
 from PIL import Image
 from system_fakes import make_env
-from test_cli import isolate_process_state  # noqa: F401  (autouse: main() changes process-wide state)
 
 from vacation_memories import cli, exit_codes
 from vacation_memories import synthetic_media as sm
 from vacation_memories.bench import run_bench_vision
 from vacation_memories.config import resolve_settings
 from vacation_memories.runtime_profile import detect_profile
+
+pytestmark = pytest.mark.usefixtures("isolate_process_state")  # main() changes process-wide state
 
 
 class FakeClock:

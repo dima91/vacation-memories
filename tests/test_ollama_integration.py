@@ -6,7 +6,6 @@ import json
 import os
 
 import pytest
-from test_cli import isolate_process_state  # noqa: F401  (autouse: main() changes process-wide state)
 
 from vacation_memories import cli, exit_codes
 from vacation_memories import synthetic_media as sm
@@ -19,7 +18,8 @@ from vacation_memories.technical_analysis import Candidate
 from vacation_memories.vision_analyzer import NUM_PREDICT, VisionAnalyzer, analyze_candidates
 from vacation_memories.vision_schema import CATEGORIES, MOMENT_TYPES, PROMPT, RESPONSE_SCHEMA, VisionResult
 
-pytestmark = pytest.mark.ollama
+# main() changes process-wide state
+pytestmark = [pytest.mark.ollama, pytest.mark.usefixtures("isolate_process_state")]
 
 REAL_TIMEOUT_SECONDS = 600.0  # the first request loads the model, which on a CPU takes minutes
 PLACEMENTS = {"gpu", "cpu", "mixed"}

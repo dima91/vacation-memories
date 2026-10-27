@@ -79,3 +79,33 @@ def test_unload_failure_is_an_error_the_caller_can_handle():
         port = sock.getsockname()[1]
     with pytest.raises(OllamaError):
         OllamaClient(f"http://127.0.0.1:{port}", MODEL, timeout=1).unload()
+
+
+def test_abort_cuts_off_a_request_in_progress_and_refuses_new_ones(fake_ollama):
+    import threading
+    import time
+
+    from vacation_memories.ollama_client import OllamaAborted
+
+    fake_ollama.script.append(Reply(VALID_ANSWER, delay=5.0))
+    client = client_for(fake_ollama, timeout=30)
+    outcome = {}
+
+    def ask():
+        started = time.monotonic()
+        try:
+            chat(client)
+        except OllamaError as error:
+            outcome["error"] = error
+        outcome["seconds"] = time.monotonic() - started
+
+    worker = threading.Thread(target=ask)
+    worker.start()
+    while not fake_ollama.chat_requests:
+        time.sleep(0.01)
+    client.abort()
+    worker.join(timeout=3)
+    assert not worker.is_alive()
+    assert isinstance(outcome["error"], OllamaAborted) and outcome["seconds"] < 2
+    with pytest.raises(OllamaAborted):
+        chat(client)

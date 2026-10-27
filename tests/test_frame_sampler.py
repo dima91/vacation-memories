@@ -165,3 +165,61 @@ class TestColorFramesForTheModel:
         path.write_bytes(b"not a clip")
         with pytest.raises(SamplingError):
             frame_sampler.video_color_frame(path, 0.0)
+
+
+def test_a_clip_with_a_long_run_of_audio_packets_is_read_to_the_end(tmp_path):
+    """Like an action camera: so many non-video packets in a row that OpenCV's default limit (4096) gives up."""
+    import subprocess
+
+    path = tmp_path / "gap.mp4"
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+         "-f", "lavfi", "-i", "testsrc2=s=320x240:r=30:d=2", "-f", "lavfi", "-i", "sine=d=122",
+         "-filter_complex", r"[0:v]setpts=if(gte(N\,30)\,PTS+120/TB\,PTS)[v]", "-map", "[v]", "-map", "1:a",
+         "-c:v", "libx264", "-preset", "ultrafast", "-fps_mode", "passthrough", "-c:a", "aac", str(path)],
+        check=True, stdin=subprocess.DEVNULL, capture_output=True,
+    )
+    scan = scan_video(path, lambda gray: None)
+    assert scan.duration > 120
+    assert max(t for t, _ in scan.samples) > 120  # the frames after the audio-only stretch were reached
+
+
+def test_the_opencv_read_limit_is_raised_unless_it_is_set_already():
+    environ = {}
+    frame_sampler.raise_opencv_read_limit(environ)
+    assert int(environ[frame_sampler.READ_ATTEMPTS_VARIABLE]) == frame_sampler.READ_ATTEMPTS
+    environ = {frame_sampler.READ_ATTEMPTS_VARIABLE: ""}  # an empty value would make OpenCV fail
+    frame_sampler.raise_opencv_read_limit(environ)
+    assert int(environ[frame_sampler.READ_ATTEMPTS_VARIABLE]) == frame_sampler.READ_ATTEMPTS
+    environ = {frame_sampler.READ_ATTEMPTS_VARIABLE: "5000"}
+    frame_sampler.raise_opencv_read_limit(environ)
+    assert environ[frame_sampler.READ_ATTEMPTS_VARIABLE] == "5000"
+
+
+class _StoppingCapture:
+    """A clip that declares 100 frames at 10 fps but whose decoding ends after 20."""
+
+    def __init__(self):
+        self.position = -1
+
+    def grab(self):
+        if self.position >= 19:
+            return False
+        self.position += 1
+        return True
+
+    def retrieve(self):
+        return True, np.full((120, 160, 3), 128, dtype=np.uint8)
+
+    def get(self, prop):
+        return {cv2.CAP_PROP_POS_MSEC: self.position * 100.0, cv2.CAP_PROP_FRAME_COUNT: 100.0}[prop]
+
+
+def test_a_decode_that_stops_well_before_the_declared_length_is_logged(caplog):
+    from vacation_memories.scene_detector import SceneCutDetector
+
+    with caplog.at_level("WARNING"):
+        scan = frame_sampler._scan("clip.mp4", _StoppingCapture(), 10.0, lambda gray: None, 0.5,
+                                   SceneCutDetector(10.0), None)
+    assert scan.duration == pytest.approx(2.0)
+    assert "decoding stopped after 20 of 100 frames" in caplog.text

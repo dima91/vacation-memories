@@ -1,9 +1,7 @@
 import json
-import logging
 import os
 import subprocess
 import sys
-import tempfile
 
 import pytest
 from system_fakes import FULL_FILTERS, make_env, ollama_with_model
@@ -11,25 +9,7 @@ from system_fakes import FULL_FILTERS, make_env, ollama_with_model
 from vacation_memories import cli, exit_codes
 from vacation_memories.workdir import WorkdirLock
 
-
-@pytest.fixture(autouse=True)
-def isolate_process_state(monkeypatch):
-    """`main` changes the umask, TMPDIR, logging handlers and the priority of the process."""
-    previous_umask = os.umask(0)
-    os.umask(previous_umask)
-    monkeypatch.setenv("TMPDIR", tempfile.gettempdir())
-    monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
-    nice_calls = []
-    monkeypatch.setattr(os, "nice", lambda increment: nice_calls.append(increment) or increment)
-    root = logging.getLogger()
-    handlers, level = root.handlers[:], root.level
-    yield nice_calls
-    os.umask(previous_umask)
-    for handler in root.handlers[:]:
-        if handler not in handlers:
-            root.removeHandler(handler)
-            handler.close()
-    root.setLevel(level)
+pytestmark = pytest.mark.usefixtures("isolate_process_state")
 
 
 def run(tmp_path, *args, env=None, environ=None):
@@ -37,25 +17,27 @@ def run(tmp_path, *args, env=None, environ=None):
     return code
 
 
-def test_no_subcommand_prints_the_version(capsys):
-    assert cli.main([], environ={}) == 0
+def test_version_flag_prints_the_version(capsys):
+    assert cli.main(["--version"], environ={}) == 0
     assert capsys.readouterr().out.startswith("vacation-memories ")
 
 
 class TestWithoutSubcommand:
-    def test_options_are_still_validated(self, tmp_path, capsys):
+    """Without a subcommand the pipeline runs (its own tests are in test_pipeline.py)."""
+
+    def test_options_are_validated(self, tmp_path, capsys):
         assert run(tmp_path, "--config", "/nonexistent.toml") == exit_codes.USAGE
         assert capsys.readouterr().err.startswith("error:")
 
     def test_contradictory_flags_exit_2(self, tmp_path):
         assert run(tmp_path, "--require-ai", "--no-ai") == exit_codes.USAGE
 
-    def test_valid_options_still_print_the_version(self, tmp_path, capsys):
-        assert run(tmp_path, "--nice", "3") == exit_codes.OK
-        assert capsys.readouterr().out.startswith("vacation-memories ")
+    def test_the_input_folder_is_required(self, tmp_path, capsys):
+        assert run(tmp_path, "--no-ai", "--workdir", str(tmp_path / "work")) == exit_codes.USAGE
+        assert "--input is required" in capsys.readouterr().err
 
-    def test_environment_is_not_validated_when_no_option_is_given(self, tmp_path, capsys):
-        assert cli.main([], environ={"OLLAMA_HOST": "http://remote-host:1"}) == exit_codes.OK
+    def test_the_version_flag_does_not_look_at_the_environment(self, tmp_path):
+        assert cli.main(["--version"], environ={"OLLAMA_HOST": "http://remote-host:1"}) == exit_codes.OK
 
 
 class TestUnusableFiles:

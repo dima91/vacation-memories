@@ -65,6 +65,11 @@ class HashBackend:
         self.confirm_with_dhash = confirm_with_dhash
         self.threshold = 1.0 - max_distance / self.bits
 
+    @property
+    def signature_params(self) -> str:
+        """What changes the signatures (the threshold only changes the comparison)."""
+        return f"{self.name}:{self.hash_size}:{int(self.confirm_with_dhash)}"
+
     def signature(self, gray: np.ndarray) -> np.ndarray:
         image = Image.fromarray(gray, "L")
         parts = [imagehash.phash(image, hash_size=self.hash_size)]

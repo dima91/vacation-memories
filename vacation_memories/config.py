@@ -15,7 +15,17 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from vacation_memories.ollama_client import DEFAULT_TIMEOUT_SECONDS
+from vacation_memories.selection_config import SelectionConfig, selection_from_mapping
 from vacation_memories.transitions import DEFAULT_DISSOLVE_SECONDS, MAX_DISSOLVE_FRACTION, MIN_DISSOLVE_SECONDS
+from vacation_memories.video_format import (
+    DEFAULT_DURATION_SECONDS,
+    DEFAULT_RESOLUTION,
+    FormatError,
+    frame_size,
+    parse_aspect,
+    parse_duration,
+    parse_resolution,
+)
 
 ENV_PREFIX = "VACATION_MEMORIES_"
 CONFIG_ENV = ENV_PREFIX + "CONFIG"
@@ -29,6 +39,9 @@ MAX_AI_RESOLUTION = 768
 DEFAULT_FADE_IN_SECONDS = 1.0  # from black at the start of the video; at most 1 s
 DEFAULT_FADE_OUT_SECONDS = 3.0  # to black at the end, in sync with the fade-out of the music
 DEFAULT_DURATION_TOLERANCE = 0.2  # seconds between the final file and the planned duration
+DEFAULT_OUTPUT = Path("memories.mp4")  # relative: inside the workdir
+STRUCTURES = ("narrative", "chronological")
+SELECTION_TABLE = "selection"  # configuration file only
 MAX_NICE = 19
 _SOURCE_RANK = {"cli": 0, "env": 1, "config": 2}
 
@@ -70,7 +83,19 @@ class Settings:
     fade_in_seconds: float
     fade_out_seconds: float
     duration_tolerance: float
+    music: Path | None
+    output: Path
+    duration: float
+    aspect: str | None  # None: 16:9, or the ratio of an explicit WxH resolution
+    resolution: str | None  # None: 1080p
+    structure: str
+    selection: SelectionConfig = field(default_factory=SelectionConfig)
     sources: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def output_size(self) -> tuple[int, int]:
+        size = frame_size(self.resolution or DEFAULT_RESOLUTION, self.aspect)
+        return size.width, size.height
 
 
 def _boolean(value: object) -> bool:
@@ -229,6 +254,12 @@ _PARSERS: dict[str, Callable[[object], object]] = {
     "fade_in_seconds": _non_negative_float,
     "fade_out_seconds": _non_negative_float,
     "duration_tolerance": _non_negative_float,
+    "music": _path,
+    "output": _path,
+    "duration": parse_duration,
+    "aspect": parse_aspect,
+    "resolution": parse_resolution,
+    "structure": _choice(*STRUCTURES),
 }
 _DEFAULTS: dict[str, object] = {
     "workdir": Path("work"),
@@ -260,6 +291,12 @@ _DEFAULTS: dict[str, object] = {
     "fade_in_seconds": DEFAULT_FADE_IN_SECONDS,
     "fade_out_seconds": DEFAULT_FADE_OUT_SECONDS,
     "duration_tolerance": DEFAULT_DURATION_TOLERANCE,
+    "music": None,
+    "output": DEFAULT_OUTPUT,
+    "duration": DEFAULT_DURATION_SECONDS,
+    "aspect": None,
+    "resolution": None,
+    "structure": "narrative",
 }
 
 
@@ -337,10 +374,20 @@ def resolve_settings(cli: Mapping[str, object], env: Mapping[str, str]) -> Setti
             "pass --allow-remote-ollama (or set allow_remote_ollama = true in the configuration)"
         )
 
+    if values["resolution"] is not None or values["aspect"] is not None:
+        try:
+            frame_size(values["resolution"] or DEFAULT_RESOLUTION, values["aspect"])
+        except FormatError as error:
+            raise ConfigError(str(error)) from None
+    try:
+        selection = selection_from_mapping(file_values.get(SELECTION_TABLE, {}))
+    except ValueError as error:
+        raise ConfigError(f"invalid configuration file {file_name}: {error}") from None
+
     workdir = values["workdir"]
     log_file = values["log_file"]
     values["log_file"] = workdir / "run.log" if log_file is None else workdir / log_file
-    return Settings(**values, sources=sources)
+    return Settings(**values, selection=selection, sources=sources)
 
 
 def _parse(key: str, parse: Callable[[object], object], raw: object, origin: str) -> object:
@@ -368,7 +415,7 @@ def _load_config_file(cli_path: object, env: Mapping[str, str]) -> tuple[dict[st
         raise ConfigError(f"cannot read the configuration file {path}: {error.strerror}") from None
     except tomllib.TOMLDecodeError as error:
         raise ConfigError(f"invalid configuration file {path}: {error}") from None
-    unknown = sorted(set(data) - set(_PARSERS))
+    unknown = sorted(set(data) - set(_PARSERS) - {SELECTION_TABLE})
     if unknown:
         raise ConfigError(f"unknown option(s) in the configuration file {path}: {', '.join(unknown)}")
     return data, str(path)
