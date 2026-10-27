@@ -32,7 +32,9 @@ The same steps apply to the development PC and to the server; only `.env` differ
    - `WORK_DIR`: the working folder (cache, plan, logs, video). It needs room for the segments: about twice the
      size of the final video;
    - `COMPOSE_FILE`: remove `:compose.intel-gpu.yaml` on machines without `/dev/dri`; add
-     `:compose.selinux.yaml` on hosts with SELinux.
+     `:compose.selinux.yaml` on hosts with SELinux;
+   - optional: `ASSUME_TZ`, the time zone of the files without a date in their metadata (for example
+     `Europe/Rome`), and `OLLAMA_MODEL`, the vision model (default `qwen3-vl:4b-instruct-q4_K_M`).
 
 2. Create the folders and the volume of the models, which the compose file does not create by itself:
 
@@ -71,6 +73,18 @@ configuration (`docker/compose.toml`). A relative `--output` is written in the w
 ends up in `WORK_DIR/memories.mp4`. The music comes from `MUSIC_DIR`, mounted as `/music`. Use `-T` whenever there
 is no terminal (scripts, `cron`, `nohup`).
 
+The media folder is read with all its subfolders. Photos: JPEG, PNG and, when the decoder is available (`doctor`
+says so), HEIC/HEIF. Clips: MP4, MOV, MKV. Other files are ignored.
+
+To use another media folder for a single session, without editing `.env`, export the variables in the shell: Compose
+prefers them to `.env`, and closing the shell restores it.
+
+```sh
+export MEDIA_DIR=/path/to/photos WORK_DIR=$HOME/vacation-work
+mkdir -p "$WORK_DIR"
+docker compose run --rm -T app --duration 3m --preview
+```
+
 The compose configuration sets `require_ai = true`: if Ollama or the model is missing the run stops with code 4
 instead of producing a video without AI. To run without the vision model, pass `--no-ai`; `--no-deps` also avoids
 starting Ollama:
@@ -84,16 +98,20 @@ docker compose run --rm --no-deps -T app --no-ai --duration 90s
 | Option | Meaning |
 | --- | --- |
 | `--duration` | length of the video: `300`, `90s`, `5m`, `1m30s`, `05:00`, `1:05:00` (default 5 minutes, minimum 15 s; above 20 minutes only a warning) |
-| `--resolution` | `480p`, `720p`, `1080p` (default), `1440p`, `4k`, or `WxH` such as `1920x1080`. A preset is the short side of the frame |
+| `--resolution` | `480p`, `720p`, `1080p` (default), `1440p`, `4k` (or `2160p`), or `WxH` such as `1920x1080`. A preset is the short side of the frame |
 | `--aspect` | `16:9` (default), `9:16`, `1:1`, `4:3`. With `WxH` the ratio comes from the dimensions |
 | `--music` | background music; shorter tracks loop with a crossfade, longer ones fade out at the end |
 | `--output` | the video file (`.mp4`); never inside the media folder |
 | `--structure` | `narrative` (default: opening, beginning, development, finale, closing) or `chronological` |
 | `--preview` | quick trial: short side 540 px, 24 fps, fast encoder; writes `<name>_preview.mp4` |
 | `--no-ai`, `--require-ai` | without the vision model; or stop (code 4) if it is not available |
-| `--model`, `--ai-frames`, `--ai-time-budget` | vision model, a fixed number of analyzed frames, or the seconds the AI may take |
-| `--jobs`, `--hwaccel`, `--nice` | parallel FFmpeg processes, hardware encoder, lower priority |
+| `--model`, `--ai-frames`, `--ai-time-budget` | vision model, a fixed number of analyzed frames, or the seconds the AI may take (default 600) |
+| `--ollama-url`, `--allow-remote-ollama` | address of Ollama; one that is not on this machine is refused unless allowed |
+| `--assume-tz` | time zone of the files without a date in their metadata, e.g. `Europe/Rome` (`ASSUME_TZ` in `.env`) |
+| `--jobs`, `--hwaccel`, `--nice` | parallel FFmpeg processes (`auto` or a number), hardware encoder (default `none`), lower priority (0-19) |
+| `--input`, `--workdir` | media folder and working folder; with Compose they are already set |
 | `--log-file`, `--log-format`, `--quiet`, `--config` | see "Configuration" |
+| `--version` | prints the version |
 
 Examples: `--resolution 1080p --aspect 9:16` gives 1080x1920; `--resolution 4k` gives 3840x2160;
 `--resolution 1080x1350` keeps its own 4:5 ratio.
@@ -119,22 +137,56 @@ docker compose run --rm -T app --duration 3m --preview  # quick trial video
 docker compose run --rm -T app --duration 3m --music /music/track.mp3
 ```
 
+### How the video is built
+
+1. **Analysis.** Every photo, and every scene of a clip in parts of at most 10 s, gets a technical score (sharpness,
+   exposure, contrast, black frames): below the threshold it is discarded, and of a group of near-duplicates only
+   the best is kept. With the AI, the vision model gives each analyzed frame a moment type (`scenery`, `social`,
+   `action`, `detail`, `transition`, `other`) and a value from 1 to 5. The final score weighs the narrative side
+   (AI value, uniqueness, variety, motion, spread over time) more than the technical one. Without the AI there are
+   no moment types, and the narrative side uses only uniqueness, motion and spread over time.
+2. **Time order.** The capture time comes from EXIF `DateTimeOriginal` (then `DateTimeDigitized`, `DateTime`) for
+   photos, and from `com.apple.quicktime.creationdate` or `creation_time`, the start of the recording, for clips. A
+   part of a clip takes the start of the recording plus its position in the file. A file without a date in its
+   metadata takes the date of the file, in the `ASSUME_TZ` time zone. Embedded dates are used as written, without
+   converting time zones: what counts is the clock of the camera, and a `Z` suffix (as some action cameras write it)
+   is ignored.
+3. **Structure** (`--structure narrative`, the default). Five sections, as shares of `--duration` that can move
+   within a range to fit the material:
+   - Opening (10%): the best moments of the whole vacation, as quick clips of at most 3 s, one per clip, in time
+     order;
+   - Beginning (20%), Development (45%) and Finale (20%): the rest of the material, split into three consecutive
+     stretches of time in proportion to the material, not to the calendar days. Each stretch is filled in score
+     order and shown in time order;
+   - Closing (5%): a calm, technically good shot, preferably from the end of the vacation. It is chosen by these
+     criteria, so it may come from an earlier moment.
+
+   Time therefore goes back at the start of the Beginning, because the Opening is a teaser of the whole vacation,
+   and sometimes at the Closing. Targets under 60 s, or fewer than 15 usable clips, use a compressed structure: an
+   Opening of at most 5 s, one chronological body and a Closing of one clip. `--structure chronological` drops the
+   sections: one selection in time order.
+4. **Variety.** At most 3 clips of the same moment type in a row; no file over 20% of the duration (at least 10 s);
+   `transition` clips only between two days and at most 10% of the time. A section that runs out of material gives
+   its time to the others, never by repeating clips.
+5. **Durations.** Photos 3-4 s, clips 3-8 s (`scenery` 0.5 s longer, `detail` at most 3 s); under 60 s, photos
+   2-3 s and clips 2-4 s. The durations are adjusted so that the video lasts what was asked; if the material is not
+   enough, the video is shorter and the report says why.
+
+A clip with several good moments is not cut into many short pieces: it gives one piece to each section, the Opening
+included. The clip of the Closing gives none to the section before it, where it would end one section and start
+again in the next. A further good moment of a clip already in the section lengthens that shot, without a break,
+into the next part of the same clip, up to 15 s (`video_shot_max_seconds`); in the Opening, and once the shot is
+full, the other moments are left out. A second piece of the same clip comes only when the section would otherwise
+run short, and the report says so. In the Closing this gives one calm, continuous shot. Such a shot says
+"continuous shot over N adjacent segments" in its reason, and `runtime.extended_shots` counts them. Targets under
+60 s and the `detail` and `transition` clips keep their ordinary durations.
+
 ### Plan and report
 
 `WORK_DIR/edit_plan.json` lists every clip with its section, scores (`technical_score`, `narrative_score` and the
 final score), moment type, capture date and the reason it was chosen. Its `runtime` key says how the sections were
 filled, whether a budget was redistributed, how much the AI covered, and why the video is shorter when the material
 is not enough. `render_report.json` describes the rendering and the checks of the final file.
-
-The Opening shows the best moments of the whole vacation, as quick clips in chronological order. A clip with several
-good moments is not cut into many short pieces: it gives one piece to each section, the Opening included. The clip of
-the Closing gives none to the section before it, where it would end one section and start again in the next. A further
-good moment of a clip already in the section lengthens that shot, without a break, into the next part of the same clip,
-up to 15 s (`video_shot_max_seconds`); in the Opening, and once the shot is full, the other moments are left out. A
-second piece of the same clip comes only when the section would otherwise run short, and the report says so. In the
-Closing this gives one calm, continuous shot. Such a shot says "continuous shot over N adjacent segments" in its reason, and
-`runtime.extended_shots` counts them. Targets under 60 s and the `detail` and `transition` clips keep their ordinary
-durations.
 
 ### Configuration
 
@@ -189,8 +241,8 @@ tail -f work/run.log
 
 A second run on the same working folder exits at once with code 5 and names the active one. An interrupted job
 (Ctrl-C, `docker stop`, SIGHUP) exits with 130, 143 or 129: run the same command again with `--resume` added. The
-parameters that change the result must stay the same (otherwise code 2); `--jobs`, `--nice` and the log options
-may change. The segments already rendered are reused.
+parameters that change the result must stay the same (otherwise code 2); `--jobs`, `--hwaccel`, `--nice` and the
+log options may change. The segments already rendered are reused.
 
 Exit codes: `0` done (also with too little material: the video is shorter and the log says why), `1` error,
 `2` invalid usage or configuration, `3` the final file failed the checks (it is left as `<name>.partial.mp4`),
@@ -208,7 +260,8 @@ rsync -av server:/path/to/vacation-memories/work/{edit_plan.json,render_report.j
 ```
 
 The working folder has private permissions (`0700`): it holds thumbnails and metadata of private photos. The cache
-(`cache.sqlite3`) and the segments can be deleted once the video is done; they only make later runs faster.
+(`cache.sqlite3`) and the segments (`segments/`) can be deleted once the video is done; they only make later runs
+faster.
 
 ## Known limits
 
@@ -217,6 +270,9 @@ The working folder has private permissions (`0700`): it holds thumbnails and met
 - Days come from the dates written in the files (EXIF, container tags). Without them the file date is used with
   the `--assume-tz` time zone; copies that reset the file dates put those files on the wrong day. Places are not
   known: a new day, not a new place, opens with a landscape.
+- The order follows the clock of each camera. Two cameras whose clocks differ (or one set to another time zone)
+  interleave their shots wrongly, and a file with a wrong date ends up far from its moment: remove it from the
+  media folder, or fix its date in a copy.
 - Small vision models may confuse `detail`, `transition` and `scenery`; the analysis covers only as many frames as
   the AI budget allows, and the others are ranked without it.
 - When the AI labels almost everything with the same moment type, the rule "at most 3 clips of the same type in a
