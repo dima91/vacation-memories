@@ -12,7 +12,7 @@ from pathlib import Path
 
 from vacation_memories.media_scanner import MediaFile
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DB_NAME = "cache.sqlite3"
 
 NO_TIMESTAMP_MS = -1  # photos have a single frame
@@ -39,8 +39,17 @@ CREATE TABLE vision (
     PRIMARY KEY (rel_path, timestamp_ms, params)
 )
 """,
+    """
+CREATE TABLE technical (
+    rel_path BLOB PRIMARY KEY,
+    size INTEGER NOT NULL,
+    mtime_ns INTEGER NOT NULL,
+    params TEXT NOT NULL,
+    data TEXT NOT NULL
 )
-_TABLES = ("metadata", "vision")
+""",
+)
+_TABLES = ("metadata", "vision", "technical")
 
 
 class CacheManager:
@@ -87,6 +96,29 @@ class CacheManager:
 
     def count_metadata(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM metadata").fetchone()[0]
+
+    def get_technical(self, media: MediaFile, params: str) -> list | None:
+        """Return the cached candidates of one file (technical analysis), or None if missing or stale.
+
+        `params` holds what changes the analysis (sampling, segment length, signature backend).
+        """
+        row = self._conn.execute(
+            "SELECT size, mtime_ns, params, data FROM technical WHERE rel_path = ?",
+            (os.fsencode(media.rel_path),),
+        ).fetchone()
+        if row is None or row[:3] != (media.size, media.mtime_ns, params):
+            return None
+        return json.loads(row[3])
+
+    def put_technical(self, media: MediaFile, params: str, data: list) -> None:
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO technical (rel_path, size, mtime_ns, params, data) VALUES (?, ?, ?, ?, ?)",
+                (os.fsencode(media.rel_path), media.size, media.mtime_ns, params, json.dumps(data)),
+            )
+
+    def count_technical(self) -> int:
+        return self._conn.execute("SELECT COUNT(*) FROM technical").fetchone()[0]
 
     def get_vision(self, media: MediaFile, timestamp: float | None, params: str) -> dict | None:
         """Return the cached answer of the vision model for one frame, or None if missing or stale.

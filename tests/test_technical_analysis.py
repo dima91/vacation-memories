@@ -115,3 +115,35 @@ def test_full_reference_dataset_is_analyzed_without_surprises(tmp_path):
         "VID_0001.mp4", "VID_0002.mov", "VID_0003.mkv", "VID_0004.mp4"}
     assert "broken.jpg" not in {c.rel_path.name for c in found}
     assert all(c.signatures.ndim == 2 and c.signatures.shape[1] == 8 for c in found)
+
+
+def test_cached_candidates_are_the_same_and_the_media_are_not_decoded_again(tmp_path, monkeypatch):
+    from vacation_memories import technical_analysis
+    from vacation_memories.cache_manager import CacheManager
+
+    natural_image(1).save(tmp_path / "a.jpg", quality=95)
+    sm.make_video(tmp_path / "clip.mp4", [(1, 2.0), (2, 2.0)], 320, 240, fps=10)
+    files = scan_media(tmp_path)
+    with CacheManager(tmp_path / "work") as cache:
+        first = analyze_media(files, BACKEND, cache=cache)
+        monkeypatch.setattr(technical_analysis, "scan_video", lambda *a, **k: pytest.fail("decoded again"))
+        monkeypatch.setattr(technical_analysis, "photo_analysis_frame", lambda *a, **k: pytest.fail("decoded again"))
+        second = analyze_media(files, BACKEND, cache=cache)
+    assert [c.id for c in second] == [c.id for c in first]
+    for a, b in zip(first, second):
+        assert (a.start, a.end, a.motion, a.quality) == (b.start, b.end, b.motion, b.quality)
+        assert np.array_equal(a.signatures, b.signatures)
+
+
+def test_the_analysis_can_be_stopped_between_and_inside_files(tmp_path):
+    sm.make_video(tmp_path / "clip.mp4", [(1, 12.0)], 160, 120, fps=10)
+    calls = []
+
+    def check():
+        calls.append(1)
+        if len(calls) > 1:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        analyze_media(scan_media(tmp_path), BACKEND, check=check)
+    assert len(calls) == 2  # once before the file, then inside the decode

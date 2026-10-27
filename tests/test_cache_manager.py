@@ -131,3 +131,14 @@ class TestVisionResults:
         with CacheManager(tmp_path) as cache:
             cache.put_vision(media_file(), None, self.PARAMS, {"a": 1})
             assert cache.get_vision(media_file(), None, self.PARAMS) == {"a": 1}
+
+
+class TestTechnicalAnalysis:
+    def test_miss_then_hit_and_a_changed_file_or_parameters_are_a_miss(self, tmp_path):
+        with CacheManager(tmp_path) as cache:
+            assert cache.get_technical(media_file(), "p1") is None
+            cache.put_technical(media_file(), "p1", [{"start": None}])
+            assert cache.get_technical(media_file(), "p1") == [{"start": None}]
+            assert cache.get_technical(media_file(), "p2") is None
+            assert cache.get_technical(media_file(size=11), "p1") is None
+            assert cache.count_technical() == 1
