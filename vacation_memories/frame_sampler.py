@@ -6,10 +6,17 @@ frame every `sample_interval` seconds is turned into the grayscale analysis fram
 `analyze` callback. Only the callback's small result is kept, never the frames.
 
 Timestamps are the decoder's own (`CAP_PROP_POS_MSEC`), relative to the first frame.
+
+OpenCV stops reading after 4096 packets in a row that are not video and reports it as the end of
+the clip. Action cameras (GoPro) interleave enough audio and metadata packets to hit that limit
+within a second, so the limit is raised before the first clip is opened, and a decode that ends
+well before the length declared by the file is logged instead of passing for a short clip.
 """
 
+import contextlib
 import logging
-from collections.abc import Callable
+import os
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Generic, TypeVar
@@ -30,6 +37,19 @@ DETECTION_FPS = 10.0  # frames per second given to the scene detector and to the
 DETECTION_WIDTH = 320
 MOTION_WIDTH = 64
 SAMPLE_INTERVAL_SECONDS = 0.5  # shorter than the minimum scene length: every scene gets a sample
+CHECK_EVERY_FRAMES = 50  # how often a long decode gives the caller a chance to stop it
+READ_ATTEMPTS_VARIABLE = "OPENCV_FFMPEG_READ_ATTEMPTS"
+READ_ATTEMPTS = 1_000_000  # the end of the file still ends the reading
+TRUNCATED_FRACTION = 0.9  # a decode that stops before this share of the declared frames is reported
+
+
+def raise_opencv_read_limit(environ=os.environ) -> None:
+    """Raise OpenCV's limit unless it is set already. OpenCV reads it once, at the first clip."""
+    if not environ.get(READ_ATTEMPTS_VARIABLE):  # an empty value would make OpenCV fail
+        environ[READ_ATTEMPTS_VARIABLE] = str(READ_ATTEMPTS)
+
+
+raise_opencv_read_limit()
 
 
 class SamplingError(Exception):
@@ -80,9 +100,26 @@ def photo_color_frame(path: Path) -> Image.Image:
         raise SamplingError(f"unreadable photo: {error}") from error
 
 
+@contextlib.contextmanager
+def _opencv_name(path: Path) -> Iterator[str]:
+    """OpenCV takes file names as UTF-8 text: a name that is not valid UTF-8 is opened through /proc/self/fd."""
+    name = str(path)
+    try:
+        name.encode("utf-8")
+    except UnicodeEncodeError:
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            yield f"/proc/self/fd/{descriptor}"
+        finally:
+            os.close(descriptor)
+    else:
+        yield name
+
+
 def video_color_frame(path: Path, timestamp: float) -> Image.Image:
     """RGB frame of a clip at `timestamp` seconds from its first frame, upright (for the vision model)."""
-    capture = cv2.VideoCapture(str(path))
+    with _opencv_name(path) as name:
+        capture = cv2.VideoCapture(name)
     try:
         if not capture.isOpened():
             raise SamplingError("cannot open the clip")
@@ -105,22 +142,27 @@ def scan_video(
     *,
     sample_interval: float = SAMPLE_INTERVAL_SECONDS,
     detector_factory: Callable[[float], SceneCutDetector] = SceneCutDetector,
+    check: Callable[[], None] | None = None,
 ) -> VideoScan[T]:
-    """Decode a clip once: scene cuts, motion and `analyze(frame)` every `sample_interval` seconds."""
-    capture = cv2.VideoCapture(str(path))
-    try:
-        if not capture.isOpened():
-            raise SamplingError("cannot open the clip")
-        capture.set(cv2.CAP_PROP_ORIENTATION_AUTO, 1)
-        fps = capture.get(cv2.CAP_PROP_FPS)
-        if not fps or fps <= 0 or fps != fps:
-            raise SamplingError("unknown frame rate")
-        return _scan(path, capture, fps, analyze, sample_interval, detector_factory(fps))
-    finally:
-        capture.release()
+    """Decode a clip once: scene cuts, motion and `analyze(frame)` every `sample_interval` seconds.
+
+    `check` is called every few frames and may raise to stop a long decode.
+    """
+    with _opencv_name(path) as name:
+        capture = cv2.VideoCapture(name)
+        try:
+            if not capture.isOpened():
+                raise SamplingError("cannot open the clip")
+            capture.set(cv2.CAP_PROP_ORIENTATION_AUTO, 1)
+            fps = capture.get(cv2.CAP_PROP_FPS)
+            if not fps or fps <= 0 or fps != fps:
+                raise SamplingError("unknown frame rate")
+            return _scan(path, capture, fps, analyze, sample_interval, detector_factory(fps), check)
+        finally:
+            capture.release()
 
 
-def _scan(path, capture, fps, analyze, sample_interval, detector) -> VideoScan:
+def _scan(path, capture, fps, analyze, sample_interval, detector, check) -> VideoScan:
     stride = max(1, round(fps / DETECTION_FPS))
     detection_times: dict[int, float] = {}
     samples: list[tuple[float, T]] = []
@@ -132,6 +174,8 @@ def _scan(path, capture, fps, analyze, sample_interval, detector) -> VideoScan:
     index = 0
 
     while capture.grab():
+        if check and index % CHECK_EVERY_FRAMES == 0:
+            check()
         timestamp = capture.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
         if first_time is None:
             first_time = timestamp
@@ -162,6 +206,12 @@ def _scan(path, capture, fps, analyze, sample_interval, detector) -> VideoScan:
 
     if not samples:
         raise SamplingError("no decodable frames")
+    declared = capture.get(cv2.CAP_PROP_FRAME_COUNT)
+    if declared > 0 and index < declared * TRUNCATED_FRACTION:  # unknown counts are 0 or NaN
+        logger.warning(
+            "%s: decoding stopped after %d of %d frames (%.1f s of about %.1f s): only that part is analyzed",
+            path, index, declared, last_time, declared / fps,
+        )
     cut_times = sorted({detection_times[i] for i in detector.cut_frames if i in detection_times})
     return VideoScan(duration=last_time + 1.0 / fps, cut_times=cut_times, samples=samples, motion=motion)
 
