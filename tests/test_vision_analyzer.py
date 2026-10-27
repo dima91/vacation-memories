@@ -383,3 +383,22 @@ class TestCoverage:
         assert record["failed"] == 0
         assert record["placement"] == "mixed"
         assert record["aborted"] is False
+
+
+class TestStop:
+    def test_no_frame_is_sent_once_the_job_is_stopping(self, fake_ollama, media, candidates):
+        sent = []
+        fake_ollama.on_chat = lambda body: (sent.append(1), Reply(VALID_ANSWER))[1]
+        outcome = analyze_candidates(candidates, media, make_analyzer(fake_ollama), frames=10,
+                                     stop=lambda: len(sent) >= 4)
+        assert len(fake_ollama.chat_requests) == 4
+        assert len(outcome.results) == 4 and outcome.coverage.failed == 0
+
+    def test_an_aborted_request_is_not_retried_nor_counted_as_a_failure(self, fake_ollama, media, candidates):
+        analyzer = make_analyzer(fake_ollama)
+        analyzer.client.abort()
+        outcome = analyze_candidates(candidates, media, analyzer, frames=3)
+        assert fake_ollama.chat_requests == [] and outcome.results == {}
+        assert outcome.coverage.failed == 0 and not outcome.coverage.aborted
+        analyzer.close()
+        assert fake_ollama.unload_requests == 0  # nothing to unload from a job that is stopping

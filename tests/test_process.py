@@ -241,3 +241,12 @@ def test_interrupted_exit_codes():
     assert Interrupted(signal.SIGTERM).exit_code == 143
     assert Interrupted(signal.SIGHUP).exit_code == 129
     assert process.HANDLED_SIGNALS == (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
+def test_shutdown_callbacks_run_when_the_signal_arrives():
+    controller = ShutdownController()
+    called = []
+    controller.on_shutdown(lambda: called.append(controller.signum))
+    assert called == []
+    controller.request(signal.SIGTERM)
+    assert called == [signal.SIGTERM]
