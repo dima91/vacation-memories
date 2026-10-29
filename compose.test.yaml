@@ -1,0 +1,39 @@
+# Override for scripts/test-docker.sh, used with compose.yaml alone (not with compose.intel-gpu.yaml):
+# Ollama and ollama-pull are replaced by a simulated server, so no model is downloaded and the external
+# models volume is not used. Needs Compose 2.24.4 or later (!override and !reset).
+services:
+  ollama:
+    image: vacation-memories-dev:local
+    user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
+    working_dir: /src
+    command: ["python", "tests/fake_ollama_server.py"]
+    environment:
+      PYTHONPATH: /src
+      PYTHONDONTWRITEBYTECODE: "1"
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-}
+    volumes:
+      - type: bind
+        source: .
+        target: /src
+        read_only: true
+        bind:
+          create_host_path: false
+      - vacation-test-models:/root/.ollama
+    healthcheck:
+      test: !override ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:11434/api/tags')"]
+    networks: !override
+      - backend
+
+  ollama-pull:
+    image: vacation-memories-dev:local
+    entrypoint: !override ["true"]
+    command: !reset null
+    environment: !reset {}
+
+  app:
+    cpus: 1
+    mem_limit: 1g
+
+volumes:
+  vacation-ollama-models: !reset null
+  vacation-test-models: {}
