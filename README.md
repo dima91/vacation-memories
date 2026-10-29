@@ -282,6 +282,130 @@ faster.
 - The scores and shares are initial values, tuned on synthetic media only.
 - Rendering above 1080p with the software encoder is much slower; use `--preview` for trials.
 
+## Docker
+
+Docker is the only way to run the program, on the development PC and on the server. A single `compose.yaml`
+serves both; only `.env` changes.
+
+| File | Purpose |
+| --- | --- |
+| `compose.yaml` | the services `app`, `ollama`, `ollama-pull` and (profile `dev`) `dev` |
+| `compose.intel-gpu.yaml` | gives `ollama` the Intel GPU (`/dev/dri`, `OLLAMA_IGPU_ENABLE=1`); remove it from `COMPOSE_FILE` on machines without a GPU |
+| `compose.selinux.yaml` | `label=disable` for `app` and `dev`, only for hosts with SELinux |
+| `compose.test.yaml` | for `scripts/test-docker.sh` only: a simulated Ollama, no model downloaded |
+| `docker/compose.toml` | the configuration of `app` (`/media`, `/work`, the Ollama URL, `require_ai`) |
+
+### Services and networks
+
+- `app` is the `runtime` image: Python, FFmpeg and the code, nothing else. It has no compilers, package manager,
+  tests, fixtures, `.git`, `.env` or media. The entrypoint is `python -m vacation_memories`, so the arguments of
+  `docker compose run app` are those of the CLI. The code is copied in the image: after every change run
+  `docker compose build app`.
+- `ollama` serves the vision model; the models are in the external volume `vacation-ollama-models`. `ollama-pull`
+  downloads the model only when it is missing, then exits.
+- `dev` is the `dev` image with the repository mounted at `/src`, for the tests. It never mounts `MEDIA_DIR`.
+- `app` and `dev` sit only on the internal network `backend`, which has no route to the Internet: they reach
+  Ollama and nothing else. Only `ollama` is also on `egress`, to download models. No port is published.
+
+`app` runs as `HOST_UID:HOST_GID` (the files in `WORK_DIR` are yours), with a read-only root filesystem, no
+capabilities (`cap_drop: [ALL]`), `no-new-privileges`, `init: true` and 30 s to stop. The only writable folder is
+`/work`; `/media` and `/music` are read-only. The image works with any UID: nothing is written outside `/work`.
+There is no `--privileged` and no Docker socket anywhere.
+
+### Image version
+
+The image carries its version in the label `org.opencontainers.image.version` and in `IMAGE_VERSION`, and
+`doctor` prints it with the FFmpeg version. Set it at build time:
+
+```sh
+APP_VERSION=1.0.0 docker compose build app      # or APP_VERSION in .env
+docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' vacation-memories:local
+```
+
+For a release, note the digest of the base image (`docker buildx imagetools inspect python:3.12-slim-bookworm`) and
+pin it in `PYTHON_IMAGE` (`python:3.12-slim-bookworm@sha256:...`). The image is built for the architecture of the
+machine; for another one use `docker buildx build --platform linux/arm64 --target runtime ...`. A dependency
+without a wheel for that architecture makes the build fail.
+
+### Resource limits
+
+Ollama and the program share the machine. The program reads the limits of its container (cgroup) and adapts the
+number of parallel jobs and the memory it uses (`runtime_profile.json` and `doctor` show them). To limit the
+services, put the limits in a file of your own and add it to `COMPOSE_FILE`:
+
+```yaml
+# compose.limits.yaml
+services:
+  app:
+    cpus: 4
+    mem_limit: 8g
+  ollama:
+    cpus: 4
+    mem_limit: 8g      # at least the size of the model (about 3.3 GB) plus its context
+```
+
+```sh
+COMPOSE_FILE=compose.yaml:compose.intel-gpu.yaml:compose.limits.yaml
+```
+
+### Server without Internet
+
+The build downloads the base image and the packages, and Ollama downloads the model. On a machine that has
+Internet, with the repository and Docker:
+
+```sh
+docker compose build app
+docker volume create vacation-ollama-models
+docker compose run --rm -T ollama-pull        # starts Ollama and downloads the model into the volume
+docker compose stop ollama
+docker save vacation-memories:local ollama/ollama:0.40.2 | gzip > vacation-images.tar.gz
+docker run --rm -v vacation-ollama-models:/models:ro -v "$PWD":/backup --entrypoint tar \
+    ollama/ollama:0.40.2 czf /backup/vacation-models.tar.gz -C /models .
+```
+
+Copy the two archives and the repository (without `.env`) to the server, then:
+
+```sh
+docker load < vacation-images.tar.gz
+docker volume create vacation-ollama-models
+docker run --rm -v vacation-ollama-models:/models -v "$PWD":/backup:ro --entrypoint tar \
+    ollama/ollama:0.40.2 xzf /backup/vacation-models.tar.gz -C /models
+cp .env.example .env     # and edit it, as in "Installation"
+docker compose run --rm -T app doctor
+```
+
+The image is not built on the server: Compose builds only when `vacation-memories:local` is missing, and the
+loaded one is there (do not add `--build`). To update the program, transfer a new image the same way.
+
+### Container tests
+
+`scripts/test-docker.sh` tests the images and the compose files with the Docker CLI alone, on synthetic media. It
+ignores `.env` and the environment of the shell: its folders are in `./.test-docker` (removed at the end), the
+project has its own name, and Ollama is simulated by `compose.test.yaml`, so no model is needed and nothing of the
+normal setup is touched. It needs Docker Compose 2.24.4 or later and a few minutes.
+
+```sh
+scripts/test-docker.sh                 # all the checks
+scripts/test-docker.sh -k 'cycle|stop' # only the checks whose name matches
+scripts/test-docker.sh --keep          # keep ./.test-docker for inspection
+```
+
+It checks that:
+
+- the images build and `pytest` passes in `dev`;
+- `doctor --no-ai` exits with 0 without starting Ollama, with `libx264`, AAC and all the filters;
+- the `runtime` image runs as non-root and holds no media, `.git`, `.env`, fixtures or non-headless OpenCV;
+- a full job on synthetic media (with music, AI through the simulated Ollama) produces a video that passes the
+  FFprobe checks, leaves the originals unchanged and writes nothing outside `/work`;
+- `docker stop` during the rendering exits with 143 in less than 10 s, FFmpeg does not stay behind, and `--resume`
+  completes;
+- with `cpus: 1` and `mem_limit: 1g`, `runtime_profile.json` reports at most 1 core and 1 GiB;
+- `dev` has no media folder, no Internet and reaches Ollama, and its files belong to you;
+- `app` is hardened as above, reaches Ollama but not the Internet, and no port is published;
+- the compose files are valid: clear errors without `MEDIA_DIR` or `HOST_UID`, no folder created for a missing
+  mount, the GPU only on `ollama` and only with the override, `OLLAMA_VULKAN` only when set, SELinux only on `app`
+  and `dev`.
+
 ## Development
 
 Code and tests run only in containers:
@@ -290,6 +414,7 @@ Code and tests run only in containers:
 docker compose --profile dev build
 docker compose run --rm -T dev pytest
 docker compose run --rm -T dev python -m vacation_memories --input dev-media --no-ai --duration 30 --resolution 720p
+scripts/test-docker.sh      # the production image and the compose files, see "Container tests"
 ```
 
 In the `dev` container there is no compose configuration: pass `--input`; the working folder is `./work`. Since
