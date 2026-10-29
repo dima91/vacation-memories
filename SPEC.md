@@ -139,7 +139,7 @@ If a detection fails: conservative values, a warning in the log, never a crash.
 
 **What to produce**
 - In Step 1: multi-stage `Dockerfile` with `dev` and `runtime` targets, `.dockerignore`, `compose.yaml` with the `dev`, `app`, `ollama` and `ollama-pull` services, `compose.intel-gpu.yaml` (Intel GPU for Ollama: `/dev/dri` and `OLLAMA_IGPU_ENABLE=1`), `compose.selinux.yaml` (only for hosts with SELinux), `docker/compose.toml` (app configuration in the compose file), `.env.example` to copy to `.env` (not versioned).
-- In Step 7: `compose.test.yaml` (override for tests with a simulated Ollama), `scripts/test-docker.sh` (container tests, run on the host with the Docker CLI alone) and the "Docker" section of the README.
+- In Step 7: `compose.test.yaml` (override for tests with a simulated Ollama: the `ollama` service runs `tests/fake_ollama_server.py` on the `dev` image), `scripts/test-docker.sh` (container tests, run on the host with the Docker CLI alone) and the "Docker" section of the README, which also documents the transfer to a server without Internet and the resource limits.
 
 **Building the image**
 - Debian slim base with Python 3.11 or higher, with a pinned tag (never `latest`) and the digest noted for releases. Avoid Alpine (musl): there are fewer precompiled wheels for NumPy and OpenCV.
@@ -147,7 +147,7 @@ If a detection fails: conservative values, a warning in the log, never a crash.
 - `base` stage: the starting image with FFmpeg, the native libraries needed at runtime (few and without graphical dependencies), the non-root user and the environment variables described here. The other stages derive from `base`, so `dev` and `runtime` have the same FFmpeg and the same libraries.
 - `builder` stage (from `base`): installs the runtime dependencies from `requirements.txt` into a venv inside the image (with `--require-hashes` if hashes are present). The dependencies layer is separate from the code layer, to take advantage of the cache. Only `opencv-python-headless`.
 - `dev` stage (from `builder`): adds `requirements-dev.txt` (pytest and development tools). It does not contain the code: in development the repository is mounted in the container. It is used for development and tests.
-- `runtime` stage (from `base`): the venv copied from `builder` and the code, nothing else. No compilers, tests, fixtures or `.git`.
+- `runtime` stage (from `base`): the venv copied from `builder` (without `pip`: nothing is installed at runtime) and the code, nothing else. No compilers, tests, fixtures or `.git`.
 - Non-root user with a fixed UID. The image creates `/work` owned by that user and leaves the current directory at `/`, so the default workdir `./work` coincides with `/work` and `doctor` works even without a volume. Environment variables: `PYTHONUNBUFFERED=1`, `PYTHONDONTWRITEBYTECODE=1`, `LANG=C.UTF-8`, `HOME=/work`, `XDG_CACHE_HOME=/work/.cache`, `USER=app`, `LOGNAME=app` (with a UID that has no entry in `/etc/passwd`, `getpass.getuser()` fails, and libraries such as torch, which Milestone 2 will use, call it). The image must also work with an arbitrary UID, as in the compose file, where `/work` is the mounted folder: nothing is written outside `/work`.
 - `runtime` target: `ENTRYPOINT ["python", "-m", "vacation_memories"]` in exec form, with no `CMD` that starts work. The arguments passed to the container are those of the CLI, including the `doctor`, `bench` and `evaluate` subcommands.
 - OCI label with the version (from a build arg). `doctor` prints the image version and the FFmpeg version.
@@ -228,13 +228,16 @@ Ollama uses the integrated Intel GPU through Vulkan, **both on the development P
 - If a Docker command cannot be run, the report marks it as **not verified**: an image or compose file that was never started is not declared working.
 
 **Docker tests** (`scripts/test-docker.sh`, Step 7; synthetic media only):
+
+The script ignores `.env` and the environment of the shell (which may point to real folders): it writes its own env file, so that every folder is under `./.test-docker` (ignored by git and by the build context, removed at the end), the Compose project has its own name, and `compose.yaml` is combined with `compose.test.yaml` only. Options: `-k REGEX` runs the checks whose name matches, `--keep` keeps `./.test-docker`. It is the only place where `docker run` is allowed, and only to inspect the `runtime` image, without volumes. The checks:
+
 - `docker compose --profile dev build` succeeds, and `docker compose run --rm dev pytest` passes;
 - `docker compose run --rm --no-deps app doctor --no-ai` exits with code 0 without starting Ollama, and FFmpeg has `libx264`, AAC and all the filters checked by `doctor`;
 - the `runtime` image runs as non-root and contains no media files, `.git`, `.env`, fixtures or non-headless `opencv-python`;
-- full app cycle on synthetic media with the test compose file: produces a video that passes the FFprobe checks, the media remain unchanged and nothing is written outside `/work`;
+- full app cycle on synthetic media with the test compose file: produces a video that passes the FFprobe checks, the media remain unchanged (content hashes) and nothing is written outside `/work` (the container's filesystem differences contain only the mount points and the init binary that Docker adds);
 - `docker stop` during rendering: exit with 143 within 10 s (even if the compose timeout is 30 s), no orphan FFmpeg; `--resume` completes;
 - limits `cpus: 1` and `mem_limit: 1g` on the `app` service (in the test compose file): `runtime_profile.json` reports at most 1 core and 1 GiB;
-- `dev`: has no `MEDIA_DIR` mounted, does not reach the Internet, reaches `http://ollama:11434` (with the test compose file, where Ollama is simulated), and the files it creates in `/src` belong to the host user;
+- `dev`: has no `MEDIA_DIR` mounted (`/media` is the empty folder of the base image, not a mount point), does not reach the Internet, reaches `http://ollama:11434` (with the test compose file, where Ollama is simulated), and the files it creates in `/src` belong to the host user;
 - `docker compose config` is valid with `.env.example`; without `MEDIA_DIR` or `HOST_UID` it gives a clear error; with a nonexistent mounted folder it fails without creating it;
 - `docker compose config` with the `COMPOSE_FILE` of `.env.example`: only `ollama` has a device, `/dev/dri` (no `/dev/kfd`), and `OLLAMA_IGPU_ENABLE=1` appears in its environment; without the override no service has devices and the variable does not appear; `OLLAMA_VULKAN` appears in `ollama`'s environment only if set in `.env`; with `compose.selinux.yaml` added, `label=disable` appears only on `app` and `dev`;
 - with `compose.test.yaml` (Ollama and `ollama-pull` replaced by a simulated server, test models volume in place of the external one, no model downloaded; Compose merges volumes by destination path, so it is enough to redeclare `/root/.ollama`, and where a field must be replaced entirely, such as the `external` declaration, `!override` or `!reset` is used, which require Compose 2.24.4 or later; `docker compose config` with the test file confirms it): `docker compose run --rm app doctor --require-ai` exits with 0; the app reaches `http://ollama:11434` but not the Internet (an outbound connection attempt fails); no Ollama port is published on the host.
@@ -243,11 +246,20 @@ Manual user check on the first real start: the model is downloaded only once, an
 
 ## Stack
 
-In the image: Python 3.11+, FFmpeg/FFprobe, OpenCV (headless variant), PySceneDetect, Pillow (+ `pillow-heif` for HEIC), imagehash, NumPy, requests or httpx, pydantic or jsonschema, `tzdata`; pytest only in the `dev` image. `librosa` only from Milestone 3. Visual embeddings (Milestone 2) are not in the MVP stack and are added only after the benchmark described in section 4. On the host: only Docker Engine and Compose.
+In the image: Python 3.12 (3.11 is the minimum), FFmpeg/FFprobe, OpenCV (headless variant), PySceneDetect, Pillow (+ `pillow-heif` for HEIC), imagehash, NumPy, `tzdata`, plus the transitive dependencies of PySceneDetect and imagehash (SciPy, PyWavelets, click, platformdirs, tqdm), all pinned in `requirements.txt`; pytest only in the `dev` image. No HTTP or validation library: the Ollama client uses the standard library (`http.client`) and the answers of the model are validated by hand against the JSON schema sent to it. `librosa` only from Milestone 3. Visual embeddings (Milestone 2) are not in the MVP stack and are added only after the benchmark described in section 4. On the host: only Docker Engine and Compose.
 
 ## Structure
 
-Package `vacation_memories/` with independent modules: `media_scanner`, `metadata_extractor`, `scene_detector`, `frame_sampler`, `quality_analyzer`, `duplicate_detector`, `vision_analyzer`, `scene_ranker`, `edit_planner`, `video_renderer`, `cache_manager`, `runtime_profile`, `cli` and, from Milestone 2, `evaluate`. Starting with fewer files and splitting later is allowed. At the repository root: `Dockerfile`, `compose*.yaml`, `.env.example`, `docker/`, `scripts/`.
+Package `vacation_memories/` with independent modules:
+- scanning and analysis: `media_scanner`, `metadata_extractor`, `media_probe` (streams, rotation, HDR), `scene_detector`, `frame_sampler`, `quality_analyzer`, `technical_analysis` (candidates with scores and hashes), `duplicate_detector`, `cache_manager`;
+- AI: `ollama_client`, `vision_schema` (prompt, JSON schema, validation), `vision_analyzer`, `bench`;
+- selection and plan: `selection_config`, `scene_ranker`, `edit_planner`, `edit_plan`, `transitions` (the layout shared by planner and renderer), `video_format` (`--duration`, `--resolution`, `--aspect`), `estimates`;
+- rendering: `render_config`, `render_filters`, `encoders`, `segments` (phase A), `assembly` (phase B), `render_checks`, `renderer`;
+- running: `cli`, `config`, `pipeline`, `doctor`, `runtime_profile`, `process` (FFmpeg runner and orderly shutdown), `workdir` (lock and `status.json`), `atomic`, `logging_setup`, `exit_codes`;
+- tests: `synthetic_media` (synthetic photos, clips and vacations);
+- from Milestone 2: `evaluate`.
+
+Starting with fewer files and splitting later is allowed. At the repository root: `Dockerfile`, `compose*.yaml`, `.env.example`, `docker/`, `scripts/`.
 
 ## Pipeline
 
@@ -259,17 +271,19 @@ Package `vacation_memories/` with independent modules: `media_scanner`, `metadat
 ### 2. Scenes and sampling
 - PySceneDetect for obvious cuts; temporal sampling at intervals for continuous videos.
 - Candidate segments with precise timestamps. Do not decode the same content more than once.
+- Implemented: a clip is decoded once, at 10 fps and 320 px wide for the detector (cut threshold 35, above PySceneDetect's default of 27, so fast motion does not split a scene; minimum scene 0.6 s). Scenes longer than 10 s are split into windows of at most 10 s. Every scene is sampled every 0.5 s, on frames of at most 512 px. Past OpenCV's read limit (long runs of audio and metadata packets in action-camera files) the reading attempts are raised, and a decode that stops before 90% of the declared frames is logged.
 
 ### 3. Technical quality (cheap, on all candidates)
 - Sharpness (variance of the Laplacian, normalized to the resolution), exposure, contrast, black frames, motion/instability if measurable at low cost.
 - Normalize the scores so as not to systematically penalize night scenes.
-- From these measures `technical_score` (0-1) is derived, which describes only how well the shot turned out technically and is kept separate from the narrative value (see section 6).
+- From these measures `technical_score` (0-1) is derived, which describes only how well the shot turned out technically and is kept separate from the narrative value (see section 6). Implemented as a weighted geometric mean of sharpness (0.5), exposure (0.3) and contrast (0.2), and 0 for a black frame; the sharpness of a low-contrast frame is blended toward a neutral value, so that a flat sky or a night scene is not taken for blur.
+- The candidates of each file (segments, scores, hashes, motion) are cached (see section 10), so a new duration, structure or format does not decode the media again.
 
 ### 4. Duplicates and repetitions
 Two levels, with different purpose and cost. The perceptual hash finds nearly identical photos, but does not recognize semantically similar scenes (the same beach from different angles, ten dishes from the same lunch, similar panoramas): level 2 is needed for those.
 
 **Level 1 — near-duplicates with `imagehash` (MVP, cheap):**
-- Perceptual hash (pHash, with dHash as an optional check) of every photo and of one or more representative frames for every video segment. Comparison with Hamming distance on all pairs (vectorized NumPy), configurable threshold, grouping by connected components.
+- Perceptual hash (pHash, with dHash as an optional check) of every photo and of one or more representative frames for every video segment. Comparison with Hamming distance on all pairs (vectorized NumPy, in blocks), configurable threshold (default 6 bits out of 64), grouping by connected components. Implemented with 3 frames per video segment.
 - The best representative of the group is kept (by `technical_score`, ties broken by `narrative_score`). The other members stay in the group with the reason recorded in the plan. Grouping happens only in the plan: no file is touched.
 - Known limits, to be documented in the README: it does not recognize the same scene with a different framing, zoom or moment, nor a photo and a video frame of the same scene.
 - `duplicate_detector` exposes an interface with a replaceable backend (returns groups and pairwise similarities). In the MVP only the `hash` backend exists, so level 2 can be added without modifying the callers.
@@ -293,15 +307,15 @@ Two levels, with different purpose and cost. The perceptual hash finds nearly id
 ### 5. AI analysis (optional, survivors only)
 The pipeline must also work **without AI** (`--no-ai`), using only quality, duplicates, motion and temporal distribution.
 
-When the AI is active, send to the model **only the candidates that passed filters 3 and 4**, limited by a budget computed at runtime (see "Runtime profile") and in any case to about 2-3 times the number of clips needed for the edit.
+When the AI is active, send to the model **only the candidates that passed filters 3 and 4**, limited by a budget computed at runtime (see "Runtime profile") and in any case to about 2-3 times the number of clips needed for the edit (`ai_frames_per_clip`, default 3, in the selection configuration). Without `--ai-frames` or `--ai-time-budget` the time budget is 600 s.
 
 - Model configurable with `--model`, with the `VACATION_MEMORIES_MODEL` variable or with the configuration, in that order of precedence. The compose file sets the variable from `OLLAMA_MODEL`, so it takes precedence over any model in the configuration file and always matches the one downloaded by `ollama-pull`. Default: `qwen3-vl:4b-instruct-q4_K_M` (**instruct non-thinking** variant, 4-bit, about 3.3 GB; tag verified on the model page at ollama.com). Warning: the `qwen3-vl:4b` tag is the *thinking* variant and `qwen3-vl:latest` is the 8B, so neither must be used as default. The installed tag is checked with `ollama list`. If the model is not present, a clear error message and fallback to `--no-ai`, except with `--require-ai` (code 4).
 - `/api/chat` endpoint with the image in base64, `stream: false`, **structured output through the `format` parameter with a JSON schema**, `temperature: 0`, a contained `num_predict`, a long `keep_alive` for the duration of the job. At the end of the job the app asks Ollama to unload the model (`keep_alive: 0`), so the RAM is freed (configurable).
 - Image resized to **512 px** on the long side (configurable parameter, maximum 768).
-- Timeout and at most 1 retry. An AI error on a frame does not block the pipeline: the frame keeps only the non-semantic scores, like the frames excluded by the AI budget.
+- Timeout (120 s, `ai_timeout`) and at most 1 retry. An AI error on a frame does not block the pipeline: the frame keeps only the non-semantic scores, like the frames excluded by the AI budget. After 3 frames in a row without an answer the model is considered unavailable and the analysis stops, leaving the remaining frames without a semantic score. The warm-up for the calibration uses 3 frames; `num_predict` is 200 and `keep_alive` is 30 minutes. The requests are aborted on shutdown.
 - Prompt to the model in English (more reliable with small models).
 - Required fields, only these:
-  - `description`: at most 15 words;
+  - `description`: at most 15 words (the schema also caps it at 160 characters, so that a small model repeating itself cannot lose the whole answer);
   - `category`: **subject or environment**, enum (`nature`, `sea`, `city`, `monument`, `food`, `animals`, `indoor`, `other`). It serves to avoid thematic pile-ups (e.g. twenty food photos);
   - `moment_type`: **narrative role** of the scene, enum (`scenery`, `social`, `action`, `detail`, `transition`, `other`; `other` is the escape hatch to avoid forced classifications);
   - `narrative_value`: integer from 1 to 5, how much the scene deserves a place in a memory video (originality, ability to tell a moment);
@@ -330,7 +344,7 @@ Combination rules:
 2. **Above the threshold, narrative prevails:** final score as a weighted sum, with greater weight on the narrative (initial values: 0.65 narrative and 0.35 technical, to be tuned). A unique, slightly imperfect moment can beat a perfect but banal shot.
 3. **Redundancy penalty** on candidates similar to those already chosen. In the MVP the similarity comes from the `hash` backend of section 4; with the semantic level (Milestone 2) the penalty becomes proportional to the similarity and to the temporal neighborhood.
 
-Weights, thresholds and shares live in a single configuration that can be edited, not scattered in the code.
+Weights, thresholds and shares live in a single configuration that can be edited, not scattered in the code: `selection_config.py` holds the defaults and the `[selection]` table of the configuration file changes them (unknown keys and inconsistent values, such as weights that do not add up to 1 or shares that do not add up to 1, are rejected with code 2). The components of `narrative_score` have initial weights: AI value 0.45, uniqueness 0.15, variety 0.15, motion 0.10, temporal distribution 0.15.
 
 Use of `moment_type` in the edit (initial values to be tuned on the first real dataset). The rules apply to clips with a known `moment_type`, so with partial AI coverage only to the analyzed ones; without AI use the fallbacks described in "Adapting to the available material":
 
@@ -343,7 +357,8 @@ Use of `moment_type` in the edit (initial values to be tuned on the first real d
 General selection rules:
 
 - Spread the choices across the vacation; no single video must monopolize the result (duration cap per source file).
-- Order: best-of Opening (deliberately out of chronological order), then Beginning, Development, Finale and Closing (see "Narrative structure"). Within Beginning, Development and Finale the order is chronological.
+- Order: best-of Opening (taken from the whole vacation, so time goes back at the start of the Beginning), then Beginning, Development, Finale and Closing (see "Narrative structure"). Within the Opening, Beginning, Development and Finale the order is chronological.
+- **Continuous shots:** a video with several good moments is not cut into many short pieces. It gives **one piece to each section**, the Opening included, and the video of the Closing gives none to the section before it (where it would end one section and start again in the next). A further good moment of a video that already has a clip in the section lengthens that clip, without a break, into the adjacent segment of the same file on the side of the new moment, up to `video_shot_max_seconds` (15 s by default; equal to `video_max_seconds` it turns the feature off). In the Opening, and once the shot is full, the other moments are left out. A second piece of the same video comes only when the section would otherwise run short, and the report says so. `detail` and `transition` clips, and targets under 60 s, keep their ordinary durations. The reason recorded in the plan says "continuous shot over N adjacent segments" and `runtime.extended_shots` counts them. A shot grows only into segments that passed the technical threshold and were not grouped as near-duplicates.
 - Indicative durations: photo 3-4 s, video clip 3-8 s (reduced for short targets, see "Video duration"). The selection fills the budget of each narrative section (see "Narrative structure"), in score order and respecting variety and temporal distribution. The sum of durations, minus the overlaps of the dissolves, must respect `--duration`.
 
 #### Narrative structure
@@ -360,11 +375,11 @@ The edit follows a **soft** narrative structure in five sections. The percentage
 
 Role and rhythm of each section:
 
-- **Opening (teaser):** the moments with the highest `narrative_score` of the whole vacation, even out of chronological order, with variety of `moment_type` and places. Quick clips (2-3 s), high dynamism. The clips used here are **not** reused in the following sections. No `transition`.
+- **Opening (teaser):** the moments with the highest `narrative_score` of the whole vacation, with variety of `moment_type` and days (a penalty for the same type or day as the clips already chosen, a bonus for motion), shown in chronological order among themselves. Quick clips (at most 3 s), high dynamism, one per video. The clips used here are **not** reused in the following sections. No `transition`.
 - **Beginning:** first chronological stretch (departure, arrival, first impressions). `scenery` as environment shots, calm or medium rhythm. `transition` allowed; this is the section where it is most natural.
 - **Development:** central body, chronological, maximum variety. Alternation of `social`, `action` and `detail`; every new place or day opens with `scenery`. Wave-like rhythm (fast sequences alternating with slower moments), standard durations.
 - **Finale:** last chronological stretch, rhythm building up. More dynamic clips of high narrative value, with progressively shorter durations toward the climax.
-- **Closing:** calm, concluding scene, slow rhythm. It is chosen by criteria (not by chronological order) among the serene clips with a high `technical_score` (`scenery` or `social`, low dynamism), preferring those from the last stretch of the vacation. Longer clips (video 5-8 s, photo 4-5 s) and a longer final dissolve, in sync with the music's fade-out. No `transition`.
+- **Closing:** calm, concluding scene, slow rhythm. It is chosen by criteria (not by chronological order) among the serene clips with a high `technical_score` (`scenery` or `social`, low dynamism), preferring those from the last stretch of the vacation (initial weights: `technical_score` 0.4, calm 0.3, lateness 0.3). Longer clips (video 5-8 s, photo 4-5 s) and a longer final dissolve, in sync with the music's fade-out. No `transition`.
 
 Assignment of content to sections:
 
@@ -387,7 +402,7 @@ Configuration and CLI:
 - Phased implementation: **basic version** in Step 6 of Milestone 1 (budget per section, best-of Opening, calm Closing, chronological body, redistribution, compressed structure); **refinements** in Milestone 2 (section-specific rhythm and Finale crescendo, band boundaries anchored to day or place changes).
 
 ### 7. Edit plan
-`edit_plan.json` with, for each element: source file (path relative to `--input`), type (photo/video), start/end, duration, final score with `technical_score` and `narrative_score` (and their components), `moment_type`, `category`, `section` (narrative section), description, selection reason, `transition_in` (`cut` or `dissolve` with duration, see section 8), destination timestamp. It must be hand-editable and re-runnable with `--render-only` without repeating the analysis.
+`edit_plan.json` with, for each element: source file (path relative to `--input`), type (photo/video), start/end, duration, final score with `technical_score` and `narrative_score` (and their components), `moment_type`, `category`, `section` (narrative section), description, selection reason, `transition_in` (`cut` or `dissolve` with duration, see section 8), destination timestamp. It must be hand-editable and re-runnable with `--render-only` without repeating the analysis. Loading is strict: unknown keys and source paths that are absolute or climb out of `--input` are rejected (code 2). Each element also records the capture date (`captured_at`, naive, as written in the metadata), its `date_source` (`exif`, `container` or `mtime`) and, for the `mtime` fallback, the assumed time zone.
 
 At plan level: `schema_version`, `requested_duration`, `planned_duration`, `output` (`width`, `height`, `fps`), time zone assumed for dates and the `runtime` block (see "Runtime profile"). A plan with an unsupported `schema_version` is rejected with a clear error (code 2).
 
@@ -412,7 +427,7 @@ The renderer does not assemble the sources directly: it first normalizes each cl
 - **Audio:** in the MVP the movie has only the music, so the segments have no audio. When the original audio is kept (Milestone 3), each segment will have an audio stream with uniform parameters (same sample rate and channels, silence generated for clips without audio) and a duration equal to that of the video within 1 frame.
 - Each segment is validated with FFprobe before assembly (see "FFprobe verification").
 
-**Phase B — assembly.** Concatenation of the segments according to the rules in "Transitions", then music with fades. Do not build a single filtergraph with hundreds of inputs: for long timelines assembly is done in blocks of limited size (roughly 15-20 clips, to be fixed with tests on RAM and time), with the boundaries between blocks on hard cuts chosen by the planner, and the blocks are then concatenated.
+**Phase B — assembly.** Concatenation of the segments according to the rules in "Transitions", then music with fades. Do not build a single filtergraph with hundreds of inputs: for long timelines assembly is done in blocks of limited size (derived by the runtime profile from the available RAM, about 100 MiB per clip of a block and at most 40 clips, and overridable), with the boundaries between blocks on hard cuts chosen by the planner, and the blocks are then concatenated.
 
 #### Transitions (dissolves and cuts)
 
@@ -421,7 +436,7 @@ The renderer does not assemble the sources directly: it first normalizes each cl
   - prefer `dissolve` for changes of place or day, passages between narrative sections, consecutive calm photos and the Closing;
   - prefer `cut` between consecutive `action` clips, in the Opening (fast rhythm), between clips of the same place and moment, for `detail` clips and for short clips;
   - avoid a mechanical rhythm: at most 3 consecutive transitions of the same type, except the Opening, which stays mostly on hard cuts;
-  - the fade from black at the start of the video (at most 1 s) and to black at the end of the video (longer, in sync with the music's fade-out) are optional and do not count as transitions between clips.
+  - the fade from black at the start of the video (at most 1 s) and to black at the end of the video (longer, in sync with the music's fade-out) are optional and do not count as transitions between clips. Defaults: fade in 1 s, fade out 3 s.
 - **Duration adapted to the shortest clips.** The requested duration `d` has a default of 0.8 s, configurable (shorter in the Opening, longer in the Closing). The effective duration is computed as follows:
   1. `d_eff = min(d, 0.25 × t_min)`, where `t_min` is the duration of the shorter of the two clips involved. This way, for every clip, the incoming and outgoing dissolves added together do not exceed 50% of its duration, and at least half the clip remains without overlaps;
   2. `d_eff` is rounded down to a multiple of the duration of one frame (1 / `output.fps`);
@@ -457,7 +472,7 @@ At the end of rendering `<workdir>/render_report.json` records planned and obtai
 - Milestone 3: `librosa` for beats and sections, cut alignment, duration adaptation, occasional original audio. No frequent cuts in quiet moments.
 
 ### 10. Cache
-Metadata, scenes, hashes, AI results and scores are in an `sqlite3` database in `<workdir>` (WAL mode, a single writer process, workdir on a local filesystem: on NFS/SMB WAL is not reliable and the README says so). The normalized segments are files in `<workdir>/segments/`. The key of a source file is its path **relative to `--input`** with size and mtime: the cache stays valid when moving the media to another PC or into a container, as long as mtime is preserved (`rsync -a`, `cp -p`). Invalidate when the file, the model or the relevant parameters change.
+Metadata, scenes, hashes, AI results and scores are in an `sqlite3` database in `<workdir>` (`cache.sqlite3`, WAL mode, a single writer process, workdir on a local filesystem: on NFS/SMB WAL is not reliable and the README says so). It has three tables, with a schema version (an older database is recreated): `metadata` (per file, with the VFR flag), `technical` (per file: the candidate segments with their technical scores, hashes and motion) and `vision` (per file and timestamp, with the model, prompt and resolution in the key). The normalized segments are files in `<workdir>/segments/`, keyed by source, extent and output parameters, and not reused when the way segments are made changes. The key of a source file is its path **relative to `--input`** with size and mtime: the cache stays valid when moving the media to another PC or into a container, as long as mtime is preserved (`rsync -a`, `cp -p`). Invalidate when the file, the model or the relevant parameters change.
 
 ## CLI
 
