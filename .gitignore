@@ -9,3 +9,4 @@ __pycache__/
 *.pyc
 *.partial.mp4
 *.it.md
+.test-docker/

@@ -28,3 +28,5 @@ Dockerfile
 **/*.mp3
 **/*.wav
 **/*.m4a
+scripts/
+.test-docker/

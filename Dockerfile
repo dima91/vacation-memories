@@ -38,8 +38,11 @@ WORKDIR /src
 FROM base AS runtime
 ARG APP_VERSION=dev
 LABEL org.opencontainers.image.title="vacation-memories" \
+      org.opencontainers.image.description="Creates a memory video from the photos and clips of a vacation, fully local" \
       org.opencontainers.image.version="${APP_VERSION}"
 COPY --from=builder /opt/venv /opt/venv
+# The image installs nothing at runtime: no package manager.
+RUN rm -rf /opt/venv/bin/pip* /opt/venv/lib/python*/site-packages/pip /opt/venv/lib/python*/site-packages/pip-*
 COPY vacation_memories /app/vacation_memories
 ENV PYTHONPATH=/app \
     IMAGE_VERSION=${APP_VERSION}
