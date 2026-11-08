@@ -205,6 +205,13 @@ class TestCompressedStructure:
         result = plan(vacation(12, moments=MOMENTS), 60)
         assert result.report["structure"] == "compressed"
 
+    def test_the_closing_of_the_compressed_structure_is_a_single_clip_even_with_a_long_target(self):
+        # 5% of 300 s is 15 s, more than one Closing clip lasts: the rest goes to the other sections.
+        result = plan(vacation(12, moments=MOMENTS), 300)
+        assert result.report["structure"] == "compressed"
+        assert sections(result)["closing"]["clips"] == 1
+        assert [e.section for e in result.plan.elements].count("closing") == 1
+
     def test_at_the_minimum_duration_the_opening_is_merged_into_the_body(self):
         result = plan(vacation(100, moments=MOMENTS), 15)
         assert "opening" not in sections(result)
@@ -300,6 +307,17 @@ class TestContinuousShots:
         assert_shots_are_continuous(result, items)
         assert not any(e.start < missing.candidate.end and e.end > missing.candidate.start
                        for e in pieces(result, RIDE))
+
+    def test_a_shot_blocked_on_the_side_of_the_moment_does_not_grow_on_the_other_side(self):
+        # The Opening takes segment 2, the band shot is on segment 1: the good moment in segment 3
+        # cannot be reached across segment 2, so the weak segment 0 must not be added in its place.
+        items = vacation(150, moments=MOMENTS) + shot(RIDE, START + timedelta(days=1, hours=4), [0.05, 0.9, 1.0, 0.8])
+        result = plan(items, 300)
+        opening = pieces(result, RIDE, "opening")
+        assert len(opening) == 1 and 20.0 <= opening[0].start and opening[0].end <= 30.0
+        body = pieces(result, RIDE, *BODY)
+        assert body and all(e.start >= 10.0 - 1e-6 for e in body)
+        assert_shots_are_continuous(result, items)
 
     def test_the_file_cap_and_the_duration_still_hold(self):
         items = vacation(150, moments=MOMENTS) + ride(points=range(0, 30, 2))

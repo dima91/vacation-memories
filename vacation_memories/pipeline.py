@@ -27,7 +27,7 @@ from vacation_memories import exit_codes
 from vacation_memories.atomic import atomic_write_json
 from vacation_memories.cache_manager import CacheManager
 from vacation_memories.config import ConfigError, Settings
-from vacation_memories.doctor import MIN_FREE_BYTES, REQUIRED_FFMPEG_ENCODERS, REQUIRED_FFMPEG_FILTERS
+from vacation_memories.doctor import MIN_FREE_BYTES, ffmpeg_problem
 from vacation_memories.duplicate_detector import HashBackend, find_duplicates
 from vacation_memories.edit_plan import EditPlan, OutputSpec, PlanError, load_plan, save_plan
 from vacation_memories.edit_planner import estimated_clip_count, plan_edit
@@ -64,6 +64,7 @@ from vacation_memories.video_format import (
     SLOW_SOFTWARE_SHORT_SIDE,
     FormatError,
     FrameSize,
+    even,
     frame_size,
     resize_keeping_short_side,
 )
@@ -75,7 +76,7 @@ logger = logging.getLogger(__name__)
 FULL, ANALYZE_ONLY, DRY_RUN, RENDER_ONLY = "full", "analyze_only", "dry_run", "render_only"
 PLAN_NAME = "edit_plan.json"
 RUN_CONFIG_NAME = "run_config.json"
-RUN_CONFIG_VERSION = 1
+RUN_CONFIG_VERSION = 2
 DURATION_PRECISION = 0.05  # the final file must be within 5% of the requested duration
 
 
@@ -103,6 +104,8 @@ class RunParams:
     duration: float
     width: int | None  # None with --render-only without --resolution/--aspect: the plan decides
     height: int | None
+    resolution: str | None  # as given: --render-only resizes the frame of the plan with them
+    aspect: str | None
     structure: str
     no_ai: bool
     model: str
@@ -125,7 +128,7 @@ def run_pipeline(
     try:
         params, explicit = _params(settings, request)
     except (ConfigError, FormatError) as error:
-        return _usage_error(error)
+        return exit_codes.usage_error(error)
     if params.duration > LONG_DURATION_SECONDS and params.mode != RENDER_ONLY:
         logger.warning("a %.0f-minute video takes a very long analysis and rendering time", params.duration / 60)
 
@@ -155,7 +158,7 @@ def run_pipeline(
                 state = "interrupted"
                 return interruption.exit_code
             except (ConfigError, FormatError) as error:
-                return _usage_error(error)
+                return exit_codes.usage_error(error)
             except RequirementsError as error:
                 print(f"error: {error}", file=sys.stderr)
                 return exit_codes.REQUIREMENTS
@@ -179,11 +182,6 @@ def _finish(workdir: Path, lock: WorkdirLock, state: str) -> None:
         lock.release()
 
 
-def _usage_error(error: Exception) -> int:
-    print(f"error: {error}", file=sys.stderr)
-    return exit_codes.USAGE
-
-
 # --- parameters, paths and resume ------------------------------------------------------------------
 
 
@@ -204,6 +202,8 @@ def _params(settings: Settings, request: RunRequest) -> tuple[RunParams, set[str
         duration=settings.duration,
         width=width,
         height=height,
+        resolution=settings.resolution,
+        aspect=settings.aspect,
         structure=settings.structure,
         no_ai=settings.no_ai,
         model=settings.model,
@@ -226,6 +226,8 @@ def _params(settings: Settings, request: RunRequest) -> tuple[RunParams, set[str
     explicit |= {"selection", "rendering"}  # from the configuration file, which a resume normally shares
     if size_given:
         explicit |= {"width", "height"}
+        if request.mode == RENDER_ONLY:  # the same size can come from different options, fitted differently
+            explicit |= {"resolution", "aspect"}
     if request.mode_given:
         explicit.add("mode")
     if request.preview:
@@ -345,14 +347,8 @@ class _Run:
         return profile
 
     def _require_tools(self, *, rendering: bool) -> None:
-        ffmpeg = self.profile.ffmpeg
-        if ffmpeg.ffmpeg_version is None or ffmpeg.ffprobe_version is None:
-            raise RequirementsError("ffmpeg and ffprobe are required (see `doctor`)")
-        if rendering:
-            missing = [name for name in REQUIRED_FFMPEG_ENCODERS if name not in ffmpeg.encoders]
-            missing += [f"filter {name}" for name in REQUIRED_FFMPEG_FILTERS if name not in ffmpeg.filters]
-            if missing:
-                raise RequirementsError("FFmpeg lacks: " + ", ".join(missing) + " (see `doctor`)")
+        if problem := ffmpeg_problem(self.profile.ffmpeg, rendering=rendering):
+            raise RequirementsError(f"{problem} (see `doctor`)")
         for name, free in (("workdir", self.profile.workdir_free_bytes), ("tmp", self.profile.tmp_free_bytes)):
             if free is not None and free < MIN_FREE_BYTES:
                 raise RequirementsError(f"less than {MIN_FREE_BYTES // MIB} MiB free in the {name}")
@@ -369,7 +365,7 @@ class _Run:
         with CacheManager(self.workdir) as cache:
             self.progress.phase("reading metadata", len(files))
             loaded = load_metadata(files, cache, params.assume_tz, check=self.controller.check,
-                                   progress=self.progress.advance)
+                                   progress=self.progress.advance, runner=ToolRunner(self.controller))
             metadata = {media.rel_path: info for media, info in loaded}
             readable = [media for media, _ in loaded]
 
@@ -549,17 +545,18 @@ class _Run:
         return plan
 
     def _render_only_size(self, plan: EditPlan) -> FrameSize | None:
-        settings = self.settings
+        # From the parameters, not the settings: a plain --resume has neither option on its command line.
+        resolution, aspect = self.params.resolution, self.params.aspect
         width, height = plan.output.width, plan.output.height
-        if settings.resolution is None and settings.aspect is None:
+        if resolution is None and aspect is None:
             return None
-        if settings.resolution is None:
-            return resize_keeping_short_side(width, height, settings.aspect)
-        if settings.resolution in PRESETS and settings.aspect is None:  # the plan keeps its proportions
-            short = PRESETS[settings.resolution]
+        if resolution is None:
+            return resize_keeping_short_side(width, height, aspect)
+        if resolution in PRESETS and aspect is None:  # the plan keeps its proportions
+            short = PRESETS[resolution]
             scale = short / min(width, height)
-            return frame_size(f"{_even(width * scale)}x{_even(height * scale)}", None)
-        return frame_size(settings.resolution, settings.aspect)
+            return frame_size(f"{even(width * scale)}x{even(height * scale)}", None)
+        return frame_size(resolution, aspect)
 
     def _render(self, plan: EditPlan, report: dict | None = None) -> int:
         params, settings = self.params, self.settings
@@ -601,7 +598,3 @@ def _describe_ai(coverage, *, used: bool | None = None) -> str:
 
 def _seconds(value: float | None) -> str:
     return "unknown" if value is None else f"{value:.1f} s"
-
-
-def _even(value: float) -> int:
-    return max(2, round(value / 2) * 2)

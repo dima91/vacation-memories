@@ -96,17 +96,6 @@ def test_adjusted_lists_what_differs_from_the_request():
     assert all(p.dissolve_frames == 7 for p in layout.adjusted())  # 25% of 30 frames
 
 
-def test_forced_cut_turns_a_dissolve_into_a_cut():
-    layout = layout_timeline([90, 90], [TransitionRequest(), dissolve(0.8)], FPS, RULES, forced_cuts=frozenset({1}))
-    assert layout.placements[1].dissolve_frames == 0
-    assert "block boundary" in layout.placements[1].note
-
-
-def test_forced_cut_on_a_cut_adds_no_note():
-    layout = layout_timeline([90, 90], [TransitionRequest(), TransitionRequest()], FPS, RULES, forced_cuts=frozenset({1}))
-    assert layout.placements[1].note is None
-
-
 def test_layout_is_exact_for_fractional_frame_rates():
     fps = Fraction(30000, 1001)
     layout = layout_timeline([60, 60], [TransitionRequest(), dissolve(0.8)], fps, RULES)
@@ -128,33 +117,28 @@ def layout_of(requests):
 
 def test_blocks_split_at_the_last_cut_that_fits():
     requests = [TransitionRequest(), dissolve(0.8), TransitionRequest(), dissolve(0.8), dissolve(0.8), TransitionRequest()]
-    blocks, forced = split_blocks(layout_of(requests), block_size=3)
+    blocks = split_blocks(layout_of(requests), block_size=3)
     assert blocks == [range(0, 2), range(2, 5), range(5, 6)]  # cuts into clip 2 and clip 5
-    assert forced == frozenset()
 
 
 def test_a_block_can_end_exactly_at_the_limit():
     requests = [TransitionRequest(), dissolve(0.8), dissolve(0.8), TransitionRequest(), TransitionRequest()]
-    blocks, forced = split_blocks(layout_of(requests), block_size=3)
-    assert blocks == [range(0, 3), range(3, 5)]
-    assert forced == frozenset()
+    assert split_blocks(layout_of(requests), block_size=3) == [range(0, 3), range(3, 5)]
 
 
-def test_a_window_of_dissolves_forces_a_cut_at_the_limit():
-    blocks, forced = split_blocks(layout_of([TransitionRequest()] + [dissolve(0.8)] * 6), block_size=3)
-    assert blocks == [range(0, 3), range(3, 6), range(6, 7)]
-    assert forced == frozenset({3, 6})
+def test_a_window_of_dissolves_ends_at_the_limit_and_keeps_its_dissolves():
+    layout = layout_of([TransitionRequest()] + [dissolve(0.8)] * 6)
+    assert split_blocks(layout, block_size=3) == [range(0, 3), range(3, 6), range(6, 7)]
+    assert all(placement.dissolve_frames for placement in layout.placements[1:])  # joined between the blocks
 
 
 def test_everything_in_one_block_when_it_fits():
-    blocks, forced = split_blocks(layout_of([TransitionRequest()] + [dissolve(0.8)] * 3), block_size=20)
-    assert blocks == [range(0, 4)]
-    assert forced == frozenset()
+    assert split_blocks(layout_of([TransitionRequest()] + [dissolve(0.8)] * 3), block_size=20) == [range(0, 4)]
 
 
 def test_blocks_cover_every_clip_exactly_once():
     requests = [TransitionRequest()] + [dissolve(0.8) if i % 3 else TransitionRequest() for i in range(1, 40)]
-    blocks, _ = split_blocks(layout_of(requests), block_size=7)
+    blocks = split_blocks(layout_of(requests), block_size=7)
     covered = [index for block in blocks for index in block]
     assert covered == list(range(40))
     assert all(len(block) <= 7 for block in blocks)

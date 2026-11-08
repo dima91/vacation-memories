@@ -1,9 +1,10 @@
 """Phase B of rendering: segments joined with dissolves and cuts, then the music.
 
 Long timelines are assembled in blocks of limited size (one filter graph with hundreds of inputs
-would exhaust memory): every block is encoded on its own, then the blocks are concatenated and the
-audio is added in one last pass. A timeline that fits in one block is assembled and finished in a
-single pass. Block boundaries fall on hard cuts (see `transitions.split_blocks`).
+would exhaust memory): every block is encoded on its own, then the blocks are joined and the audio
+is added in one last pass. A timeline that fits in one block is assembled and finished in a
+single pass. A dissolve across a block boundary is made in the last pass, which joins the blocks the
+way a block joins its segments (see `transitions.split_blocks`).
 """
 
 import logging

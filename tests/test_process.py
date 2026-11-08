@@ -144,6 +144,25 @@ def test_a_tool_that_ignores_sigterm_is_killed_after_the_grace_period(tmp_path):
     assert not is_running(pid)
 
 
+def test_the_signal_handler_signals_the_children_without_waiting_for_them(tmp_path):
+    # The handler may interrupt the main thread while it waits on a child and holds the lock of its
+    # Popen: waiting there for the grace period, or reaping the child, would deadlock.
+    marker = tmp_path / "pid"
+    controller = ShutdownController(grace=5.0)
+    child = subprocess.Popen(["sh", "-c", f"trap '' TERM; echo $$ > {marker}; while true; do sleep 0.1; done"],
+                             stdin=subprocess.DEVNULL, start_new_session=True)
+    try:
+        wait_for(marker)
+        controller.register(child)
+        started = time.monotonic()
+        controller.request(signal.SIGTERM)
+        assert time.monotonic() - started < 1
+        assert child.returncode is None  # not reaped by the handler
+    finally:
+        os.killpg(child.pid, signal.SIGKILL)
+        child.wait()
+
+
 def test_nothing_starts_after_a_signal():
     controller = ShutdownController()
     controller.request(signal.SIGHUP)

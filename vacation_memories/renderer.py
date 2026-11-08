@@ -26,16 +26,17 @@ from pathlib import Path
 from vacation_memories import exit_codes
 from vacation_memories.assembly import Assembler, MusicError, music_track_duration, plan_music
 from vacation_memories.atomic import atomic_write_json
-from vacation_memories.doctor import REQUIRED_FFMPEG_ENCODERS, REQUIRED_FFMPEG_FILTERS
+from vacation_memories.doctor import ffmpeg_problem
 from vacation_memories.edit_plan import EditPlan, OutputSpec, PlanError
 from vacation_memories.encoders import choose_assembly_encoder
 from vacation_memories.process import Interrupted, ShutdownController, ToolRunner, parallel_map
 from vacation_memories.render_checks import Check, check_final, failed
 from vacation_memories.render_config import RenderConfig
-from vacation_memories.render_filters import BlockItem, even
+from vacation_memories.render_filters import BlockItem
 from vacation_memories.runtime_profile import DetectionEnv, FFmpegInfo, detect_ffmpeg
 from vacation_memories.segments import REGENERATED, REUSED, SKIPPED, SegmentBuilder, SegmentResult
 from vacation_memories.transitions import layout_timeline, split_blocks
+from vacation_memories.video_format import even
 from vacation_memories.workdir import StatusWriter
 
 logger = logging.getLogger(__name__)
@@ -194,7 +195,8 @@ def _render(plan, input_dir, workdir, output, options, ffmpeg, controller, statu
     spec = preview_output(plan.output, config) if options.preview else plan.output
     size, fps = (spec.width, spec.height), spec.frame_rate
     ffmpeg = ffmpeg or detect_ffmpeg(DetectionEnv(), logger.warning)
-    _require_ffmpeg(ffmpeg)
+    if problem := ffmpeg_problem(ffmpeg):
+        raise RenderError(problem, exit_codes.REQUIREMENTS)
 
     runner = ToolRunner(controller)
     track = _music_track(options, runner)
@@ -235,9 +237,7 @@ def _render(plan, input_dir, workdir, output, options, ffmpeg, controller, statu
         frames = [result.frames for _, result in usable]
         requests = [element.transition_in for element in elements]
         layout = layout_timeline(frames, requests, fps, config.rules)
-        blocks, forced = split_blocks(layout, options.block_size)
-        if forced:
-            layout = layout_timeline(frames, requests, fps, config.rules, forced)
+        blocks = split_blocks(layout, options.block_size)
         for placement in layout.adjusted():
             warn(f"{elements[placement.index].source}: {placement.note}")
 
@@ -267,7 +267,8 @@ def _render(plan, input_dir, workdir, output, options, ffmpeg, controller, statu
                     assembler, blocks, paths, items, work, options, controller, progress
                 )
                 progress.phase("encoding the video", 1)
-                whole = [BlockItem(_block_frames(items[b.start : b.stop]), 0) for b in blocks]
+                # The blocks are joined like segments: a dissolve into the first clip of a block is made here.
+                whole = [BlockItem(_block_frames(items[b.start : b.stop]), items[b.start].dissolve_frames) for b in blocks]
                 assembler.render_final(block_files, whole, partial, encoder, music)
                 progress.advance()
 
@@ -287,7 +288,7 @@ def _render(plan, input_dir, workdir, output, options, ffmpeg, controller, statu
             for check in failed(checks):
                 warn(f"check failed: {check.name}: {check.detail}")
         report = _report(
-            plan, options, final_path if ok else partial, ok, spec, layout, results, usable, blocks, forced,
+            plan, options, final_path if ok else partial, ok, spec, layout, results, usable, blocks,
             checks, music, encoder.name, fallback, warnings, time.monotonic() - started, final_path,
         )
         atomic_write_json(workdir / REPORT_NAME, report)
@@ -298,7 +299,8 @@ def _render(plan, input_dir, workdir, output, options, ffmpeg, controller, statu
 
 
 def _block_frames(items: list[BlockItem]) -> int:
-    return sum(item.frames - item.dissolve_frames for item in items)
+    """Length of a block file: its first clip is whole, since the dissolve into it is made between blocks."""
+    return items[0].frames + sum(item.frames - item.dissolve_frames for item in items[1:])
 
 
 def _render_blocks(assembler, blocks, paths, items, work, options, controller, progress) -> list[Path]:
@@ -337,15 +339,6 @@ def _warn_upscaled(usable, size: tuple[int, int], warn) -> None:
         warn(f"{upscaled} of {len(usable)} selected clips have a resolution lower than the output and are scaled up")
 
 
-def _require_ffmpeg(ffmpeg: FFmpegInfo) -> None:
-    if ffmpeg.ffmpeg_version is None or ffmpeg.ffprobe_version is None:
-        raise RenderError("ffmpeg and ffprobe are required", exit_codes.REQUIREMENTS)
-    missing = [name for name in REQUIRED_FFMPEG_ENCODERS if name not in ffmpeg.encoders]
-    missing += [f"filter {name}" for name in REQUIRED_FFMPEG_FILTERS if name not in ffmpeg.filters]
-    if missing:
-        raise RenderError("FFmpeg lacks: " + ", ".join(missing), exit_codes.REQUIREMENTS)
-
-
 def resolve_output(output: Path, workdir: Path, input_dir: Path, preview: bool) -> Path:
     """The final path of the video: relative to the workdir, never inside the input, in an existing folder."""
     path = output if output.is_absolute() else workdir / output
@@ -363,7 +356,7 @@ def resolve_output(output: Path, workdir: Path, input_dir: Path, preview: bool) 
 
 
 def _report(
-    plan, options, output, ok, spec, layout, results, usable, blocks, forced, checks, music, encoder, fallback,
+    plan, options, output, ok, spec, layout, results, usable, blocks, checks, music, encoder, fallback,
     warnings, elapsed, final_path,
 ) -> dict:
     elements = [element for element, _ in usable]
@@ -399,7 +392,6 @@ def _report(
             ],
         },
         "blocks": [len(block) for block in blocks],
-        "block_boundaries_forced": sorted(forced),
         "music": None
         if music is None
         else {"path": str(music.path), "track_duration": round(music.track_duration, 3), "mode": music.mode,

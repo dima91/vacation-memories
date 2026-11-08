@@ -112,6 +112,15 @@ def test_log_file_defaults_to_run_log_in_the_workdir_and_relative_paths_stay_ins
     assert resolve(cli={"workdir": tmp_path / "w", "log_file": absolute}).log_file == absolute
 
 
+def test_the_workdir_and_the_log_file_cannot_be_inside_the_input(tmp_path):
+    media = tmp_path / "photos"
+    with pytest.raises(ConfigError, match="working folder .* is inside the input folder"):
+        resolve(cli={"input": media, "workdir": media / "work"})
+    with pytest.raises(ConfigError, match="log file .* is inside the input folder"):
+        resolve(cli={"input": media, "workdir": tmp_path / "work", "log_file": media / "run.log"})
+    assert resolve(cli={"input": media, "workdir": tmp_path / "work"}).workdir == tmp_path / "work"
+
+
 class TestOllamaUrl:
     def test_precedence_cli_env_file_then_ollama_host_then_default(self, tmp_path):
         config = write_config(tmp_path, 'ollama_url = "http://localhost:2"\n')

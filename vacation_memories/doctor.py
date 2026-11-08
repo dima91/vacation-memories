@@ -15,7 +15,7 @@ from pathlib import Path
 
 from vacation_memories.config import Settings
 from vacation_memories.media_scanner import heic_available as _heic_available
-from vacation_memories.runtime_profile import GIB, MIB, RuntimeProfile, format_profile
+from vacation_memories.runtime_profile import GIB, MIB, FFmpegInfo, RuntimeProfile, format_profile
 
 MIN_PYTHON = (3, 11)
 REQUIRED_FFMPEG_ENCODERS = ("libx264", "aac")
@@ -76,6 +76,18 @@ def run_doctor(
 
 def has_blocking_failures(checks: Iterable[Check]) -> bool:
     return any(check.status == FAIL for check in checks)
+
+
+def ffmpeg_problem(ffmpeg: FFmpegInfo, *, rendering: bool = True) -> str | None:
+    """What a run cannot do without in FFmpeg, or None; the pipeline and the renderer both ask."""
+    if ffmpeg.ffmpeg_version is None or ffmpeg.ffprobe_version is None:
+        return "ffmpeg and ffprobe are required"
+    if rendering:
+        missing = [name for name in REQUIRED_FFMPEG_ENCODERS if name not in ffmpeg.encoders]
+        missing += [f"filter {name}" for name in REQUIRED_FFMPEG_FILTERS if name not in ffmpeg.filters]
+        if missing:
+            return "FFmpeg lacks: " + ", ".join(missing)
+    return None
 
 
 def format_report(checks: list[Check], profile: RuntimeProfile) -> list[str]:

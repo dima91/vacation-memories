@@ -114,13 +114,8 @@ def layout_timeline(
     requests: list[TransitionRequest],
     fps: Fraction,
     rules: TransitionRules,
-    forced_cuts: frozenset[int] = frozenset(),
 ) -> Layout:
-    """Place the clips on the timeline.
-
-    `requests[i]` is the transition into clip `i` (the first one has none). `forced_cuts` are
-    indexes whose incoming transition must be a cut, whatever was requested (block boundaries).
-    """
+    """Place the clips on the timeline. `requests[i]` is the transition into clip `i` (the first one has none)."""
     if len(clip_frames) != len(requests):
         raise ValueError("one transition request per clip is needed")
     placements: list[Placement] = []
@@ -129,10 +124,7 @@ def layout_timeline(
         if frames < 1:
             raise ValueError(f"clip {index} has no frames")
         dissolve, note = 0, None
-        if index and index in forced_cuts:
-            if request.type == DISSOLVE and request.duration > 0:
-                note = "dissolve turned into a cut at a block boundary"
-        elif index:
+        if index:
             dissolve, note = effective_dissolve_frames(request, clip_frames[index - 1], frames, fps, rules)
         start = start - dissolve if index else 0
         placements.append(Placement(index, start, frames, dissolve, request, note))
@@ -140,27 +132,24 @@ def layout_timeline(
     return Layout(fps, placements)
 
 
-def split_blocks(layout: Layout, block_size: int) -> tuple[list[range], frozenset[int]]:
-    """Group consecutive clips into blocks of at most `block_size`, split at hard cuts.
+def split_blocks(layout: Layout, block_size: int) -> list[range]:
+    """Group consecutive clips into blocks of at most `block_size`, preferably split at hard cuts.
 
-    A block ends at the last cut that fits; when a whole window is joined by dissolves, the
-    dissolve at the limit becomes a cut. Returns the index ranges and the forced cuts.
+    A block ends at the last cut that fits, or at the limit when a whole window is joined by
+    dissolves: that dissolve is made when the blocks are joined, so the block size changes neither
+    the transitions nor the duration of the video.
     """
     if block_size < 1:
         raise ValueError("block_size must be at least 1")
     count = len(layout.placements)
     blocks: list[range] = []
-    forced: set[int] = set()
     first = 0
     while first < count:
         limit = min(first + block_size, count)
         if limit == count:
             blocks.append(range(first, count))
             break
-        cut = next((i for i in range(limit, first, -1) if layout.placements[i].dissolve_frames == 0), None)
-        if cut is None:
-            cut = limit
-            forced.add(cut)
+        cut = next((i for i in range(limit, first, -1) if layout.placements[i].dissolve_frames == 0), limit)
         blocks.append(range(first, cut))
         first = cut
-    return blocks, frozenset(forced)
+    return blocks

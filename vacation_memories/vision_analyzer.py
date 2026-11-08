@@ -5,7 +5,8 @@ are taken in priority order (best technical score first), so partial coverage is
 frames that are not analyzed, or whose analysis fails, simply keep their non-semantic scores.
 
 How many frames are analyzed is decided at runtime. A short warm-up measures the seconds per frame
-of the machine in use; with a time budget the number of frames follows from it, while a fixed number
+of the machine in use; with a time budget the number of frames follows from it, and the clock still
+stops the phase when the budget is spent (the model may slow down after the warm-up). A fixed number
 of frames (`frames`) gives the same selection on any machine. Frames already in the cache cost
 nothing and do not use the budget. Answers are cached per (file, timestamp, model, prompt,
 resolution); failures are not.
@@ -166,6 +167,7 @@ class _Done:
     seconds: float = 0.0
     skipped: bool = False
     stopped: bool = False  # the job is stopping
+    over_budget: bool = False  # the time budget was spent before it could be sent
 
 
 def prioritize(candidates: list[Candidate]) -> list[Candidate]:
@@ -261,6 +263,8 @@ class _Run:
         """Fold in the outcome of a frame that was sent to the model; stop after repeated failures."""
         if done.stopped:
             self._advance(1)
+        elif done.over_budget:
+            self.skip(1, after_failures=False)
         elif done.skipped:
             self.coverage.skipped_after_failures += 1
             self._advance(1)
@@ -307,12 +311,16 @@ def _compute(
 ) -> None:
     coverage = run.coverage
     stop = threading.Event()
+    started = run.clock()
+    deadline = None  # with a time budget, set after the warm-up
 
     def work(target: _Target) -> _Done:
         if stopping():
             return _Done(target, stopped=True)
         if stop.is_set():
             return _Done(target, skipped=True)
+        if deadline is not None and run.clock() >= deadline:
+            return _Done(target, over_budget=True)
         start = run.clock()
         try:
             image = _load_frame(target)
@@ -354,12 +362,19 @@ def _compute(
         if len(remaining) > affordable:
             run.skip(len(remaining) - affordable, after_failures=False)
             remaining = remaining[:affordable]
+        deadline = started + coverage.limit
 
+    skipped_before = coverage.skipped_by_budget
     with ThreadPoolExecutor(max_workers=max_concurrency) as pool:
         for future in [pool.submit(work, target) for target in remaining]:
             run.record(future.result())
             if coverage.aborted:
                 stop.set()
+    if late := coverage.skipped_by_budget - skipped_before:
+        logger.warning(
+            "AI analysis: the time budget of %g s is spent, slower than the warm-up foresaw: %d frame(s) keep only "
+            "their non-semantic scores", coverage.limit, late,
+        )
 
 
 def _load_frame(target: _Target) -> Image.Image:

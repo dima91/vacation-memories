@@ -387,7 +387,20 @@ def resolve_settings(cli: Mapping[str, object], env: Mapping[str, str]) -> Setti
     workdir = values["workdir"]
     log_file = values["log_file"]
     values["log_file"] = workdir / "run.log" if log_file is None else workdir / log_file
+    _check_outside_input(values)
     return Settings(**values, selection=selection, sources=sources)
+
+
+def _check_outside_input(values: dict[str, object]) -> None:
+    """Nothing is ever written inside `--input`: not the workdir (cache, segments, lock), not the log."""
+    if values["input"] is None:
+        return
+    input_dir = Path(values["input"]).resolve()
+    for key, what in (("workdir", "working folder"), ("log_file", "log file")):
+        path = Path(values[key])
+        if path.resolve().is_relative_to(input_dir):
+            raise ConfigError(f"the {what} {path} is inside the input folder {values['input']}: nothing is ever "
+                              "written there")
 
 
 def _parse(key: str, parse: Callable[[object], object], raw: object, origin: str) -> object:

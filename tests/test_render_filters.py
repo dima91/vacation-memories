@@ -9,12 +9,12 @@ from vacation_memories.render_filters import (
     audio_graph,
     block_graph,
     compose,
-    even,
     fps_text,
     photo_segment_graph,
     seconds_text,
     video_segment_graph,
 )
+from vacation_memories.video_format import even
 
 CONFIG = RenderConfig()
 FPS = Fraction(30)

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import signal
 import socket
 import sqlite3
 
@@ -10,7 +11,7 @@ from fake_ollama import FakeOllama
 
 from vacation_memories import cli, exit_codes, pipeline, technical_analysis
 from vacation_memories.media_probe import probe
-from vacation_memories.process import ToolRunner
+from vacation_memories.process import Interrupted, ToolRunner
 from vacation_memories.renderer import REPORT_NAME, RenderResult
 from vacation_memories.synthetic_media import populate_vacation
 
@@ -185,6 +186,14 @@ class TestPaths:
         assert "does not exist" in capsys.readouterr().err
         assert not (tmp_path / "work" / "cache.sqlite3").exists()  # nothing was analyzed
 
+    def test_a_workdir_inside_the_input_is_refused_before_anything_is_written(self, tmp_path, capsys):
+        media = tmp_path / "media"
+        populate_vacation(media, photos=2, videos=0, days=1)
+        before = sorted(media.rglob("*"))
+        assert run(media, media / "work", "--no-ai", "--analyze-only") == exit_codes.USAGE
+        assert "inside the input folder" in capsys.readouterr().err
+        assert sorted(media.rglob("*")) == before
+
     def test_a_missing_input_folder_or_music_file_is_a_usage_error(self, few, tmp_path):
         assert run(tmp_path / "nope", tmp_path / "work", "--no-ai") == exit_codes.USAGE
         assert run(few, tmp_path / "work", "--no-ai", "--music", str(tmp_path / "none.mp3")) == exit_codes.USAGE
@@ -211,6 +220,22 @@ class TestResume:
         assert run(few, work, "--no-ai", "--dry-run", "--resume", "--jobs", "1", "--nice", "1") == exit_codes.OK
         assert json.loads((work / "edit_plan.json").read_text())["requested_duration"] == 20
         assert run(few, work, "--no-ai", "--dry-run", "--duration", "20", "--resume") == exit_codes.OK
+
+    def test_a_resumed_render_only_keeps_the_size_it_was_given(self, few, tmp_path, monkeypatch):
+        work = tmp_path / "work"
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "15", *SMALL_FRAME) == exit_codes.OK
+        rendered = []
+
+        def render_once_interrupted(plan, **kwargs):
+            rendered.append((plan.output.width, plan.output.height))
+            if len(rendered) == 1:
+                raise Interrupted(signal.SIGTERM)
+            return RenderResult(True, kwargs["output"], {"obtained_duration": plan.planned_duration})
+
+        monkeypatch.setattr(pipeline, "render_plan", render_once_interrupted)
+        assert run(few, work, "--render-only", "--resolution", "480p") == 128 + signal.SIGTERM
+        assert run(few, work, "--resume") == exit_codes.OK
+        assert rendered == [(852, 480), (852, 480)]  # the plan's proportions, 480 px on the short side
 
     def test_resume_without_a_previous_run_exits_2(self, few, tmp_path, capsys):
         assert run(few, tmp_path / "work", "--no-ai", "--resume") == exit_codes.USAGE

@@ -91,6 +91,7 @@ class Section:
     share: float  # proportion used when budget is redistributed
     budget: float
     allowed: tuple[float, float] | None  # range in seconds, None for the compressed and chronological sections
+    max_clips: int | None = None  # the compressed Closing is a single clip
     pool: list[RankedCandidate] = field(default_factory=list)
     clips: list[Clip] = field(default_factory=list)  # in chronological order
     initial_budget: float = 0.0
@@ -203,7 +204,7 @@ class _Planner:
                 Section("opening", shares["opening"].share, opening, None),
                 Section(BODY, sum(shares[name].share for name in ("beginning", "development", "finale")),
                         target - opening - closing, None),
-                Section("closing", shares["closing"].share, closing, None),
+                Section("closing", shares["closing"].share, closing, None, max_clips=1),
             ]
             return [section for section in sections if section.budget > 0]
 
@@ -235,8 +236,10 @@ class _Planner:
         # The segments of the Closing's videos cannot fill the band before it: they are not its material.
         closing_files = {clip.item.candidate.rel_path for section in self.sections if section.name == "closing"
                          for clip in section.clips if clip.item.candidate.kind == VIDEO}
-        weights = [0.0 if item.candidate.rel_path in closing_files else self._range(item, bands[0].name)[2]
-                   for item in remaining]
+        weights = []
+        for item in remaining:
+            found = self._range(item, bands[0].name)
+            weights.append(0.0 if found is None or item.candidate.rel_path in closing_files else found[2])
         cumulative = np.cumsum(weights) if weights else np.array([])
         total = float(cumulative[-1]) if len(cumulative) else 0.0
         budget_total = sum(band.budget for band in bands)
@@ -425,6 +428,8 @@ class _Planner:
         rejected: set[str] = set()
         blocked: set[str] = set()
         while True:
+            if section.max_clips is not None and len(section.clips) >= section.max_clips:
+                return blocked
             best = None
             totals = self._totals(section)
             for item in section.pool:
@@ -463,7 +468,11 @@ class _Planner:
         return [section]
 
     def _extend_shot(self, section: Section, moment: RankedCandidate) -> bool:
-        """A further good moment of a video already in the section lengthens its nearest shot, if one can grow."""
+        """A further good moment of a video already in the section lengthens its nearest shot toward the moment.
+
+        Only toward it: a shot blocked on that side does not grow on the other one, where every round
+        would add a segment that nobody chose while the moment itself stays out.
+        """
         if self.short or section.name == "opening" or moment.candidate.kind != VIDEO:
             return False
         if moment.moment_type in SINGLE_PIECE_MOMENTS:
@@ -472,11 +481,10 @@ class _Planner:
                  and clip.item.moment_type not in SINGLE_PIECE_MOMENTS]
         shots.sort(key=lambda clip: abs(clip.item.candidate.start - moment.candidate.start))
         for shot in shots:
-            sides = (1, -1) if moment.candidate.start > shot.item.candidate.start else (-1, 1)
-            for step in sides:
-                window = self._neighbor(shot, step)
-                if window is not None and self._lengthen(section, shot, window, step):
-                    return True
+            step = 1 if moment.candidate.start > shot.item.candidate.start else -1
+            window = self._neighbor(shot, step)
+            if window is not None and self._lengthen(section, shot, window, step):
+                return True
         return False
 
     def _neighbor(self, shot: Clip, step: int) -> RankedCandidate | None:
