@@ -9,7 +9,7 @@ import sqlite3
 import pytest
 from fake_ollama import FakeOllama
 
-from vacation_memories import cli, exit_codes, pipeline, technical_analysis
+from vacation_memories import analysis, cli, exit_codes, pipeline, technical_analysis
 from vacation_memories.media_probe import probe
 from vacation_memories.process import Interrupted, ToolRunner
 from vacation_memories.renderer import REPORT_NAME, RenderResult
@@ -124,7 +124,7 @@ class TestModes:
         def no_scan(*args, **kwargs):
             raise AssertionError("--render-only scanned the media")
 
-        monkeypatch.setattr(pipeline, "scan_media", no_scan)
+        monkeypatch.setattr(analysis, "scan_media", no_scan)
         assert run(few, work, "--render-only", "--duration", "60", "--require-ai") == exit_codes.OK
         assert (work / "memories.mp4").exists()
         assert "--duration 60.0 is ignored" in log_of(work)
@@ -247,7 +247,7 @@ class TestResume:
         config = json.loads((work / "run_config.json").read_text())
         assert config["plan_ready"] and config["state"] == "done" and config["params"]["duration"] == 15
 
-        monkeypatch.setattr(pipeline, "scan_media", lambda *a, **k: (_ for _ in ()).throw(AssertionError("scanned")))
+        monkeypatch.setattr(analysis, "scan_media", lambda *a, **k: (_ for _ in ()).throw(AssertionError("scanned")))
         assert run(few, work, "--no-ai", "--resume") == exit_codes.OK
         assert json.loads((work / REPORT_NAME).read_text())["segments"]["reused"] > 0
 
