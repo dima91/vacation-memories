@@ -415,3 +415,18 @@ class TestThePlan:
         assert all(e.transition_in.type == "cut" for e in elements[1:] if e.section == "opening")
         first_body = next(e for e in elements if e.section == "beginning")
         assert first_body.transition_in.type == "dissolve"
+
+
+def test_the_result_names_the_candidate_of_every_clip_what_is_shown_and_the_pool_of_the_others():
+    """What the evaluation needs to say why a candidate was left out."""
+    items = vacation(150, moments=MOMENTS) + shot("day2/long.mp4", START + timedelta(days=1, hours=3),
+                                                    [0.95, 0.9, 0.9, 0.9], seconds=4.0)
+    result = plan(items, 300)
+    assert len(result.chosen_by) == len(result.plan.elements)
+    for element, candidate_id in zip(result.plan.elements, result.chosen_by):
+        assert candidate_id.split("#")[0] == element.source
+    assert set(result.chosen_by) <= result.shown
+    extended = [element for element in result.plan.elements if element.reason and "continuous shot" in element.reason]
+    assert extended and len(result.shown) > len(result.chosen_by)  # the further segments of a continuous shot
+    left_out = [item for item in items if item.id not in result.shown]
+    assert left_out and all(result.pools[item.id] in ("beginning", "development", "finale") for item in left_out)

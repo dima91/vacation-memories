@@ -258,7 +258,7 @@ Package `vacation_memories/` with independent modules:
 - rendering: `render_config`, `render_filters`, `encoders`, `segments` (phase A), `assembly` (phase B), `render_checks`, `renderer`;
 - running: `cli`, `config`, `pipeline`, `doctor`, `runtime_profile`, `process` (FFmpeg runner and orderly shutdown), `workdir` (lock and `status.json`), `atomic`, `logging_setup`, `exit_codes`;
 - tests: `synthetic_media` (synthetic photos, clips and vacations);
-- from Milestone 2: `evaluate`, a package (`ground_truth`, `metrics`, `synthetic`).
+- from Milestone 2: `evaluate`, a package (`ground_truth`, `metrics`, `synthetic`, `prepare`, `page`, `report`, `labels`).
 
 Starting with fewer files and splitting later is allowed. At the repository root: `Dockerfile`, `compose*.yaml`, `.env.example`, `docker/`, `scripts/`.
 
@@ -626,14 +626,33 @@ Technical metrics do not say whether the video is really good. This system measu
 
 `evaluate` subcommand (`docker compose run --rm app evaluate ...`), with three actions:
 - `synthetic`: automatic evaluation on the synthetic dataset (also runnable in pytest), never with the AI: `--duration` (default 90 s), `--seeds` (random plans, default 100), `--dataset-seed`;
-- `prepare`: creates `<workdir>/eval/<run_id>/` with the variants' previews, the thumbnails and `review.html`;
-- `report`: reads the `ratings.json` exported from the page and produces `eval_report.md` (readable) and `eval_summary.json` (anonymous).
+- `prepare`: creates `<workdir>/eval/<run_id>/` with the variants' previews, the thumbnails and `review.html`: `--duration` (default 90 s), `--variants` (default `full,random`), `--seed` (of `random`), `--run-id` (default the date and time), `--music`, `--aspect`;
+- `report`: reads the `ratings.json` exported from the page and produces `eval_report.md` (readable) and `eval_summary.json` (anonymous): `--run-id` (default the latest prepared run), `--ratings` (default `eval/<run_id>/ratings.json`).
 
 `review.html` is a local static page, with no server or external resources: it works by opening the file. It contains the preview with the list of clips (thumbnail, start time, duration, section, `moment_type`; clicking the time takes the video to that point), the buttons for the flags, the gallery of excluded clips and the ratings. It saves in the browser while you work and exports `ratings.json` with a button. It is designed to be reused by the Milestone 4 gallery. On a headless server the `eval/<run_id>/` folder is self-contained (relative paths) and is copied to the computer from which it is viewed (rsync/scp); the program never opens a browser and only prints the path.
 
 **Persistent labels and history**
 - The flags are associated with a stable segment ID (source, start, end). If the segmentation changes, the association is made by temporal overlap above a threshold. In later cycles it is enough to review what is new, and the metrics on important moments included and on clips already flagged as repetitive are computed automatically on the new configuration.
 - `eval_history.json` records for each cycle the configuration hash, code version, metrics and ratings, to compare cycles with each other.
+
+Implemented (E2):
+- **Run folder.** `prepare` holds the workdir lock and uses the pipeline's analysis and cache, with the AI per the settings (`--require-ai`: code 4). It writes `eval/<run_id>/`:
+  - `variants/<letter>_preview.mp4`: one preview per variant. `no-ai` scores the same candidates without the AI answers; `technical-only` sets both scores to `technical_score`;
+  - `thumbs/`: 240 px;
+  - `review.html`;
+  - `prepare.json`: everything `report` needs, keyed by letter, with no variant name and no reason of a clip;
+  - `mapping.json`: the letters, plus the seeds of `random`, of the letters and of the gallery.
+
+  `prepare.json` is written last: an interrupted run (code 128 + signal) is prepared again from scratch under the same id, and a prepared one is not overwritten (code 2). The page shows the AI `moment_type` of each segment, the same in every variant, so the variants are not told apart by it. The copy to the viewing computer leaves out the JSON files.
+- **Gallery of excluded candidates.** Relative to `full`: the 12 best by score, one per file, plus up to 6 per reason. The reasons:
+  - `technical_threshold` and `duplicate`;
+  - `budget`: eligible, scored at least as high as the lowest clip chosen from the pool of its chronological section;
+  - `ranking`: eligible, scored lower;
+  - `too_short`: a segment shorter than any clip.
+- **Labels.** A segment is the same as a labelled one of the same source when their intersection over union is at least 0.5. A clip shows a labelled segment when it covers 1 s of it, or half of a shorter one: the rule of the synthetic metrics.
+- **Summary.** Segment ids in `eval_summary.json` are an HMAC-SHA256 with the salt `eval/.salt` (mode 0600). The similarity of a clip is the hash similarity to the most similar other clip of the same variant.
+- **Comparison.** `full` beats `random` by rating, then by rank. Below 10 comparisons the report says "indicative, not statistical".
+- **Locks and output.** `report` takes the lock of `eval/` (code 5), not the workdir's, so it can run during a job, and a second report of a run replaces its cycle. The page is built by `page_data` (the model) and `render_page` (the HTML).
 
 **Procedure for every significant change:** regenerate the plan (analysis cached if unchanged) → `evaluate prepare` → viewing and ratings → `evaluate report` → comparison with the previous cycle and with `random`. No success threshold is fixed a priori: the first cycle, on the Milestone 1 result, sets the baseline.
 

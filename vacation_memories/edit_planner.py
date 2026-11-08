@@ -110,6 +110,9 @@ class Section:
 class PlanningResult:
     plan: EditPlan
     report: dict
+    chosen_by: tuple[str, ...] = ()  # for every element of the plan, the candidate that chose it
+    shown: frozenset[str] = frozenset()  # every candidate whose segment is in the plan, continuous shots included
+    pools: dict[str, str] = field(default_factory=dict)  # candidate id -> chronological section whose pool held it
 
 
 def estimated_clip_count(target: float, config: SelectionConfig) -> int:
@@ -234,7 +237,12 @@ class _Planner:
         plan = self._build_plan(sequence, assumed_tz)
         plan, layout = finalize_timeline(plan, self.rules)
         report = self._report(sequence, plan, layout)
-        return PlanningResult(plan, report)
+        pools = {item.id: section.name for section in self.sections if section.name not in ("opening", "closing")
+                 for item in section.pool}
+        return PlanningResult(
+            plan, report, chosen_by=tuple(clip.item.id for clip in sequence),
+            shown=frozenset(window.id for clip in sequence for window in clip.windows), pools=pools,
+        )
 
     # --- sections and budgets --------------------------------------------------------------------
 

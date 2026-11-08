@@ -485,6 +485,76 @@ print("only /work is writable")
 '
 }
 
+# --- checks: evaluation of the edit ---
+
+# `evaluate prepare` on the synthetic media, with the simulated Ollama, once.
+ensure_eval() {
+    ensure_media || return 1
+    ensure_ollama || return 1
+    stamp eval && return 0
+    app evaluate prepare --duration 15 --run-id docker >"$SCRATCH/eval.out" 2>&1
+    echo $? >"$SCRATCH/eval.exit"
+    mark eval
+}
+
+check_eval_prepare() {
+    ensure_eval || return 1
+    tail -n 8 "$SCRATCH/eval.out"
+    [[ $(<"$SCRATCH/eval.exit") == 0 ]] || { echo "exit code $(<"$SCRATCH/eval.exit")"; return 1; }
+    dev python - "$SCRATCH_REL/work/eval/docker" <<'PY'
+import json, sys
+from pathlib import Path
+
+run = Path(sys.argv[1])
+prepared = json.loads((run / "prepare.json").read_text())
+assert prepared["ai"]["used"], "the AI was not used"
+page = (run / "review.html").read_text()
+assert "http://" not in page and "https://" not in page, "the page has an external reference"
+for variant in prepared["variants"].values():
+    assert (run / variant["video"]).stat().st_size > 0, variant["video"]
+thumbs = [entry["thumb"] for entry in prepared["segments"].values()]
+assert thumbs and all(thumb and (run / thumb).is_file() for thumb in thumbs), "thumbnails missing"
+assert (run / "mapping.json").is_file()
+print(f"{len(prepared['variants'])} previews, {len(thumbs)} thumbnails, a page without external references")
+PY
+}
+
+check_eval_report() {
+    ensure_eval || return 1
+    [[ $(<"$SCRATCH/eval.exit") == 0 ]] || { echo "evaluate prepare failed"; return 1; }
+    # The ratings, as the page exports them.
+    dev python - "$SCRATCH_REL/work/eval/docker" <<'PY' || return 1
+import json, sys
+from pathlib import Path
+
+run = Path(sys.argv[1])
+prepared = json.loads((run / "prepare.json").read_text())
+ratings = {"version": 1, "run_id": prepared["run_id"], "excluded": {}, "variants": {}}
+for number, (letter, variant) in enumerate(sorted(prepared["variants"].items())):
+    ratings["variants"][letter] = {
+        "rating": 4 - number, "rank": number + 1, "rhythm": {},
+        "clips": {clip["key"]: {"repetitive": index == 0, "length": "ok"} for index, clip in enumerate(variant["clips"])},
+    }
+for index, item in enumerate(prepared["excluded"]):
+    ratings["excluded"][item["key"]] = {"important": index == 0}
+(run / "ratings.json").write_text(json.dumps(ratings))
+PY
+    dc run --rm -T --no-deps app evaluate report --run-id docker || return 1
+    dev python - "$SCRATCH_REL/work/eval/docker" <<'PY'
+import json, re, sys
+from pathlib import Path
+
+run = Path(sys.argv[1])
+text = (run / "eval_summary.json").read_text()
+summary = json.loads(text)
+assert {"full", "random"} <= set(summary["variants"]), list(summary["variants"])
+for private in (r"IMG_", r"VID_", r"vacation/", r"_day\d", r"\.jpg", r"\.mp4", r"thumbs/", r"\d{4}-\d\d-\d\d"):
+    assert not re.search(private, text), f"the summary contains {private!r}"
+assert (run / "eval_report.md").is_file() and (run.parent / "eval_history.json").is_file()
+print(f"cycle {summary['cycle']}: {', '.join(sorted(summary['variants']))}; the summary names no file")
+PY
+}
+
 check_stop_and_resume() {
     ensure_media || return 1
     ensure_ollama || return 1
@@ -572,6 +642,8 @@ run_check "cycle: originals unchanged" check_cycle_media_unchanged
 run_check "cycle: nothing written outside /work" check_cycle_nothing_outside_work
 run_check "cycle: limits of 1 CPU and 1 GiB read by the profile" check_cycle_limits
 run_check "app: hardening" check_app_hardening
+run_check "evaluate: prepare with the simulated Ollama, a page without external references" check_eval_prepare
+run_check "evaluate: report with --no-deps, an anonymous summary" check_eval_report
 run_check "stop: SIGTERM during rendering, then resume" check_stop_and_resume
 
 echo
