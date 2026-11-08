@@ -189,6 +189,16 @@ class TestPhase:
         outcome = analyze_candidates(candidates, media, make_analyzer(fake_ollama), time_budget=7.0, clock=clock)
         assert len(outcome.results) == 7
 
+    def test_the_budget_holds_when_the_model_slows_down_after_the_warm_up(self, fake_ollama, media, candidates, caplog):
+        clock = FakeClock()
+        seconds = iter([1.0] * 3 + [100.0] * 7)  # e.g. the integrated GPU is lost after the warm-up
+        fake_ollama.on_chat = lambda body: (clock.advance(next(seconds)), Reply(VALID_ANSWER))[1]
+        with caplog.at_level(logging.WARNING):
+            outcome = analyze_candidates(candidates, media, make_analyzer(fake_ollama), time_budget=10.0, clock=clock)
+        assert len(fake_ollama.chat_requests) == 4  # the warm-up, then one slow frame spends the budget
+        assert len(outcome.results) == 4 and outcome.coverage.skipped_by_budget == 6
+        assert "time budget of 10 s is spent" in caplog.text
+
     def test_a_budget_that_covers_everything_analyzes_every_candidate(self, fake_ollama, media, candidates):
         clock = FakeClock()
         fake_ollama.on_chat = lambda body: (clock.advance(1.0), Reply(VALID_ANSWER))[1]
