@@ -466,7 +466,11 @@ class _Planner:
         return [section]
 
     def _extend_shot(self, section: Section, moment: RankedCandidate) -> bool:
-        """A further good moment of a video already in the section lengthens its nearest shot, if one can grow."""
+        """A further good moment of a video already in the section lengthens its nearest shot toward the moment.
+
+        Only toward it: a shot blocked on that side does not grow on the other one, where every round
+        would add a segment that nobody chose while the moment itself stays out.
+        """
         if self.short or section.name == "opening" or moment.candidate.kind != VIDEO:
             return False
         if moment.moment_type in SINGLE_PIECE_MOMENTS:
@@ -475,11 +479,10 @@ class _Planner:
                  and clip.item.moment_type not in SINGLE_PIECE_MOMENTS]
         shots.sort(key=lambda clip: abs(clip.item.candidate.start - moment.candidate.start))
         for shot in shots:
-            sides = (1, -1) if moment.candidate.start > shot.item.candidate.start else (-1, 1)
-            for step in sides:
-                window = self._neighbor(shot, step)
-                if window is not None and self._lengthen(section, shot, window, step):
-                    return True
+            step = 1 if moment.candidate.start > shot.item.candidate.start else -1
+            window = self._neighbor(shot, step)
+            if window is not None and self._lengthen(section, shot, window, step):
+                return True
         return False
 
     def _neighbor(self, shot: Clip, step: int) -> RankedCandidate | None:
