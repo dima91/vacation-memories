@@ -161,13 +161,18 @@ def render_plan(
     controller: ShutdownController | None = None,
     status: StatusWriter | None = None,
     finish_status: bool = True,
+    report_path: Path | None = None,
 ) -> RenderResult:
-    """Render `plan` into `output` (a relative path is resolved inside the workdir)."""
+    """Render `plan` into `output` (a relative path is resolved inside the workdir).
+
+    The report goes to `report_path`, by default `<workdir>/render_report.json`.
+    """
     options = options or RenderOptions()
     controller = controller or ShutdownController()
     workdir, input_dir = Path(workdir).absolute(), Path(input_dir).absolute()
+    report_path = workdir / REPORT_NAME if report_path is None else Path(report_path)
     try:
-        result = _render(plan, input_dir, workdir, Path(output), options, ffmpeg, controller, status)
+        result = _render(plan, input_dir, workdir, Path(output), options, ffmpeg, controller, status, report_path)
     except Interrupted:
         if status and finish_status:
             status.finish("interrupted")
@@ -181,7 +186,7 @@ def render_plan(
     return result
 
 
-def _render(plan, input_dir, workdir, output, options, ffmpeg, controller, status) -> RenderResult:
+def _render(plan, input_dir, workdir, output, options, ffmpeg, controller, status, report_path) -> RenderResult:
     config = options.config
     warnings: list[str] = []
 
@@ -291,7 +296,7 @@ def _render(plan, input_dir, workdir, output, options, ffmpeg, controller, statu
             plan, options, final_path if ok else partial, ok, spec, layout, results, usable, blocks,
             checks, music, encoder.name, fallback, warnings, time.monotonic() - started, final_path,
         )
-        atomic_write_json(workdir / REPORT_NAME, report)
+        atomic_write_json(report_path, report)
         _log_outcome(report)
         return RenderResult(ok, final_path if ok else partial, report)
     finally:
