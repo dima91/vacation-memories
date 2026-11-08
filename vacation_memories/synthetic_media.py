@@ -7,25 +7,42 @@ rendered with Pillow/NumPy and encoded by FFmpeg from an image sequence.
 Two kinds of scene: the regular patterns (`render_scene_frame`), and mosaics of
 random color blocks (`render_mosaic_frame`), sharp and all different from one
 another for the perceptual hash, which make a whole synthetic vacation
-(`populate_vacation`) with known capture dates.
+(`populate_vacation`) with known capture dates. The evaluation vacation
+(`populate_evaluation_vacation`) adds places, repetitions, defects and important
+moments, described in its `ground_truth.json`.
 
 Usage: python -m vacation_memories.synthetic_media OUTPUT_DIR [--seed N]
        python -m vacation_memories.synthetic_media OUTPUT_DIR --vacation [--photos N] [--videos N] [--days N]
+       python -m vacation_memories.synthetic_media OUTPUT_DIR --evaluation [--days N] [--places-per-day N]
 """
 
 import argparse
 import colorsys
+import itertools
 import os
 import random
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+from vacation_memories.evaluate.ground_truth import (
+    BLACK,
+    BLURRED,
+    MOTION,
+    NEAR_DUPLICATE,
+    SIMILAR_SCENE,
+    UNIQUE,
+    GroundTruth,
+    TruthFile,
+    TruthScene,
+)
 
 PATTERN_COUNT = 6
 EXIF_DATE_FORMAT = "%Y:%m:%d %H:%M:%S"
@@ -87,6 +104,27 @@ def render_scene_frame(
 
 MOSAIC_COLUMNS = 8
 MOSAIC_ROWS = 6
+MOSAIC_PAN_SPEED = 0.25  # frame widths per second
+PALETTE_HUE_SPREAD = 0.08  # the blocks of a palette stay this close to its hue
+
+
+@dataclass(frozen=True)
+class MosaicView:
+    """The part of a scene's mosaic a shot shows: offsets as fractions of the frame, and a zoom."""
+
+    x: float = 0.0
+    y: float = 0.0
+    zoom: float = 1.0
+
+
+def _mosaic_blocks(scene_id: int, seed: int, hue: float | None) -> np.ndarray:
+    rng = np.random.RandomState((seed * 1_000_003 + scene_id) % 2**32)
+    shape = (MOSAIC_ROWS, MOSAIC_COLUMNS + 4)
+    if hue is None:
+        return rng.randint(0, 256, (*shape, 3)).astype(np.uint8)
+    hues = (hue + rng.uniform(-PALETTE_HUE_SPREAD, PALETTE_HUE_SPREAD, shape)) % 1.0
+    channels = np.vectorize(colorsys.hsv_to_rgb)(hues, rng.uniform(0.4, 1.0, shape), rng.uniform(0.15, 1.0, shape))
+    return (np.stack(channels, axis=-1) * 255).astype(np.uint8)
 
 
 def render_mosaic_frame(
@@ -98,13 +136,22 @@ def render_mosaic_frame(
     t: float = 0.0,
     blur: float = 0.0,
     brightness: float = 1.0,
+    speed: float = MOSAIC_PAN_SPEED,
+    view: MosaicView | None = None,
+    hue: float | None = None,
 ) -> Image.Image:
-    """A mosaic of random color blocks, panning by a quarter of the width per second, with the scene label."""
-    rng = np.random.RandomState((seed * 1_000_003 + scene_id) % 2**32)
-    blocks = rng.randint(0, 256, (MOSAIC_ROWS, MOSAIC_COLUMNS + 4, 3)).astype(np.uint8)
+    """A mosaic of color blocks, panning by `speed` frame widths per second, with the scene label.
+
+    `view` frames another part of the same mosaic (the same scene seen from elsewhere); `hue` draws
+    the blocks around one hue, like the palette of a place, instead of from every color.
+    """
+    blocks = _mosaic_blocks(scene_id, seed, hue)
+    view = view or MosaicView()
     y, x = np.mgrid[0:height, 0:width]
-    shift = round(t * width / 4)
-    pixels = blocks[y * MOSAIC_ROWS // height, ((x + shift) * MOSAIC_COLUMNS // width) % blocks.shape[1]]
+    shift = round(t * speed * width)
+    columns = ((x / view.zoom + view.x * width + shift) * MOSAIC_COLUMNS // width).astype(int) % blocks.shape[1]
+    rows = np.clip(((y / view.zoom + view.y * height) * MOSAIC_ROWS // height).astype(int), 0, MOSAIC_ROWS - 1)
+    pixels = blocks[rows, columns]
     image = Image.fromarray(pixels, "RGB")
     _draw_label(image, scene_id)
     if blur > 0:
@@ -135,12 +182,31 @@ def make_photo(
     blur: float = 0.0,
     brightness: float = 1.0,
     mosaic: bool = False,
+    view: MosaicView | None = None,
+    hue: float | None = None,
 ) -> None:
-    """Write a JPEG, PNG or HEIC photo, with optional EXIF date and orientation."""
-    path = Path(path)
-    render = render_mosaic_frame if mosaic else render_scene_frame
-    image = render(scene_id, width, height, seed=seed, blur=blur, brightness=brightness)
+    """Write a JPEG, PNG or HEIC photo of a scene, with optional EXIF date and orientation.
 
+    `view` and `hue` apply to mosaics (see `render_mosaic_frame`).
+    """
+    if mosaic:
+        image = render_mosaic_frame(scene_id, width, height, seed=seed, blur=blur, brightness=brightness,
+                                    view=view, hue=hue)
+    else:
+        image = render_scene_frame(scene_id, width, height, seed=seed, blur=blur, brightness=brightness)
+    save_photo(image, path, capture_datetime=capture_datetime, exif_orientation=exif_orientation)
+
+
+def save_photo(
+    image: Image.Image,
+    path: Path,
+    *,
+    capture_datetime: datetime | None = None,
+    exif_orientation: int | None = None,
+    quality: int = 92,
+) -> None:
+    """Write `image` as a JPEG (with `quality`), PNG or HEIC photo, with optional EXIF date and orientation."""
+    path = Path(path)
     exif = Image.Exif()
     if exif_orientation is not None:
         exif[EXIF_ORIENTATION] = exif_orientation
@@ -158,7 +224,7 @@ def make_photo(
     elif suffix == ".png":
         image.save(path, format="PNG")
     else:
-        image.save(path, format="JPEG", quality=92, exif=exif)
+        image.save(path, format="JPEG", quality=quality, exif=exif)
 
 
 def make_video(
@@ -173,24 +239,29 @@ def make_video(
     rotation: int = 0,
     audio: bool = False,
     mosaic: bool = False,
+    scene_options: list[dict] | None = None,
 ) -> None:
     """Encode a clip made of consecutive scenes `(scene_id, seconds)` with H.264.
 
-    `rotation` only adds rotation metadata: the tag is stored with `-c copy` in a second pass,
-    because FFmpeg 5.1 ignores it while encoding. The sign convention is FFmpeg's.
+    `scene_options` gives, scene by scene, more arguments of the renderer (e.g. `speed`, `hue` or
+    `brightness` of a mosaic). `rotation` only adds rotation metadata: the tag is stored with
+    `-c copy` in a second pass, because FFmpeg 5.1 ignores it while encoding. The sign convention is FFmpeg's.
     """
     path = Path(path)
     if width % 2 or height % 2:
         raise ValueError("video dimensions must be even")
     if rotation not in (0, 90, 180, 270):
         raise ValueError("rotation must be 0, 90, 180 or 270")
+    options = scene_options or [{}] * len(scenes)
+    if len(options) != len(scenes):
+        raise ValueError("one set of scene options per scene is needed")
 
     render = render_mosaic_frame if mosaic else render_scene_frame
     with tempfile.TemporaryDirectory(prefix="synthetic-frames-") as tmp:
         index = 0
-        for scene_id, seconds in scenes:
+        for (scene_id, seconds), extra in zip(scenes, options):
             for n in range(round(seconds * fps)):
-                frame = render(scene_id, width, height, seed=seed, t=n / fps)
+                frame = render(scene_id, width, height, seed=seed, t=n / fps, **extra)
                 frame.save(Path(tmp) / f"f{index:05d}.png", compress_level=1)
                 index += 1
         total = index / fps
@@ -352,6 +423,156 @@ def _split(total: int, weights: list[float]) -> list[int]:
     return counts
 
 
+EVALUATION_VERSION = 1  # bump when the evaluation vacation changes: an older one is generated again
+# Measured with the hash backend: pairs of these views of a scene stay below the near-duplicate threshold
+# (at most 0.875 against 0.906 on 40 scenes), while unrelated mosaics are about 0.57 alike. With the default
+# seed the hash groups exactly the bursts; another seed may group a pair of views, or miss the cut between
+# two scenes of a clip, and the metrics then measure the analysis as it is.
+REFRAMINGS = (MosaicView(), MosaicView(0.10, 0.08, 1.2), MosaicView(0.04, 0.09, 1.2))
+NEAR_DUPLICATE_BRIGHTNESS = 0.92
+NEAR_DUPLICATE_QUALITY = 40
+NEAR_DUPLICATE_SCALE = 0.9
+BURST_SECONDS = 2  # between the photos of a burst
+SLOW_PAN = 0.08  # frame widths per second: an ordinary, calm shot
+FAST_PAN = 0.5  # measured: clearly more dynamic than a calm shot, without false scene cuts (0.6 has some)
+EVALUATION_SCENE_SECONDS = 4.0
+BLUR_RADIUS = 8.0
+BLACK_BRIGHTNESS = 0.03
+GOLDEN_RATIO_CONJUGATE = 0.618  # hues this far apart: neighboring places never look alike
+
+
+def populate_evaluation_vacation(
+    output_dir: Path,
+    *,
+    seed: int = 0,
+    days: int = 4,
+    places_per_day: int = 2,
+    size: tuple[int, int] = (320, 240),
+    check: Callable[[], None] | None = None,
+) -> GroundTruth:
+    """A synthetic vacation with known truth for `evaluate synthetic`; writes its `ground_truth.json` too.
+
+    Every place (a stretch of a day, with its own palette) holds two scenes photographed from three
+    framings (`similar_scene` groups), a burst of three near-identical photos (`near_duplicate`
+    group) and a clip of three calm scenes, the middle one a fast pan (important `motion`) in every
+    other place. Every day has a photo of a scene seen nowhere else (important `unique`) and a
+    blurred photo; the first day a black photo, and the last clip ends with a black scene. `check`
+    is called before every file and may raise to stop. Returns the `GroundTruth`.
+    """
+    if days < 1 or places_per_day < 1:
+        raise ValueError("at least one day and one place per day are needed")
+    writer = _EvaluationWriter(Path(output_dir), seed, size, check)
+    rng = random.Random(seed)
+    places = [f"p{number + 1}" for number in range(days * places_per_day)]
+    hours = VACATION_DAY_HOURS / places_per_day
+    shots: list[tuple[datetime, int, str, float, dict]] = []  # (when, day, place, hue, shot)
+    scenes = itertools.count(1000)
+
+    for day in range(days):
+        for slot in range(places_per_day):
+            number = day * places_per_day + slot
+            place, hue = places[number], (number * GOLDEN_RATIO_CONJUGATE) % 1.0
+            found = []
+            for _ in range(2):
+                scene = next(scenes)
+                found += [{"kind": "similar", "scene": scene, "view": view} for view in REFRAMINGS]
+            found.append({"kind": "burst", "scene": next(scenes)})
+            found.append({"kind": "video", "scenes": [next(scenes) for _ in range(3)], "fast": number % 2 == 0})
+            if slot == day % places_per_day:
+                found.append({"kind": "unique", "scene": next(scenes)})
+            if slot == places_per_day - 1:
+                found.append({"kind": "blurred", "scene": next(scenes)})
+            if number == 0:
+                found.append({"kind": "black", "scene": next(scenes)})
+            rng.shuffle(found)
+            for position, shot in enumerate(found):
+                when = VACATION_START + timedelta(days=day, hours=hours * (slot + (position + 0.5) / len(found)))
+                shots.append((when.replace(microsecond=0), day + 1, place, hue, shot))
+    shots.sort(key=lambda entry: entry[0])
+    last_video = max(index for index, entry in enumerate(shots) if entry[4]["kind"] == "video")
+    shots[last_video][4]["black_scene"] = next(scenes)
+
+    for when, day, place, hue, shot in shots:
+        writer.write(when, day, place, hue, shot)
+    params = {"version": EVALUATION_VERSION, "days": days, "places_per_day": places_per_day, "size": list(size)}
+    truth = GroundTruth(seed, params, days, tuple(places), tuple(writer.files))
+    truth.save(output_dir)
+    return truth
+
+
+class _EvaluationWriter:
+    """Writes the shots of the evaluation vacation, in time order, and records their truth."""
+
+    def __init__(self, root: Path, seed: int, size: tuple[int, int], check: Callable[[], None] | None):
+        self.root, self.seed, self.size, self.check = root, seed, size, check
+        self.files: list = []
+        self.numbers = itertools.count(1)
+
+    def write(self, when: datetime, day: int, place: str, hue: float, shot: dict) -> None:
+        self.folder = self.root / f"{(VACATION_START + timedelta(days=day - 1)).date().isoformat()}_day{day}"
+        self.folder.mkdir(parents=True, exist_ok=True)
+        self.day, self.place, self.hue = day, place, hue
+        kind, scene = shot["kind"], shot.get("scene")
+        if kind == "similar":
+            truth = TruthScene(scene, None, None, f"similar-{scene}", SIMILAR_SCENE)
+            self._photo(self._mosaic(scene, view=shot["view"]), when, truth)
+        elif kind == "burst":
+            truth = TruthScene(scene, None, None, f"burst-{scene}", NEAR_DUPLICATE)
+            base = self._mosaic(scene)
+            width, height = self.size
+            smaller = base.resize((round(width * NEAR_DUPLICATE_SCALE), round(height * NEAR_DUPLICATE_SCALE)))
+            self._photo(base, when, truth)
+            self._photo(self._mosaic(scene, brightness=NEAR_DUPLICATE_BRIGHTNESS),
+                        when + timedelta(seconds=BURST_SECONDS), truth)
+            self._photo(smaller, when + timedelta(seconds=2 * BURST_SECONDS), truth, quality=NEAR_DUPLICATE_QUALITY)
+        elif kind == "unique":
+            self._photo(self._mosaic(scene), when, TruthScene(scene, None, None, important=True, important_reason=UNIQUE))
+        elif kind == "blurred":
+            self._photo(self._mosaic(scene, blur=BLUR_RADIUS), when, TruthScene(scene, None, None, defect=BLURRED))
+        elif kind == "black":
+            self._photo(self._mosaic(scene, brightness=BLACK_BRIGHTNESS), when,
+                        TruthScene(scene, None, None, defect=BLACK))
+        else:
+            self._video(when, shot)
+
+    def _mosaic(self, scene: int, **options) -> Image.Image:
+        width, height = self.size
+        return render_mosaic_frame(scene, width, height, seed=self.seed, hue=self.hue, **options)
+
+    def _photo(self, image: Image.Image, when: datetime, truth, *, quality: int = 92) -> None:
+        if self.check:
+            self.check()
+        path = self.folder / f"IMG_{next(self.numbers):04d}.jpg"
+        save_photo(image, path, capture_datetime=when, quality=quality)
+        os.utime(path, (_UNRELATED_MTIME, _UNRELATED_MTIME))
+        self.files.append(TruthFile(path.relative_to(self.root).as_posix(), "photo", self.day, self.place,
+                                    when.isoformat(), (truth,)))
+
+    def _video(self, when: datetime, shot: dict) -> None:
+        if self.check:
+            self.check()
+        scene_ids = list(shot["scenes"])
+        options = [{"speed": speed, "hue": self.hue}
+                   for speed in (SLOW_PAN, FAST_PAN if shot["fast"] else SLOW_PAN, SLOW_PAN)]
+        if "black_scene" in shot:
+            scene_ids.append(shot["black_scene"])
+            options.append({"speed": SLOW_PAN, "hue": self.hue, "brightness": BLACK_BRIGHTNESS})
+        path = self.folder / f"VID_{next(self.numbers):04d}.mp4"
+        width, height = self.size
+        make_video(path, [(scene, EVALUATION_SCENE_SECONDS) for scene in scene_ids], width, height, 10,
+                   seed=self.seed, creation_time=when, mosaic=True, scene_options=options)
+        os.utime(path, (_UNRELATED_MTIME, _UNRELATED_MTIME))
+        truths = []
+        for position, (scene, extra) in enumerate(zip(scene_ids, options)):
+            start = position * EVALUATION_SCENE_SECONDS
+            fast = extra["speed"] == FAST_PAN
+            truths.append(TruthScene(scene, start, start + EVALUATION_SCENE_SECONDS, important=fast,
+                                     important_reason=MOTION if fast else None,
+                                     defect=BLACK if "brightness" in extra else None))
+        self.files.append(TruthFile(path.relative_to(self.root).as_posix(), "video", self.day, self.place,
+                                    when.isoformat(), tuple(truths)))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Populate a folder with synthetic photos and clips.")
     parser.add_argument("output", type=Path)
@@ -359,10 +580,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--vacation", action="store_true", help="a whole synthetic vacation of mosaic scenes")
     parser.add_argument("--photos", type=int, default=60)
     parser.add_argument("--videos", type=int, default=4)
-    parser.add_argument("--days", type=int, default=3)
+    parser.add_argument("--evaluation", action="store_true",
+                        help="the evaluation vacation, with its ground_truth.json")
+    parser.add_argument("--days", type=int, help="days of the vacation (default 3, or 4 with --evaluation)")
+    parser.add_argument("--places-per-day", type=int, default=2, help="with --evaluation (default 2)")
     args = parser.parse_args(argv)
-    if args.vacation:
-        manifest = populate_vacation(args.output, photos=args.photos, videos=args.videos, days=args.days,
+    if args.evaluation:
+        truth = populate_evaluation_vacation(args.output, seed=args.seed, days=args.days or 4,
+                                             places_per_day=args.places_per_day)
+        manifest = truth.files
+    elif args.vacation:
+        manifest = populate_vacation(args.output, photos=args.photos, videos=args.videos, days=args.days or 3,
                                      seed=args.seed)
     else:
         manifest = populate(args.output, seed=args.seed)
