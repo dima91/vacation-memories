@@ -94,7 +94,8 @@ class FrameSize:
         return min(self.width, self.height)
 
 
-def _even(value: float) -> int:
+def even(value: float) -> int:
+    """Nearest even integer, at least 2 (yuv420p needs even sizes)."""
     return max(2, round(value / 2) * 2)
 
 
@@ -109,7 +110,7 @@ def frame_size(resolution: str, aspect: str | None) -> FrameSize:
     if resolution in PRESETS:
         short = PRESETS[resolution]
         ratio = _ratio(parse_aspect(aspect or DEFAULT_ASPECT))
-        size = FrameSize(_even(short * ratio), short) if ratio >= 1 else FrameSize(short, _even(short / ratio))
+        size = FrameSize(even(short * ratio), short) if ratio >= 1 else FrameSize(short, even(short / ratio))
     else:
         width, height = (int(part) for part in resolution.split("x"))
         if aspect is not None:
@@ -119,7 +120,7 @@ def frame_size(resolution: str, aspect: str | None) -> FrameSize:
                     f"the resolution {resolution} does not have the aspect {aspect}: "
                     f"pass only one of them, or matching values (e.g. 1920x1080 with 16:9)"
                 )
-        size = FrameSize(_even(width), _even(height))
+        size = FrameSize(even(width), even(height))
     _check_limits(size, resolution)
     return size
 
@@ -138,7 +139,7 @@ def resize_keeping_short_side(width: int, height: int, aspect: str) -> FrameSize
     """New proportions for an existing frame: the short side stays, the aspect sets the other one."""
     short = min(width, height)
     ratio = _ratio(parse_aspect(aspect))
-    size = FrameSize(_even(short * ratio), short) if ratio >= 1 else FrameSize(short, _even(short / ratio))
+    size = FrameSize(even(short * ratio), short) if ratio >= 1 else FrameSize(short, even(short / ratio))
     _check_limits(size, f"{size.width}x{size.height}")
     return size
 

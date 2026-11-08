@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 
 from vacation_memories.render_config import RenderConfig
+from vacation_memories.video_format import even
 
 ASPECT_TOLERANCE = 0.01  # a source this close to the output proportions is scaled, not put on a background
 HDR_TO_SDR = (
@@ -16,11 +17,6 @@ HDR_TO_SDR = (
     "zscale=t=bt709:m=bt709:r=tv"
 )
 OUTPUT_COLOR_ARGS = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"]
-
-
-def even(value: float) -> int:
-    """Nearest even integer, at least 2 (yuv420p needs even sizes)."""
-    return max(2, round(value / 2) * 2)
 
 
 def even_down(value: float) -> int:

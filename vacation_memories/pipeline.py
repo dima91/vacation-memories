@@ -27,7 +27,7 @@ from vacation_memories import exit_codes
 from vacation_memories.atomic import atomic_write_json
 from vacation_memories.cache_manager import CacheManager
 from vacation_memories.config import ConfigError, Settings
-from vacation_memories.doctor import MIN_FREE_BYTES, REQUIRED_FFMPEG_ENCODERS, REQUIRED_FFMPEG_FILTERS
+from vacation_memories.doctor import MIN_FREE_BYTES, ffmpeg_problem
 from vacation_memories.duplicate_detector import HashBackend, find_duplicates
 from vacation_memories.edit_plan import EditPlan, OutputSpec, PlanError, load_plan, save_plan
 from vacation_memories.edit_planner import estimated_clip_count, plan_edit
@@ -125,7 +125,7 @@ def run_pipeline(
     try:
         params, explicit = _params(settings, request)
     except (ConfigError, FormatError) as error:
-        return _usage_error(error)
+        return exit_codes.usage_error(error)
     if params.duration > LONG_DURATION_SECONDS and params.mode != RENDER_ONLY:
         logger.warning("a %.0f-minute video takes a very long analysis and rendering time", params.duration / 60)
 
@@ -155,7 +155,7 @@ def run_pipeline(
                 state = "interrupted"
                 return interruption.exit_code
             except (ConfigError, FormatError) as error:
-                return _usage_error(error)
+                return exit_codes.usage_error(error)
             except RequirementsError as error:
                 print(f"error: {error}", file=sys.stderr)
                 return exit_codes.REQUIREMENTS
@@ -177,11 +177,6 @@ def _finish(workdir: Path, lock: WorkdirLock, state: str) -> None:
         logger.warning("cannot record the final state: %s", error)
     finally:
         lock.release()
-
-
-def _usage_error(error: Exception) -> int:
-    print(f"error: {error}", file=sys.stderr)
-    return exit_codes.USAGE
 
 
 # --- parameters, paths and resume ------------------------------------------------------------------
@@ -345,14 +340,8 @@ class _Run:
         return profile
 
     def _require_tools(self, *, rendering: bool) -> None:
-        ffmpeg = self.profile.ffmpeg
-        if ffmpeg.ffmpeg_version is None or ffmpeg.ffprobe_version is None:
-            raise RequirementsError("ffmpeg and ffprobe are required (see `doctor`)")
-        if rendering:
-            missing = [name for name in REQUIRED_FFMPEG_ENCODERS if name not in ffmpeg.encoders]
-            missing += [f"filter {name}" for name in REQUIRED_FFMPEG_FILTERS if name not in ffmpeg.filters]
-            if missing:
-                raise RequirementsError("FFmpeg lacks: " + ", ".join(missing) + " (see `doctor`)")
+        if problem := ffmpeg_problem(self.profile.ffmpeg, rendering=rendering):
+            raise RequirementsError(f"{problem} (see `doctor`)")
         for name, free in (("workdir", self.profile.workdir_free_bytes), ("tmp", self.profile.tmp_free_bytes)):
             if free is not None and free < MIN_FREE_BYTES:
                 raise RequirementsError(f"less than {MIN_FREE_BYTES // MIB} MiB free in the {name}")

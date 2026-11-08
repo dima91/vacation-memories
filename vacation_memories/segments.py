@@ -30,13 +30,13 @@ from vacation_memories.render_config import RenderConfig
 from vacation_memories.render_filters import (
     HDR_TO_SDR,
     Geometry,
-    even,
     fps_text,
     photo_segment_graph,
     seconds_text,
     video_segment_graph,
 )
 from vacation_memories.transitions import seconds_to_frames
+from vacation_memories.video_format import even
 
 logger = logging.getLogger(__name__)
 

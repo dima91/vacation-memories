@@ -97,7 +97,7 @@ def main(
     if args.command is None:
         modes = [mode for mode, flag in _MODES.items() if getattr(args, flag)]
         if len(modes) > 1:
-            return _usage_error(ConfigError(
+            return exit_codes.usage_error(ConfigError(
                 "--analyze-only, --dry-run and --render-only are mutually exclusive, choose one"))
     return _run(args, options, environ, detection_env)
 
@@ -111,7 +111,7 @@ def _run(
     try:
         settings = resolve_settings(options, environ)
     except ConfigError as error:
-        return _usage_error(error)
+        return exit_codes.usage_error(error)
 
     workdir_error = None
     try:
@@ -126,7 +126,7 @@ def _run(
         setup_logging(log_file, settings.log_format, settings.quiet)
     except (ConfigError, OSError) as error:
         if settings.sources["log_file"] != "default":
-            return _usage_error(error)
+            return exit_codes.usage_error(error)
         # The default log file lives in the workdir: if that cannot be used, `doctor` must still
         # report it instead of failing here.
         console_only_reason = error
@@ -173,14 +173,14 @@ def _bench(
     try:
         return run_bench_vision(settings, profile, detection_env, images=args.images, count=args.count)
     except ConfigError as error:
-        return _usage_error(error)
+        return exit_codes.usage_error(error)
 
 
 def _pipeline(
     args: argparse.Namespace, settings: Settings, detection_env: DetectionEnv | None, *, record_profile: bool
 ) -> int:
     if not record_profile:  # the workdir could not be prepared; the reason is in the log
-        return _usage_error(ConfigError(f"cannot use the workdir {settings.workdir}"))
+        return exit_codes.usage_error(ConfigError(f"cannot use the workdir {settings.workdir}"))
     modes = [mode for mode, flag in _MODES.items() if getattr(args, flag)]
     request = RunRequest(mode=modes[0] if modes else FULL, resume=args.resume, preview=args.preview,
                          mode_given=bool(modes))
@@ -193,11 +193,6 @@ _MODES = {ANALYZE_ONLY: "analyze_only", DRY_RUN: "dry_run", RENDER_ONLY: "render
 _COMMAND_ARGUMENTS = frozenset({
     "command", "bench_command", "images", "count", "version", "preview", "resume", *_MODES.values(),
 })
-
-
-def _usage_error(error: Exception) -> int:
-    print(f"error: {error}", file=sys.stderr)
-    return exit_codes.USAGE
 
 
 def _check_log_file(log_file: Path) -> None:
