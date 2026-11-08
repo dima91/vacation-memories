@@ -14,6 +14,15 @@ from vacation_memories import __version__, exit_codes
 from vacation_memories.bench import DEFAULT_IMAGE_COUNT, run_bench_vision
 from vacation_memories.config import ConfigError, Settings, ollama_url_is_local, resolve_settings
 from vacation_memories.doctor import format_report, has_blocking_failures, run_doctor
+from vacation_memories.evaluate.prepare import (
+    DEFAULT_VARIANTS,
+    FULL,
+    VARIANTS,
+    PrepareRequest,
+    parse_variants,
+    run_prepare,
+)
+from vacation_memories.evaluate.report import ReportRequest, run_report
 from vacation_memories.evaluate.synthetic import DEFAULT_SEEDS, SyntheticRequest, run_synthetic
 from vacation_memories.logging_setup import setup_logging
 from vacation_memories.pipeline import ANALYZE_ONLY, DRY_RUN, FULL, RENDER_ONLY, RunRequest, run_pipeline
@@ -91,6 +100,26 @@ def build_parser() -> argparse.ArgumentParser:
     synthetic.add_argument("--seeds", type=int, default=DEFAULT_SEEDS,
                            help=f"random plans to compare with (default {DEFAULT_SEEDS})")
     synthetic.add_argument("--dataset-seed", type=int, default=0, help="seed of the synthetic vacation (default 0)")
+    prepare = evaluate_commands.add_parser(
+        "prepare", parents=[common], allow_abbrev=False,
+        help="previews of the variants and the review page, for a blind comparison on the vacation",
+    )
+    prepare.add_argument("--duration", dest="evaluation_duration", default="90",
+                         help="length of every variant (default 90 s)")
+    prepare.add_argument("--variants", default=",".join(DEFAULT_VARIANTS),
+                         help=f"{FULL} plus any of {', '.join(VARIANTS[1:])} (default {','.join(DEFAULT_VARIANTS)})")
+    prepare.add_argument("--seed", type=int, default=None,
+                         help="seed of the random variant (default: drawn, and recorded for the report)")
+    prepare.add_argument("--run-id", default=None, help="name of the folder in <workdir>/eval (default: date and time)")
+    prepare.add_argument("--music", type=Path, default=argparse.SUPPRESS, help="background music of the previews")
+    prepare.add_argument("--aspect", default=argparse.SUPPRESS, help="16:9, 9:16, 1:1 or 4:3 (default 16:9)")
+    report = evaluate_commands.add_parser(
+        "report", parents=[common], allow_abbrev=False,
+        help="metrics, private report and anonymous summary from the ratings exported by the review page",
+    )
+    report.add_argument("--run-id", default=None, help="the prepared run (default: the latest one)")
+    report.add_argument("--ratings", type=Path, default=None,
+                        help="ratings exported by the page (default <workdir>/eval/<run-id>/ratings.json)")
     return parser
 
 
@@ -104,8 +133,10 @@ def main(
     args = build_parser().parse_args(argv)
     environ = os.environ if environ is None else environ
     options = {key: value for key, value in vars(args).items() if key not in _COMMAND_ARGUMENTS}
-    if args.command == "evaluate" and args.evaluate_command == "synthetic":
-        options["no_ai"] = True  # synthetic mosaics would tell a vision model nothing
+    if args.command == "evaluate" and args.evaluate_command in ("synthetic", "report"):
+        # Synthetic mosaics would tell a vision model nothing, and the report reads only files.
+        options.pop("require_ai", None)
+        options["no_ai"] = True
     if args.version:
         print(f"vacation-memories {__version__}")
         return exit_codes.OK
@@ -207,12 +238,23 @@ def _evaluate(
 ) -> int:
     if not record_profile:  # the workdir could not be prepared; the reason is in the log
         return exit_codes.usage_error(ConfigError(f"cannot use the workdir {settings.workdir}"))
+    command = args.evaluate_command
     try:
-        request = SyntheticRequest(duration=parse_duration(args.evaluation_duration), seeds=args.seeds,
-                                   dataset_seed=args.dataset_seed)
+        if command == "synthetic":
+            request = SyntheticRequest(duration=parse_duration(args.evaluation_duration), seeds=args.seeds,
+                                       dataset_seed=args.dataset_seed)
+        elif command == "prepare":
+            request = PrepareRequest(duration=parse_duration(args.evaluation_duration),
+                                     variants=parse_variants(args.variants), seed=args.seed, run_id=args.run_id)
+        else:
+            request = ReportRequest(run_id=args.run_id, ratings=args.ratings)
     except (ConfigError, FormatError) as error:
         return exit_codes.usage_error(error)
-    return run_synthetic(settings, request, detection_env=detection_env)
+    if command == "synthetic":
+        return run_synthetic(settings, request, detection_env=detection_env)
+    if command == "prepare":
+        return run_prepare(settings, request, detection_env=detection_env)
+    return run_report(settings, request)
 
 
 _COMMANDS = {"doctor": _doctor, "bench": _bench, "evaluate": _evaluate, None: _pipeline}
@@ -220,7 +262,7 @@ _MODES = {ANALYZE_ONLY: "analyze_only", DRY_RUN: "dry_run", RENDER_ONLY: "render
 # Not settings: subcommands, their arguments and the per-run flags of the pipeline.
 _COMMAND_ARGUMENTS = frozenset({
     "command", "bench_command", "images", "count", "version", "preview", "resume", *_MODES.values(),
-    "evaluate_command", "evaluation_duration", "seeds", "dataset_seed",
+    "evaluate_command", "evaluation_duration", "seeds", "dataset_seed", "variants", "seed", "run_id", "ratings",
 })
 
 
