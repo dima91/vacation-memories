@@ -656,6 +656,27 @@ def test_threads_per_job_reach_decoder_filters_and_encoder(media, tmp_path, monk
         assert command[-3:-1] == ["-threads", "2"]
 
 
+def test_preview_segments_use_the_fast_preview_encoder(media, tmp_path, monkeypatch):
+    seen = []
+    original = ToolRunner.run
+    monkeypatch.setattr(ToolRunner, "run", lambda self, command, **kw: seen.append(command) or original(self, command, **kw))
+    render(make_plan([video_element("red.mp4", 0, 2)]), media, tmp_path, preview=True)
+    segment = next(c for c in seen if c[0] == "ffmpeg" and Path(c[-1]).parent.name == "segments")
+    assert segment[segment.index("-preset") + 1] == NO_FADES.preview_preset
+    assert segment[segment.index("-crf") + 1] == str(NO_FADES.preview_crf)
+
+
+def test_a_variable_frame_rate_source_is_scanned_once_per_render(media, tmp_path, monkeypatch):
+    from vacation_memories import segments
+
+    scans = []
+    original = segments.is_variable_frame_rate
+    monkeypatch.setattr(segments, "is_variable_frame_rate", lambda path, *a: scans.append(path) or original(path, *a))
+    result = render(make_plan([video_element("vfr.mp4", 0, 1), video_element("vfr.mp4", 1, 2)]), media, tmp_path)
+    assert result.report["segments"]["vfr_converted"] == ["vfr.mp4", "vfr.mp4"]
+    assert len(scans) == 1
+
+
 def test_long_timelines_are_assembled_in_blocks_split_at_cuts(media, tmp_path):
     names = ["red.mp4", "blue.mp4", "halves.mp4", "red.mp4", "blue.mp4", "halves.mp4", "red.mp4"]
     plan = make_plan([video_element(n, 0, 2, dissolve=0.0 if i in (3, 5) else 0.5) for i, n in enumerate(names)])

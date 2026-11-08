@@ -22,7 +22,7 @@ from PIL import Image, ImageOps
 from vacation_memories.atomic import atomic_write_json
 from vacation_memories.edit_plan import PHOTO, PlanElement
 from vacation_memories.encoders import fps_mode_args, software_encoder, thread_args
-from vacation_memories.media_probe import Probe, ProbeError, is_variable_frame_rate, probe
+from vacation_memories.media_probe import Probe, ProbeError, VideoStream, is_variable_frame_rate, probe
 from vacation_memories.media_scanner import heic_available
 from vacation_memories.process import Interrupted, ToolError, ToolRunner
 from vacation_memories.render_checks import check_segment, failed
@@ -88,8 +88,11 @@ class SegmentBuilder:
         self.ffmpeg_version = ffmpeg_version
         self.ffmpeg_filters = ffmpeg_filters
         self.threads = threads
-        self.preview = preview
+        self.preset, self.crf = (
+            (config.preview_preset, config.preview_crf) if preview else (config.segment_preset, config.segment_crf)
+        )
         self._probes: dict[Path, Probe] = {}
+        self._variable_rate: dict[Path, bool] = {}
 
     def frames_for(self, element: PlanElement) -> int:
         return max(1, seconds_to_frames(element.duration, self.fps))
@@ -177,7 +180,7 @@ class SegmentBuilder:
             "start": None if element.start is None else round(element.start, 6),
             "frames": frames,
             "output": [*self.size, str(self.fps)],
-            "encoding": [self.config.segment_preset, self.config.segment_crf, self.config.video_timescale],
+            "encoding": [self.preset, self.crf, self.config.video_timescale],
             "hdr_tonemap": bool(self._hdr_chain_available()),
             "zoom_in": index % 2 == 0 if element.kind == PHOTO else None,
         }
@@ -188,8 +191,7 @@ class SegmentBuilder:
 
     def _encoder_args(self, conservative: bool) -> list[str]:
         encoder = software_encoder(
-            self.config.segment_preset, self.config.segment_crf, conservative=conservative,
-            gop=round(float(self.fps)) if conservative else None,
+            self.preset, self.crf, conservative=conservative, gop=round(float(self.fps)) if conservative else None,
         )
         return [
             *encoder.codec_args,
@@ -212,6 +214,12 @@ class SegmentBuilder:
             self._probes[source] = probe(source, self.runner)
         return self._probes[source]
 
+    def _is_variable_rate(self, source: Path, stream: VideoStream) -> bool:
+        """Once per source: a phone clip often gives several elements, each tried up to twice."""
+        if source not in self._variable_rate:
+            self._variable_rate[source] = is_variable_frame_rate(source, stream, self.runner)
+        return self._variable_rate[source]
+
     def _render_video(
         self, element: PlanElement, source: Path, target: Path, frames: int, conservative: bool,
         result: SegmentResult,
@@ -221,7 +229,7 @@ class SegmentBuilder:
         if stream is None:
             raise ProbeError("no video stream")
         result.source_size = stream.displayed_size
-        if is_variable_frame_rate(source, stream, self.runner):
+        if self._is_variable_rate(source, stream):
             result.vfr_converted = True
 
         hdr_filter = None
