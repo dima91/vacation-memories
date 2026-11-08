@@ -76,12 +76,18 @@ def metadata_params(assume_tz: str | None) -> str:
     return f"assume_tz={assume_tz or ''};fields=2"
 
 
-def extract_metadata(media: MediaFile, assume_tz: str | None = None) -> MediaMetadata:
-    """Read the metadata of one file; raise `MetadataError` if it is unusable."""
+def extract_metadata(
+    media: MediaFile, assume_tz: str | None = None, *, runner: ToolRunner | None = None
+) -> MediaMetadata:
+    """Read the metadata of one file; raise `MetadataError` if it is unusable.
+
+    `runner` scans the packets of a clip whose frame rate may vary: with the run's controller a
+    signal stops the scan.
+    """
     zone = _resolve_zone(assume_tz)
     if media.kind == "photo":
         return _extract_photo(media, assume_tz, zone)
-    return _extract_video(media, assume_tz, zone)
+    return _extract_video(media, assume_tz, zone, runner or ToolRunner())
 
 
 def load_metadata(
@@ -91,6 +97,7 @@ def load_metadata(
     *,
     check: Callable[[], None] | None = None,
     progress: Callable[[], None] | None = None,
+    runner: ToolRunner | None = None,
 ) -> list[tuple[MediaFile, MediaMetadata]]:
     """Metadata of every readable file, using the cache. Unusable files are logged and skipped.
 
@@ -109,7 +116,7 @@ def load_metadata(
             loaded.append((media, MediaMetadata.from_dict(cached)))
             continue
         try:
-            metadata = extract_metadata(media, assume_tz)
+            metadata = extract_metadata(media, assume_tz, runner=runner)
         except MetadataError as error:
             logger.warning("skipping %s: %s", media.rel_path, error)
             continue
@@ -201,7 +208,7 @@ def _run_ffprobe(media: MediaFile) -> dict:
         raise MetadataError("ffprobe returned invalid output") from error
 
 
-def _extract_video(media: MediaFile, assume_tz: str | None, zone: ZoneInfo | None) -> MediaMetadata:
+def _extract_video(media: MediaFile, assume_tz: str | None, zone: ZoneInfo | None, runner: ToolRunner) -> MediaMetadata:
     info = _run_ffprobe(media)
     video = next(
         (s for s in info.get("streams", [])
@@ -226,7 +233,7 @@ def _extract_video(media: MediaFile, assume_tz: str | None, zone: ZoneInfo | Non
         captured, tz_label = _mtime_fallback(media, zone, assume_tz)
         source = "mtime"
     return MediaMetadata("video", width, height, captured, source, duration=duration,
-                         fps=_fps(video), rotation=rotation, is_vfr=_is_vfr(media, video), assumed_tz=tz_label)
+                         fps=_fps(video), rotation=rotation, is_vfr=_is_vfr(media, video, runner), assumed_tz=tz_label)
 
 
 def _first_float(*values) -> float | None:
@@ -251,9 +258,9 @@ def _fps(video: dict) -> float | None:
     return None
 
 
-def _is_vfr(media: MediaFile, video: dict) -> bool:
+def _is_vfr(media: MediaFile, video: dict, runner: ToolRunner) -> bool:
     try:
-        return is_variable_frame_rate(media.path, parse_video_stream(video), ToolRunner())
+        return is_variable_frame_rate(media.path, parse_video_stream(video), runner)
     except ProbeError as error:
         logger.warning("%s: cannot tell whether the frame rate is variable: %s", media.rel_path, error)
         return False

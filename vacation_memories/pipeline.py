@@ -358,7 +358,7 @@ class _Run:
         with CacheManager(self.workdir) as cache:
             self.progress.phase("reading metadata", len(files))
             loaded = load_metadata(files, cache, params.assume_tz, check=self.controller.check,
-                                   progress=self.progress.advance)
+                                   progress=self.progress.advance, runner=ToolRunner(self.controller))
             metadata = {media.rel_path: info for media, info in loaded}
             readable = [media for media, _ in loaded]
 

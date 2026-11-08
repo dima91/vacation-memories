@@ -1,4 +1,5 @@
 import logging
+import signal
 import subprocess
 import time
 from datetime import datetime
@@ -11,6 +12,7 @@ from vacation_memories import metadata_extractor as me
 from vacation_memories import synthetic_media as sm
 from vacation_memories.cache_manager import CacheManager
 from vacation_memories.media_scanner import MediaFile, scan_media
+from vacation_memories.process import Interrupted, ShutdownController, ToolRunner
 
 
 @pytest.fixture(scope="module")
@@ -184,7 +186,8 @@ def test_load_metadata_uses_the_cache_and_invalidates_on_changed_parameters(refe
     selection = [files[Path("2023-07-14_beach/IMG_0003.png")], files[Path("2023-07-15_town/VID_0003.mkv")]]
     calls = []
     real = me.extract_metadata
-    monkeypatch.setattr(me, "extract_metadata", lambda media, assume_tz=None: calls.append(media) or real(media, assume_tz))
+    monkeypatch.setattr(me, "extract_metadata",
+                        lambda media, assume_tz=None, **kw: calls.append(media) or real(media, assume_tz, **kw))
 
     with CacheManager(tmp_path) as cache:
         first = me.load_metadata(selection, cache, assume_tz="UTC")
@@ -209,6 +212,16 @@ def test_variable_frame_rate_clip_is_flagged(tmp_path):
     meta = me.extract_metadata(media_at(clip, "video", tmp_path), assume_tz="UTC")
     assert meta.is_vfr is True
     assert me.MediaMetadata.from_dict(meta.to_dict()) == meta
+
+
+def test_a_signal_stops_the_scan_of_a_variable_frame_rate_clip(tmp_path):
+    from render_fakes import vfr_clip
+
+    clip = vfr_clip(tmp_path / "phone.mp4")
+    controller = ShutdownController()
+    controller.request(signal.SIGTERM)
+    with pytest.raises(Interrupted):
+        me.extract_metadata(media_at(clip, "video", tmp_path), assume_tz="UTC", runner=ToolRunner(controller))
 
 
 def test_old_cache_entries_are_not_reused_after_the_vfr_field_was_added(tmp_path):
