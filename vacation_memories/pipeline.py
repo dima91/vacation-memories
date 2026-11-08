@@ -158,6 +158,27 @@ def run_pipeline(
         _finish(settings.workdir, lock, state)
 
 
+def detect_runtime(settings: Settings, env: DetectionEnv, workdir: Path, *, rendering: bool) -> RuntimeProfile:
+    """The runtime profile, saved in the workdir, once FFmpeg and the free space are checked.
+
+    Ollama is not contacted here: only the AI phase does, and only when the cache lacks answers.
+    Raises `RequirementsError` (exit code 4) when something is missing.
+    """
+    profile = detect_profile(replace(settings, no_ai=True), env)
+    try:
+        write_runtime_profile(profile, Path(workdir) / "runtime_profile.json")
+    except OSError as error:
+        logger.warning("cannot save runtime_profile.json: %s", error.strerror or error)
+    for line in format_profile(profile):
+        logger.info("profile: %s", line)
+    if problem := ffmpeg_problem(profile.ffmpeg, rendering=rendering):
+        raise RequirementsError(f"{problem} (see `doctor`)")
+    for name, free in (("workdir", profile.workdir_free_bytes), ("tmp", profile.tmp_free_bytes)):
+        if free is not None and free < MIN_FREE_BYTES:
+            raise RequirementsError(f"less than {MIN_FREE_BYTES // MIB} MiB free in the {name}")
+    return profile
+
+
 def _finish(workdir: Path, lock: WorkdirLock, state: str) -> None:
     try:
         lock.status.finish(state)
@@ -298,8 +319,8 @@ class _Run:
 
     def execute(self, *, resume_with_plan: bool) -> int:
         params = self.params
-        self.profile = self._detect()
-        self._require_tools(rendering=params.mode in (FULL, RENDER_ONLY, DRY_RUN))
+        self.profile = detect_runtime(self.settings, self.env, self.workdir,
+                                      rendering=params.mode in (FULL, RENDER_ONLY, DRY_RUN))
         if params.mode == RENDER_ONLY:
             return self._render(self._load_plan_for_render_only())
         if resume_with_plan and params.mode == FULL:
@@ -318,26 +339,6 @@ class _Run:
             print("error: no usable material: nothing to render", file=sys.stderr)
             return exit_codes.ERROR
         return self._render(plan, report)
-
-    # --- environment ---
-
-    def _detect(self) -> RuntimeProfile:
-        # Ollama is contacted only by the AI phase, and only when the cache does not have the answers.
-        profile = detect_profile(replace(self.settings, no_ai=True), self.env)
-        try:
-            write_runtime_profile(profile, self.workdir / "runtime_profile.json")
-        except OSError as error:
-            logger.warning("cannot save runtime_profile.json: %s", error.strerror or error)
-        for line in format_profile(profile):
-            logger.info("profile: %s", line)
-        return profile
-
-    def _require_tools(self, *, rendering: bool) -> None:
-        if problem := ffmpeg_problem(self.profile.ffmpeg, rendering=rendering):
-            raise RequirementsError(f"{problem} (see `doctor`)")
-        for name, free in (("workdir", self.profile.workdir_free_bytes), ("tmp", self.profile.tmp_free_bytes)):
-            if free is not None and free < MIN_FREE_BYTES:
-                raise RequirementsError(f"less than {MIN_FREE_BYTES // MIB} MiB free in the {name}")
 
     # --- analysis ---
 
