@@ -59,6 +59,9 @@ def test_without_the_table_the_defaults_apply(tmp_path):
         "[selection]\nmax_same_moment_run = 2.5\n",
         "[selection]\nphoto_min_seconds = 5.0\n",  # above photo_max_seconds
         "[selection]\nvideo_shot_max_seconds = 6.0\n",  # shorter than an ordinary video clip
+        "[selection]\ndetail_max_seconds = 1.5\n",  # shorter than the shortest clip
+        "[selection]\nopening_clip_max_seconds = 1.5\n",
+        "[selection]\nclosing_short_min_seconds = 6.0\n",  # longer than the longest Closing photo
         "[selection.sections.opening]\nshare = 0.3\n",  # shares no longer add up to 1
         "[selection.sections.prologue]\nshare = 0.1\n",
         "[selection.sections.opening]\nweight = 0.1\n",

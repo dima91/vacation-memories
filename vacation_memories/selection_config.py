@@ -165,10 +165,15 @@ def validate(config: SelectionConfig) -> None:
              ("short_photo_min_seconds", "short_photo_max_seconds"),
              ("short_video_min_seconds", "short_video_max_seconds"),
              ("closing_photo_min_seconds", "closing_photo_max_seconds"),
-             ("closing_video_min_seconds", "closing_video_max_seconds")]
+             ("closing_video_min_seconds", "closing_video_max_seconds"),
+             ("closing_short_min_seconds", "closing_photo_max_seconds"),
+             ("closing_short_min_seconds", "closing_video_max_seconds")]
     for low, high in pairs:
         if not config.min_clip_seconds <= getattr(config, low) <= getattr(config, high):
             raise ValueError(f"selection.{low} must be at least min_clip_seconds and at most {high}")
+    for name in ("opening_clip_max_seconds", "detail_max_seconds"):  # their clips start at min_clip_seconds
+        if getattr(config, name) < config.min_clip_seconds:
+            raise ValueError(f"selection.{name} must be at least min_clip_seconds")
     total = sum(section.share for section in config.sections.values())
     if abs(total - 1) > 0.01:
         raise ValueError(f"the shares of the sections must add up to 1, they add up to {total:g}")
