@@ -267,15 +267,20 @@ def _is_vfr(media: MediaFile, video: dict, runner: ToolRunner) -> bool:
 
 
 def _container_date(info: dict, video: dict) -> datetime | None:
-    tags = {k.lower(): v for source in (info.get("format", {}), video) for k, v in source.get("tags", {}).items()}
+    """The first plausible date: each tag of the video stream, then the same tag of the container.
+
+    The two are kept apart, so an implausible date in one does not hide a good one in the other.
+    """
+    sources = [{k.lower(): v for k, v in source.get("tags", {}).items()} for source in (video, info.get("format", {}))]
     for name in CONTAINER_DATE_TAGS:
-        raw = tags.get(name)
-        if not raw:
-            continue
-        try:
-            moment = datetime.fromisoformat(raw).replace(tzinfo=None)
-        except ValueError:
-            continue
-        if _plausible(moment):
-            return moment
+        for tags in sources:
+            raw = tags.get(name)
+            if not raw:
+                continue
+            try:
+                moment = datetime.fromisoformat(raw).replace(tzinfo=None)
+            except ValueError:
+                continue
+            if _plausible(moment):
+                return moment
     return None

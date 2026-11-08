@@ -145,6 +145,19 @@ def test_epoch_container_date_is_ignored(tmp_path):
     assert meta.date_source == "mtime"
 
 
+def test_an_epoch_date_of_the_stream_does_not_hide_the_date_of_the_container(tmp_path):
+    # Matroska keeps a tag of the stream apart from the same tag of the container (MOV writes one value).
+    path = tmp_path / "a.mkv"
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=64x48:d=1:r=5",
+         "-pix_fmt", "yuv420p", "-metadata", "com.apple.quicktime.creationdate=2025-01-03T10:00:00+0100",
+         "-metadata:s:v:0", "com.apple.quicktime.creationdate=1970-01-01T00:00:00Z", str(path)],
+        check=True, stdin=subprocess.DEVNULL, capture_output=True,
+    )
+    meta = me.extract_metadata(media_at(path, "video", tmp_path), assume_tz="UTC")
+    assert (meta.capture_datetime, meta.date_source) == (datetime(2025, 1, 3, 10), "container")
+
+
 def test_corrupt_files_raise_metadata_error(reference, tmp_path):
     root, _manifest, files = reference
     for rel in ("misc/broken.jpg", "misc/broken.mp4"):
