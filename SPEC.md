@@ -427,7 +427,7 @@ The renderer does not assemble the sources directly: it first normalizes each cl
 - **Audio:** in the MVP the movie has only the music, so the segments have no audio. When the original audio is kept (Milestone 3), each segment will have an audio stream with uniform parameters (same sample rate and channels, silence generated for clips without audio) and a duration equal to that of the video within 1 frame.
 - Each segment is validated with FFprobe before assembly (see "FFprobe verification").
 
-**Phase B — assembly.** Concatenation of the segments according to the rules in "Transitions", then music with fades. Do not build a single filtergraph with hundreds of inputs: for long timelines assembly is done in blocks of limited size (derived by the runtime profile from the available RAM, about 100 MiB per clip of a block and at most 40 clips, and overridable), with the boundaries between blocks on hard cuts chosen by the planner, and the blocks are then concatenated.
+**Phase B — assembly.** Concatenation of the segments according to the rules in "Transitions", then music with fades. Do not build a single filtergraph with hundreds of inputs: for long timelines assembly is done in blocks of limited size (derived by the runtime profile from the available RAM, about 100 MiB per clip of a block and at most 40 clips, and overridable), with the boundaries between blocks preferably on hard cuts, and the blocks are then joined. A dissolve across a block boundary is made when the blocks are joined, so the block size, and with it the machine, changes neither the transitions nor the duration of the video.
 
 #### Transitions (dissolves and cuts)
 

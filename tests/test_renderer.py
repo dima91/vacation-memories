@@ -661,19 +661,22 @@ def test_long_timelines_are_assembled_in_blocks_split_at_cuts(media, tmp_path):
     plan = make_plan([video_element(n, 0, 2, dissolve=0.0 if i in (3, 5) else 0.5) for i, n in enumerate(names)])
     result = render(plan, media, tmp_path, block_size=3)
     assert result.ok and result.report["blocks"] == [3, 2, 2]  # blocks end at the cuts into clips 3 and 5
-    assert result.report["block_boundaries_forced"] == []
     # clips 0-2 joined by 2 dissolves, 3-4 by 1, 5-6 by 1; 7*2 s minus 4 dissolves of 0.5 s
     assert probe_file(result.output).format_duration == pytest.approx(14 - 2.0, abs=0.1)
     assert list((tmp_path / "work" / "tmp").iterdir()) == []
 
 
-def test_a_block_boundary_inside_a_run_of_dissolves_becomes_a_cut(media, tmp_path, caplog):
-    plan = make_plan([video_element("red4.mp4", 0, 4)] + [video_element("blue4.mp4", 0, 4, dissolve=1.0)] * 4)
-    with caplog.at_level("WARNING"):
-        result = render(plan, media, tmp_path, block_size=3)
-    assert result.report["blocks"] == [3, 2] and result.report["block_boundaries_forced"] == [3]
-    assert "dissolve turned into a cut at a block boundary" in caplog.text
-    assert result.ok and probe_file(result.output).format_duration == pytest.approx(20 - 3.0, abs=0.1)
+def test_a_block_boundary_inside_a_run_of_dissolves_keeps_the_dissolve(media, tmp_path):
+    names = ["red4.mp4", "blue4.mp4", "red4.mp4", "blue4.mp4", "red4.mp4"]
+    plan = make_plan([video_element(n, 0, 4, dissolve=1.0 if i else 0.0) for i, n in enumerate(names)])
+    whole = render(plan, media, tmp_path, name="whole.mp4")
+    split = render(plan, media, tmp_path, name="split.mp4", block_size=3)
+    assert split.ok and split.report["blocks"] == [3, 2] and split.report["transitions"]["dissolves"] == 4
+    assert probe_file(split.output).format_duration == pytest.approx(20 - 4.0, abs=0.1)
+    assert frames_of(split.output) == frames_of(whole.output)
+    halfway = color_at(split.output, 9.5)  # the dissolve from the third clip into the fourth, across the blocks
+    assert close(halfway, color_at(whole.output, 9.5), 8)
+    assert not close(halfway, PURE_RED) and not close(halfway, PURE_BLUE)
 
 
 def test_blocks_and_a_single_pass_give_the_same_picture(media, tmp_path):
