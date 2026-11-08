@@ -185,6 +185,14 @@ class TestPaths:
         assert "does not exist" in capsys.readouterr().err
         assert not (tmp_path / "work" / "cache.sqlite3").exists()  # nothing was analyzed
 
+    def test_a_workdir_inside_the_input_is_refused_before_anything_is_written(self, tmp_path, capsys):
+        media = tmp_path / "media"
+        populate_vacation(media, photos=2, videos=0, days=1)
+        before = sorted(media.rglob("*"))
+        assert run(media, media / "work", "--no-ai", "--analyze-only") == exit_codes.USAGE
+        assert "inside the input folder" in capsys.readouterr().err
+        assert sorted(media.rglob("*")) == before
+
     def test_a_missing_input_folder_or_music_file_is_a_usage_error(self, few, tmp_path):
         assert run(tmp_path / "nope", tmp_path / "work", "--no-ai") == exit_codes.USAGE
         assert run(few, tmp_path / "work", "--no-ai", "--music", str(tmp_path / "none.mp3")) == exit_codes.USAGE
