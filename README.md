@@ -50,10 +50,12 @@ The same steps apply to the development PC and to the server; only `.env` differ
    docker compose run --rm -T app doctor
    ```
 
-   The first start of Ollama downloads the vision model (about 3.3 GB) through the `ollama-pull` service. On a
-   server without Internet, transfer the images and the models volume from a machine that has them.
+   The first start of Ollama downloads the vision model (about 3.3 GB) through the `ollama-pull` service. A server
+   without Internet needs the images and the models volume from another machine: see "Server without Internet".
 
-4. Optional: measure the speed of the vision model on this machine (`bench vision`, see "Troubleshooting").
+4. Optional: measure the speed of the vision model on this machine with `docker compose run --rm -T app bench
+   vision` (synthetic images; `--images /media/<folder>` uses your own photos, `--count N` how many). See also
+   "Troubleshooting".
 
 On the development PC, `./dev-media` can be filled with a synthetic vacation:
 
@@ -240,14 +242,14 @@ tail -f work/run.log
 ```
 
 A second run on the same working folder exits at once with code 5 and names the active one. An interrupted job
-(Ctrl-C, `docker stop`, SIGHUP) exits with 130, 143 or 129: run the same command again with `--resume` added. The
+(Ctrl-C, `docker stop`, SIGHUP) exits with `128 + signal`: run the same command again with `--resume` added. The
 parameters that change the result must stay the same (otherwise code 2); `--jobs`, `--hwaccel`, `--nice` and the
 log options may change. The segments already rendered are reused.
 
 Exit codes: `0` done (also with too little material: the video is shorter and the log says why), `1` error,
 `2` invalid usage or configuration, `3` the final file failed the checks (it is left as `<name>.partial.mp4`),
 `4` something missing (FFmpeg, space, Ollama with `--require-ai`), `5` working folder in use, `128 + signal`
-interrupted.
+interrupted (130 Ctrl-C, 143 `docker stop`, 129 SIGHUP).
 
 ## Copying the results
 
@@ -267,9 +269,9 @@ faster.
 
 - Duplicates are recognized by a perceptual hash: the same scene with another framing, zoom or moment, or a photo
   and a frame of a clip of the same scene, are not grouped.
-- Days come from the dates written in the files (EXIF, container tags). Without them the file date is used with
-  the `--assume-tz` time zone; copies that reset the file dates put those files on the wrong day. Places are not
-  known: a new day, not a new place, opens with a landscape.
+- Days come from the dates written in the files (see "How the video is built"). A file without one takes its file
+  date, so a copy that resets the file dates puts it on the wrong day. Places are not known: a new day, not a new
+  place, opens with a landscape.
 - The order follows the clock of each camera. Two cameras whose clocks differ (or one set to another time zone)
   interleave their shots wrongly, and a file with a wrong date ends up far from its moment: remove it from the
   media folder, or fix its date in a copy.
@@ -290,8 +292,8 @@ serves both; only `.env` changes.
 | File | Purpose |
 | --- | --- |
 | `compose.yaml` | the services `app`, `ollama`, `ollama-pull` and (profile `dev`) `dev` |
-| `compose.intel-gpu.yaml` | gives `ollama` the Intel GPU (`/dev/dri`, `OLLAMA_IGPU_ENABLE=1`); remove it from `COMPOSE_FILE` on machines without a GPU |
-| `compose.selinux.yaml` | `label=disable` for `app` and `dev`, only for hosts with SELinux |
+| `compose.intel-gpu.yaml` | gives `ollama` the Intel GPU (`/dev/dri`, `OLLAMA_IGPU_ENABLE=1`) |
+| `compose.selinux.yaml` | `label=disable` for `app` and `dev` |
 | `compose.test.yaml` | for `scripts/test-docker.sh` only: a simulated Ollama, no model downloaded |
 | `docker/compose.toml` | the configuration of `app` (`/media`, `/work`, the Ollama URL, `require_ai`) |
 
@@ -420,6 +422,19 @@ scripts/test-docker.sh      # the production image and the compose files, see "C
 In the `dev` container there is no compose configuration: pass `--input`; the working folder is `./work`. Since
 `OLLAMA_HOST` points to the `ollama` service there, use `--no-ai`, or start Ollama and add `--allow-remote-ollama`.
 
+### Tests with the real model
+
+The `-m ollama` tests use the real model and synthetic images only. Start Ollama first:
+
+```sh
+docker compose up -d ollama
+docker compose run --rm -T dev pytest -m ollama
+```
+
+They are skipped, with a message, when Ollama does not answer or the model is missing. They allow a frame the
+model fails on, because of the instability described in "Troubleshooting"; a run in which every frame fails is
+still an error.
+
 ## Troubleshooting
 
 ### Ollama on the integrated Intel GPU is unstable
@@ -462,14 +477,3 @@ docker compose run --rm -T -e VACATION_MEMORIES_AI_TIMEOUT=600 app bench vision 
 To go back to the GPU, comment out `OLLAMA_VULKAN=0` again (or restore the override in `COMPOSE_FILE`) and run
 `docker compose up -d ollama`.
 
-### Tests with the real model
-
-The `-m ollama` tests use the real model and synthetic images only. Start Ollama first:
-
-```sh
-docker compose up -d ollama
-docker compose run --rm -T dev pytest -m ollama
-```
-
-They are skipped, with a message, when Ollama does not answer or the model is missing. They allow a frame the
-model fails on, because of the instability described above; a run in which every frame fails is still an error.
