@@ -81,13 +81,18 @@ class ShutdownController:
             raise Interrupted(self.signum)
 
     def request(self, signum: int) -> None:
-        """Record the first signal, stop every child and run the shutdown callbacks."""
+        """Record the first signal, run the shutdown callbacks and send SIGTERM to every child.
+
+        This is the signal handler, so it never waits: it may interrupt the main thread while that
+        holds the lock of a `Popen` it is waiting on. The loop that runs each child (`ToolRunner.run`)
+        sees the request within `POLL_SECONDS` and kills the child if it outlives the grace period.
+        """
         if self.signum is None:
             self.signum = signum
         for callback in list(self._callbacks):
             callback()
         for child in list(self._children):
-            _terminate_group(child, self.grace)
+            _signal_group(child, signal.SIGTERM)
 
     def on_shutdown(self, callback: Callable[[], None]) -> None:
         """Call `callback` when a signal arrives (e.g. to cut off a network request); it must not block."""
@@ -113,18 +118,23 @@ class ShutdownController:
         self._previous.clear()
 
 
+def _signal_group(child: subprocess.Popen, signum: int) -> None:
+    """Send `signum` to the child's process group unless the child was already reaped; never waits."""
+    if child.returncode is None:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(child.pid, signum)
+
+
 def _terminate_group(child: subprocess.Popen, grace: float) -> None:
     """SIGTERM to the child's process group, SIGKILL if it is still there after `grace` seconds."""
     if child.poll() is not None:
         return
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(child.pid, signal.SIGTERM)
+    _signal_group(child, signal.SIGTERM)
     deadline = time.monotonic() + grace
     while child.poll() is None and time.monotonic() < deadline:
         time.sleep(0.02)
     if child.poll() is None:
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(child.pid, signal.SIGKILL)
+        _signal_group(child, signal.SIGKILL)
         child.wait()
 
 
