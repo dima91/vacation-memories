@@ -91,6 +91,7 @@ class Section:
     share: float  # proportion used when budget is redistributed
     budget: float
     allowed: tuple[float, float] | None  # range in seconds, None for the compressed and chronological sections
+    max_clips: int | None = None  # the compressed Closing is a single clip
     pool: list[RankedCandidate] = field(default_factory=list)
     clips: list[Clip] = field(default_factory=list)  # in chronological order
     initial_budget: float = 0.0
@@ -203,7 +204,7 @@ class _Planner:
                 Section("opening", shares["opening"].share, opening, None),
                 Section(BODY, sum(shares[name].share for name in ("beginning", "development", "finale")),
                         target - opening - closing, None),
-                Section("closing", shares["closing"].share, closing, None),
+                Section("closing", shares["closing"].share, closing, None, max_clips=1),
             ]
             return [section for section in sections if section.budget > 0]
 
@@ -425,6 +426,8 @@ class _Planner:
         rejected: set[str] = set()
         blocked: set[str] = set()
         while True:
+            if section.max_clips is not None and len(section.clips) >= section.max_clips:
+                return blocked
             best = None
             totals = self._totals(section)
             for item in section.pool:

@@ -205,6 +205,13 @@ class TestCompressedStructure:
         result = plan(vacation(12, moments=MOMENTS), 60)
         assert result.report["structure"] == "compressed"
 
+    def test_the_closing_of_the_compressed_structure_is_a_single_clip_even_with_a_long_target(self):
+        # 5% of 300 s is 15 s, more than one Closing clip lasts: the rest goes to the other sections.
+        result = plan(vacation(12, moments=MOMENTS), 300)
+        assert result.report["structure"] == "compressed"
+        assert sections(result)["closing"]["clips"] == 1
+        assert [e.section for e in result.plan.elements].count("closing") == 1
+
     def test_at_the_minimum_duration_the_opening_is_merged_into_the_body(self):
         result = plan(vacation(100, moments=MOMENTS), 15)
         assert "opening" not in sections(result)
