@@ -64,6 +64,7 @@ from vacation_memories.video_format import (
     SLOW_SOFTWARE_SHORT_SIDE,
     FormatError,
     FrameSize,
+    even,
     frame_size,
     resize_keeping_short_side,
 )
@@ -75,7 +76,7 @@ logger = logging.getLogger(__name__)
 FULL, ANALYZE_ONLY, DRY_RUN, RENDER_ONLY = "full", "analyze_only", "dry_run", "render_only"
 PLAN_NAME = "edit_plan.json"
 RUN_CONFIG_NAME = "run_config.json"
-RUN_CONFIG_VERSION = 1
+RUN_CONFIG_VERSION = 2
 DURATION_PRECISION = 0.05  # the final file must be within 5% of the requested duration
 
 
@@ -103,6 +104,8 @@ class RunParams:
     duration: float
     width: int | None  # None with --render-only without --resolution/--aspect: the plan decides
     height: int | None
+    resolution: str | None  # as given: --render-only resizes the frame of the plan with them
+    aspect: str | None
     structure: str
     no_ai: bool
     model: str
@@ -199,6 +202,8 @@ def _params(settings: Settings, request: RunRequest) -> tuple[RunParams, set[str
         duration=settings.duration,
         width=width,
         height=height,
+        resolution=settings.resolution,
+        aspect=settings.aspect,
         structure=settings.structure,
         no_ai=settings.no_ai,
         model=settings.model,
@@ -221,6 +226,8 @@ def _params(settings: Settings, request: RunRequest) -> tuple[RunParams, set[str
     explicit |= {"selection", "rendering"}  # from the configuration file, which a resume normally shares
     if size_given:
         explicit |= {"width", "height"}
+        if request.mode == RENDER_ONLY:  # the same size can come from different options, fitted differently
+            explicit |= {"resolution", "aspect"}
     if request.mode_given:
         explicit.add("mode")
     if request.preview:
@@ -538,17 +545,18 @@ class _Run:
         return plan
 
     def _render_only_size(self, plan: EditPlan) -> FrameSize | None:
-        settings = self.settings
+        # From the parameters, not the settings: a plain --resume has neither option on its command line.
+        resolution, aspect = self.params.resolution, self.params.aspect
         width, height = plan.output.width, plan.output.height
-        if settings.resolution is None and settings.aspect is None:
+        if resolution is None and aspect is None:
             return None
-        if settings.resolution is None:
-            return resize_keeping_short_side(width, height, settings.aspect)
-        if settings.resolution in PRESETS and settings.aspect is None:  # the plan keeps its proportions
-            short = PRESETS[settings.resolution]
+        if resolution is None:
+            return resize_keeping_short_side(width, height, aspect)
+        if resolution in PRESETS and aspect is None:  # the plan keeps its proportions
+            short = PRESETS[resolution]
             scale = short / min(width, height)
-            return frame_size(f"{_even(width * scale)}x{_even(height * scale)}", None)
-        return frame_size(settings.resolution, settings.aspect)
+            return frame_size(f"{even(width * scale)}x{even(height * scale)}", None)
+        return frame_size(resolution, aspect)
 
     def _render(self, plan: EditPlan, report: dict | None = None) -> int:
         params, settings = self.params, self.settings
@@ -590,7 +598,3 @@ def _describe_ai(coverage, *, used: bool | None = None) -> str:
 
 def _seconds(value: float | None) -> str:
     return "unknown" if value is None else f"{value:.1f} s"
-
-
-def _even(value: float) -> int:
-    return max(2, round(value / 2) * 2)
