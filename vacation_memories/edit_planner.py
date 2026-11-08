@@ -236,8 +236,10 @@ class _Planner:
         # The segments of the Closing's videos cannot fill the band before it: they are not its material.
         closing_files = {clip.item.candidate.rel_path for section in self.sections if section.name == "closing"
                          for clip in section.clips if clip.item.candidate.kind == VIDEO}
-        weights = [0.0 if item.candidate.rel_path in closing_files else self._range(item, bands[0].name)[2]
-                   for item in remaining]
+        weights = []
+        for item in remaining:
+            found = self._range(item, bands[0].name)
+            weights.append(0.0 if found is None or item.candidate.rel_path in closing_files else found[2])
         cumulative = np.cumsum(weights) if weights else np.array([])
         total = float(cumulative[-1]) if len(cumulative) else 0.0
         budget_total = sum(band.budget for band in bands)
