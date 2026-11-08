@@ -284,6 +284,42 @@ faster.
 - The scores and shares are initial values, tuned on synthetic media only.
 - Rendering above 1080p with the software encoder is much slower; use `--preview` for trials.
 
+## Evaluation
+
+`evaluate` measures the edit, so that every change to the ranking, the duplicates or the structure can be compared
+with the previous one. No threshold of success is fixed in advance: the first run sets the reference.
+
+### Synthetic evaluation
+
+```sh
+docker compose run --rm -T --no-deps app evaluate synthetic
+docker compose run --rm -T dev python -m vacation_memories evaluate synthetic --seeds 100 --duration 90
+```
+
+It generates a synthetic vacation with known truth (4 days, 2 places a day, about 90 files; generated once, then
+reused) in `WORK_DIR/synthetic-eval/`, analyzes it without AI, and plans it twice: with the real selection, and at
+random as many times as `--seeds` (default 100). The random plans keep the section budgets and the clip durations,
+but take their clips by chance among all the readable files, blurred and duplicate ones included. Everything stays
+at plan level: nothing is rendered and Ollama is not needed, so `--no-deps` is enough.
+
+The table, also saved in `synthetic_report.json`, puts each metric of the real plan next to the mean, spread and
+range of the random plans, with the share of random plans it beats or ties:
+
+- important moments included: fast pans, and scenes seen nowhere else that day;
+- repetitions: near-identical bursts, and the same scene framed differently (which the perceptual hash does not
+  recognize, so the plan is not expected to do better than chance there);
+- blurred or black shots selected;
+- days and places covered, balance between the days, largest share of a single file;
+- section budgets, sections inside their allowed range, clips inside their duration limits.
+
+The `[selection]` table of the configuration applies, so a change of weights or thresholds can be measured. These
+metrics find regressions and check the evaluation itself; they do not say whether the video is pleasant. To look at
+the vacation, write it on its own (with its `ground_truth.json`):
+
+```sh
+docker compose run --rm -T dev python -m vacation_memories.synthetic_media dev-media/evaluation --evaluation
+```
+
 ## Docker
 
 Docker is the only way to run the program, on the development PC and on the server. A single `compose.yaml`
