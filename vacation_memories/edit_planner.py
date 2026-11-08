@@ -27,10 +27,12 @@ Basic version of the narrative structure of section 6:
    video is shorter and the report says why.
 
 `--structure chronological` drops the sections: one chronological selection over the whole vacation.
+`plan_random` is the random baseline of the evaluation: the same sections and durations, filled by chance.
 """
 
 import bisect
 import math
+import random
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from fractions import Fraction
@@ -119,6 +121,34 @@ def estimated_clip_count(target: float, config: SelectionConfig) -> int:
     return max(1, math.ceil(target / typical))
 
 
+def duration_limits(
+    kind: str, section: str, moment_type: str | None, *, short: bool, compressed: bool, config: SelectionConfig
+) -> tuple[float, float]:
+    """Nominal (minimum, maximum) duration of a clip, before it is fitted to the material it comes from.
+
+    `short` is a target under `short_target_seconds`; `compressed` the compressed structure, whose
+    Closing clip may be as short as the one of a short target. A continuous shot may grow beyond
+    the maximum of a video, up to `video_shot_max_seconds`.
+    """
+    photo = kind == PHOTO
+    if section == "opening":
+        return config.min_clip_seconds, config.opening_clip_max_seconds
+    if section == "closing":
+        low, high = ((config.closing_photo_min_seconds, config.closing_photo_max_seconds) if photo
+                     else (config.closing_video_min_seconds, config.closing_video_max_seconds))
+        return (config.closing_short_min_seconds if short or compressed else low), high
+    if short:
+        return ((config.short_photo_min_seconds, config.short_photo_max_seconds) if photo
+                else (config.short_video_min_seconds, config.short_video_max_seconds))
+    low, high = ((config.photo_min_seconds, config.photo_max_seconds) if photo
+                 else (config.video_min_seconds, config.video_max_seconds))
+    if moment_type == "detail":
+        return config.min_clip_seconds, min(high, config.detail_max_seconds)
+    if moment_type == "scenery":
+        return low + config.scenery_extra_seconds, high + config.scenery_extra_seconds
+    return low, high
+
+
 def plan_edit(
     ranking: Ranking,
     *,
@@ -131,6 +161,26 @@ def plan_edit(
 ) -> PlanningResult:
     planner = _Planner(ranking, target, output, config, rules, structure)
     return planner.run(assumed_tz)
+
+
+def plan_random(
+    ranking: Ranking,
+    *,
+    target: float,
+    output: OutputSpec,
+    config: SelectionConfig,
+    rules: TransitionRules,
+    seed: int,
+    assumed_tz: str | None = None,
+) -> PlanningResult:
+    """The random baseline of the evaluation: clips chosen by chance, with the same constraints of duration.
+
+    The sections, their budgets and the duration of every clip follow the same rules as `plan_edit`,
+    and each section is shown in chronological order; what is left out is everything that makes the
+    choice: scores, variety, caps per file and per moment type, near-duplicate penalty. `ranking`
+    should hold every readable candidate, discarded ones included. The same seed gives the same plan.
+    """
+    return _RandomPlanner(ranking, target, output, config, rules, seed).run(assumed_tz)
 
 
 class _Planner:
@@ -263,27 +313,8 @@ class _Planner:
         """(minimum, maximum, preferred) duration of a candidate in a section; None if it cannot be used there."""
         config = self.config
         photo = item.candidate.kind == PHOTO
-        if section == "opening":
-            low, high = config.min_clip_seconds, config.opening_clip_max_seconds
-        elif section == "closing":
-            short = self.short or self.compressed
-            if photo:
-                low, high = config.closing_photo_min_seconds, config.closing_photo_max_seconds
-            else:
-                low, high = config.closing_video_min_seconds, config.closing_video_max_seconds
-            if short:
-                low = config.closing_short_min_seconds
-        elif self.short:
-            low, high = ((config.short_photo_min_seconds, config.short_photo_max_seconds) if photo
-                         else (config.short_video_min_seconds, config.short_video_max_seconds))
-        else:
-            low, high = ((config.photo_min_seconds, config.photo_max_seconds) if photo
-                         else (config.video_min_seconds, config.video_max_seconds))
-            if item.moment_type == "detail":
-                low, high = config.min_clip_seconds, min(high, config.detail_max_seconds)
-            elif item.moment_type == "scenery":
-                low, high = low + config.scenery_extra_seconds, high + config.scenery_extra_seconds
-
+        low, high = duration_limits(item.candidate.kind, section, item.moment_type, short=self.short,
+                                    compressed=self.compressed, config=config)
         if not photo:
             available = item.available_seconds - VIDEO_END_MARGIN_SECONDS
             if section == "closing" and available < low:
@@ -391,12 +422,18 @@ class _Planner:
         after = sequence[position + 1].item.day if position + 1 < len(sequence) else None
         return before != day or after != day
 
-    def _insert(self, section: Section, clip: Clip, strict_runs: bool) -> str | None:
-        """Put the clip in its chronological place if no rule is broken."""
-        offset = sum(len(other.clips) for other in self.sections[: self.sections.index(section)])
+    @staticmethod
+    def _place(section: Section, clip: Clip) -> int:
+        """Put the clip in its chronological place in the section; returns its position there."""
         keys = [(c.item.captured_at, c.item.id) for c in section.clips]
         place = bisect.bisect(keys, (clip.item.captured_at, clip.item.id))
         section.clips.insert(place, clip)
+        return place
+
+    def _insert(self, section: Section, clip: Clip, strict_runs: bool) -> str | None:
+        """Put the clip in its chronological place if no rule is broken."""
+        offset = sum(len(other.clips) for other in self.sections[: self.sections.index(section)])
+        place = self._place(section, clip)
         problem = self._breaks_rules(self._sequence(), offset + place, strict_runs)
         if problem:
             del section.clips[place]
@@ -782,3 +819,40 @@ class _Planner:
             "sections": sections,
             "warnings": warnings,
         }
+
+
+class _RandomPlanner(_Planner):
+    """The random baseline: the planner's sections, budgets, bands and durations, filled by chance."""
+
+    def __init__(self, ranking, target, output, config, rules, seed: int):
+        super().__init__(ranking, target, output, config, rules, NARRATIVE)
+        self.seed = seed
+        self.rng = random.Random(seed)
+
+    def _fill_opening(self, section: Section) -> None:
+        section.pool = list(self.useful)
+        self._fill(section)
+
+    def _fill_closing(self, section: Section) -> None:
+        section.pool = [item for item in self.useful if item.id not in self.used]
+        self._fill(section)
+
+    def _fill(self, section: Section, score=None, reason=None) -> None:
+        """Candidates of the pool in random order, each taken if it fits what is left of the budget."""
+        pool = [item for item in section.pool if item.id not in self.used]
+        self.rng.shuffle(pool)
+        for item in pool:
+            if section.max_clips is not None and len(section.clips) >= section.max_clips:
+                break
+            clip = self._make_clip(item, section, f"random baseline (seed {self.seed})")
+            if clip is None or not self._fits(clip, section, self._totals(section)):
+                continue
+            self._place(section, clip)
+            self._accept(clip, section)
+        section.ran_out = self._totals(section)[2] < section.budget - _EPSILON
+
+    def _drop_misplaced_transitions(self) -> None:
+        """No rule on `transition` clips: chance does not know what they are."""
+
+    def _report(self, sequence: list[Clip], plan: EditPlan, layout) -> dict:
+        return {**super()._report(sequence, plan, layout), "random_seed": self.seed}

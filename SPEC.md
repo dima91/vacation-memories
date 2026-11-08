@@ -183,6 +183,7 @@ Configuration:
 | Full job | `docker compose run --rm app --music /music/<track> --duration 300 --output memories.mp4` | both |
 | Resume | same command with `--resume` | both |
 | Render only from a plan (without Ollama) | `docker compose run --rm --no-deps app --render-only --output memories.mp4` | both |
+| Synthetic evaluation (Milestone 2, without Ollama) | `docker compose run --rm --no-deps app evaluate synthetic` | both |
 | Evaluation (Milestone 2) | `docker compose run --rm app evaluate prepare ...` | server |
 | Evaluation report (Milestone 2, without Ollama) | `docker compose run --rm --no-deps app evaluate report ...` | server |
 
@@ -251,13 +252,13 @@ In the image: Python 3.12 (3.11 is the minimum), FFmpeg/FFprobe, OpenCV (headles
 ## Structure
 
 Package `vacation_memories/` with independent modules:
-- scanning and analysis: `media_scanner`, `metadata_extractor`, `media_probe` (streams, rotation, HDR), `scene_detector`, `frame_sampler`, `quality_analyzer`, `technical_analysis` (candidates with scores and hashes), `duplicate_detector`, `cache_manager`;
+- scanning and analysis: `media_scanner`, `metadata_extractor`, `media_probe` (streams, rotation, HDR), `scene_detector`, `frame_sampler`, `quality_analyzer`, `technical_analysis` (candidates with scores and hashes), `duplicate_detector`, `cache_manager`, `analysis` (the whole analysis of a folder, shared by the pipeline and the evaluation);
 - AI: `ollama_client`, `vision_schema` (prompt, JSON schema, validation), `vision_analyzer`, `bench`;
 - selection and plan: `selection_config`, `scene_ranker`, `edit_planner`, `edit_plan`, `transitions` (the layout shared by planner and renderer), `video_format` (`--duration`, `--resolution`, `--aspect`), `estimates`;
 - rendering: `render_config`, `render_filters`, `encoders`, `segments` (phase A), `assembly` (phase B), `render_checks`, `renderer`;
 - running: `cli`, `config`, `pipeline`, `doctor`, `runtime_profile`, `process` (FFmpeg runner and orderly shutdown), `workdir` (lock and `status.json`), `atomic`, `logging_setup`, `exit_codes`;
 - tests: `synthetic_media` (synthetic photos, clips and vacations);
-- from Milestone 2: `evaluate`.
+- from Milestone 2: `evaluate`, a package (`ground_truth`, `metrics`, `synthetic`).
 
 Starting with fewer files and splitting later is allowed. At the repository root: `Dockerfile`, `compose*.yaml`, `.env.example`, `docker/`, `scripts/`.
 
@@ -547,6 +548,8 @@ The sections "How to work", "Privacy and development data" and "Constraints" app
 | 5 | Pipeline 5; Runtime profile ("Detection" and "Calibration"); Headless execution ("Ollama on the server"); Docker image and Docker Compose (`dev` service, for the `-m ollama` tests) |
 | 6 | Pipeline 6, with the AI fields of pipeline 5; CLI (with Execution modes, Video duration and Resolution and format); Headless execution (including the tests) |
 | 7 | Docker image and Docker Compose (including "Docker tests") |
+| E1 | Perceived quality evaluation; Milestone 2; Step 2 of Milestone 1 (the synthetic media generator); pipeline 4, 6 (including "Narrative structure") and 7; CLI ("Execution modes and subcommands"); Structure |
+| E2 | Perceived quality evaluation; pipeline 3, 4, 6 and 10; CLI (with Execution modes, Video duration and Resolution and format); Headless execution; Docker image and Docker Compose ("Same commands on the development PC and the server"); Milestone 4 |
 
 ### Step 0 — by the user (not for Claude Code)
 On both machines, with Docker: a temporary Ollama container with GPU access (`/dev/dri` and `OLLAMA_IGPU_ENABLE=1`), with the same `ollama/ollama` tag the compose file will use (the user communicates it in Step 1), and the models volume the compose file will use (see SETUP.md). The model is downloaded (`ollama pull qwen3-vl:4b-instruct-q4_K_M`) and `ollama ps` is used to check that it runs on the GPU. On the server, which decides the AI budget, manual benchmark on 5-10 images with `ollama run`: time per frame, quality of the responses, sufficient resolution, and whether `moment_type` and `narrative_value` turn out sensible and consistent (small models may confuse `detail`, `transition` and `scenery`). The benchmark must be done twice, with the GPU and with `OLLAMA_VULKAN=0`, to measure the gain. On the development PC it is enough to check that the GPU works: there the model is only used for the integration tests.
@@ -588,6 +591,17 @@ Technical metrics do not say whether the video is really good. This system measu
    - comparison with random selection at plan level, without rendering, over many seeds (e.g. 100), with mean and spread.
 
    It serves to find regressions and to verify the infrastructure. **It does not establish whether the video is pleasant and does not replace human evaluation.**
+
+   Implemented (E1):
+   - **Dataset.** `synthetic_media.populate_evaluation_vacation`, by default 4 days with 2 places a day. Every place has its own palette and holds:
+     - two scenes photographed from three framings: `similar_scene` groups, beyond the hash threshold;
+     - a burst of three near-identical photos: a `near_duplicate` group, which the hash groups;
+     - a clip of three scenes, the middle one a fast pan in every other place: the important `motion` moments.
+
+     Every day adds a photo of a scene seen nowhere else (important `unique`) and a blurred photo. The first day adds a black photo, and the last clip ends with a black scene. `ground_truth.json` (version 1) lists, for every file, day, place, capture date and scenes `[start, end)`, each with its group, importance and defect. With the default seed the hash groups exactly the bursts. Another seed may group a pair of framings, or miss a cut between two scenes of a clip; the metrics measure the analysis as it is.
+   - **Folder.** `evaluate synthetic` generates the dataset in `<workdir>/synthetic-eval/<dataset>/media`, never in `eval/`, and reuses it while seed and parameters are the same. It analyzes it without AI in `.../work`, with its own cache and lock.
+   - **Random baseline.** It has the planner's sections, budgets, bands and clip durations, with the clips drawn by a seeded generator from every candidate of the readable files, discarded ones included. Each section is in chronological order. It has no scores, variety rules, caps or redundancy penalty.
+   - **Metrics.** A clip includes a scene when it shows at least 1 s of it, or half of a shorter scene. Time shares use the durations of the clips. The report (`synthetic_report.json`) gives each metric of the full plan with mean, spread, minimum and maximum over the random plans, and the share of random plans it beats or ties.
 2. **Private evaluation on real material (by the user).** Run only by the user on their own folder, with the tools described below.
 
 **The five questions**
@@ -611,7 +625,7 @@ Technical metrics do not say whether the video is really good. This system measu
 **Tool**
 
 `evaluate` subcommand (`docker compose run --rm app evaluate ...`), with three actions:
-- `synthetic`: automatic evaluation on the synthetic dataset (also runnable in pytest);
+- `synthetic`: automatic evaluation on the synthetic dataset (also runnable in pytest), never with the AI: `--duration` (default 90 s), `--seeds` (random plans, default 100), `--dataset-seed`;
 - `prepare`: creates `<workdir>/eval/<run_id>/` with the variants' previews, the thumbnails and `review.html`;
 - `report`: reads the `ratings.json` exported from the page and produces `eval_report.md` (readable) and `eval_summary.json` (anonymous).
 

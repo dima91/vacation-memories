@@ -8,14 +8,14 @@
   Parameters that change the result may be repeated but not changed (code 2); performance and log
   options may change. A run whose plan was saved goes straight to rendering, reusing the segments.
 
-The analysis is cached (metadata, candidates, AI answers): changing `--duration`, the structure or
-the output format only redoes selection, plan and rendering. A run holds the workdir lock, keeps
-`status.json` up to date and stops in an orderly way on SIGINT, SIGTERM and SIGHUP.
+The analysis (`analysis`, shared with the evaluation) is cached (metadata, candidates, AI answers):
+changing `--duration`, the structure or the output format only redoes selection, plan and rendering.
+A run holds the workdir lock, keeps `status.json` up to date and stops in an orderly way on SIGINT,
+SIGTERM and SIGHUP.
 """
 
 import json
 import logging
-import math
 import os
 import sys
 from collections.abc import Callable
@@ -24,17 +24,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from vacation_memories import exit_codes
+from vacation_memories.analysis import Analysis, AnalysisRequest, RequirementsError, run_analysis
 from vacation_memories.atomic import atomic_write_json
-from vacation_memories.cache_manager import CacheManager
 from vacation_memories.config import ConfigError, Settings
 from vacation_memories.doctor import MIN_FREE_BYTES, ffmpeg_problem
-from vacation_memories.duplicate_detector import HashBackend, find_duplicates
 from vacation_memories.edit_plan import EditPlan, OutputSpec, PlanError, load_plan, save_plan
-from vacation_memories.edit_planner import estimated_clip_count, plan_edit
+from vacation_memories.edit_planner import plan_edit
 from vacation_memories.estimates import estimate_render
-from vacation_memories.media_scanner import scan_media
-from vacation_memories.metadata_extractor import load_metadata
-from vacation_memories.ollama_client import OllamaClient
 from vacation_memories.process import Interrupted, ShutdownController, ToolRunner
 from vacation_memories.render_config import RenderConfig
 from vacation_memories.renderer import (
@@ -49,15 +45,10 @@ from vacation_memories.runtime_profile import (
     MIB,
     DetectionEnv,
     RuntimeProfile,
-    detect_ollama,
     detect_profile,
     format_profile,
-    loaded_model_placement,
-    record_model_placement,
     write_runtime_profile,
 )
-from vacation_memories.scene_ranker import Discarded, rank_candidates, technical_filter
-from vacation_memories.technical_analysis import analyze_media
 from vacation_memories.video_format import (
     LONG_DURATION_SECONDS,
     PRESETS,
@@ -68,7 +59,6 @@ from vacation_memories.video_format import (
     frame_size,
     resize_keeping_short_side,
 )
-from vacation_memories.vision_analyzer import AiCoverage, VisionAnalyzer, analyze_candidates, prioritize
 from vacation_memories.workdir import WorkdirInUseError, WorkdirLock
 
 logger = logging.getLogger(__name__)
@@ -78,10 +68,6 @@ PLAN_NAME = "edit_plan.json"
 RUN_CONFIG_NAME = "run_config.json"
 RUN_CONFIG_VERSION = 2
 DURATION_PRECISION = 0.05  # the final file must be within 5% of the requested duration
-
-
-class RequirementsError(Exception):
-    """Something the run needs is missing (exit code 4)."""
 
 
 @dataclass(frozen=True)
@@ -355,118 +341,17 @@ class _Run:
 
     # --- analysis ---
 
-    def _analyze(self) -> dict:
-        params, settings = self.params, self.settings
-        config = settings.selection
-        input_dir = Path(params.input)
-        self.progress.phase("scanning", 0)
-        files = scan_media(input_dir)
-        backend = HashBackend()
-        with CacheManager(self.workdir) as cache:
-            self.progress.phase("reading metadata", len(files))
-            loaded = load_metadata(files, cache, params.assume_tz, check=self.controller.check,
-                                   progress=self.progress.advance, runner=ToolRunner(self.controller))
-            metadata = {media.rel_path: info for media, info in loaded}
-            readable = [media for media, _ in loaded]
+    def _analyze(self) -> Analysis:
+        params = self.params
+        request = AnalysisRequest(
+            input=Path(params.input), workdir=self.workdir, duration=params.duration, assume_tz=params.assume_tz,
+            no_ai=params.no_ai, model=params.model, ai_resolution=params.ai_resolution, ai_frames=params.ai_frames,
+            ai_time_budget=params.ai_time_budget,
+        )
+        return run_analysis(request, self.settings, controller=self.controller, progress=self.progress, env=self.env)
 
-            self.progress.phase("technical analysis", len(readable))
-            candidates = analyze_media(readable, backend, cache=cache, check=self.controller.check,
-                                       progress=self.progress.advance)
-            passed, discarded = technical_filter(candidates, config)
-            duplicates = find_duplicates([candidate.duplicate_item() for candidate in passed], backend)
-            representatives = duplicates.representatives()
-            survivors = [candidate for candidate in passed if candidate.id in representatives]
-            for group in duplicates.duplicate_groups:
-                discarded += [Discarded(member.id, "duplicate", member.reason) for member in group.duplicates]
-            logger.info(
-                "analysis: %d file(s), %d candidate(s), %d below the technical threshold, %d duplicate(s), "
-                "%d left", len(files), len(candidates), len(candidates) - len(passed),
-                len(passed) - len(survivors), len(survivors),
-            )
-            ai_results, coverage = self._ai_phase(survivors, readable, cache)
-
-        ranking = rank_candidates(survivors, metadata, duplicates, ai_results, config, ai_used=bool(ai_results))
-        ranking.discarded = discarded
-        counts = {
-            "files": len(files),
-            "readable_files": len(readable),
-            "candidates": len(candidates),
-            "below_technical_threshold": len(candidates) - len(passed),
-            "duplicates": len(passed) - len(survivors),
-            "eligible": len(survivors),
-        }
-        return {"ranking": ranking, "coverage": coverage, "counts": counts}
-
-    def _ai_phase(self, survivors, readable, cache) -> tuple[dict, AiCoverage | None]:
-        params, settings = self.params, self.settings
-        if params.no_ai:
-            logger.info("AI analysis skipped (--no-ai)")
-            return {}, None
-        client = OllamaClient(settings.ollama_url, params.model, timeout=settings.ai_timeout)
-        analyzer = VisionAnalyzer(client, model=params.model, resolution=params.ai_resolution, cache=cache,
-                                  unload_model=settings.ai_unload_model)
-        ordered = prioritize(survivors)
-        if params.ai_frames is not None:
-            selected, frames, budget = ordered[: params.ai_frames], params.ai_frames, None
-        else:
-            cap = math.ceil(settings.selection.ai_frames_per_clip * estimated_clip_count(params.duration,
-                                                                                          settings.selection))
-            selected, frames, budget = ordered[:cap], None, params.ai_time_budget
-        media_by_path = {media.rel_path: media for media in readable}
-
-        cached = {}
-        for candidate in selected:
-            media = media_by_path[candidate.rel_path]
-            timestamp = None if candidate.start is None else (candidate.start + candidate.end) / 2
-            if (result := analyzer.lookup(media, timestamp)) is not None:
-                cached[candidate.id] = result
-        if len(cached) == len(selected):
-            logger.info("AI analysis: all %d frame(s) already in the cache, Ollama is not contacted", len(cached))
-            coverage = AiCoverage(model=params.model, mode="cache", limit=len(selected), candidates=len(survivors),
-                                  selected=len(selected), analyzed=len(cached), from_cache=len(cached))
-            return cached, coverage
-
-        ollama = detect_ollama(self.env, settings.ollama_url, params.model, logger.warning)
-        self._record_ollama(ollama.to_dict())
-        if not ollama.reachable or not ollama.model_present:
-            problem = (f"Ollama is not reachable at {settings.ollama_url}" if not ollama.reachable
-                       else f"the model {params.model} is not installed in Ollama (see `ollama list`)")
-            if settings.require_ai:
-                raise RequirementsError(f"{problem}, and --require-ai is set")
-            logger.warning("%s: continuing without AI for the %d frame(s) not in the cache", problem,
-                           len(selected) - len(cached))
-            coverage = AiCoverage(model=params.model, mode="unavailable", limit=len(selected),
-                                  candidates=len(survivors), selected=len(selected), analyzed=len(cached),
-                                  from_cache=len(cached))
-            return cached, coverage
-
-        self.controller.on_shutdown(client.abort)
-        self.progress.phase("AI analysis", len(selected))
-        with analyzer:
-            outcome = analyze_candidates(
-                selected, media_by_path, analyzer, frames=frames, time_budget=budget,
-                max_concurrency=settings.ai_max_concurrency,
-                probe_placement=lambda: loaded_model_placement(self.env, settings.ollama_url, params.model),
-                progress=lambda done, total: self.progress.advance_to(done), stop=lambda: self.controller.requested,
-            )
-        self.controller.check()
-        outcome.coverage.candidates = len(survivors)
-        record_model_placement(self.workdir / "runtime_profile.json", outcome.coverage.placement)
-        if settings.require_ai and selected and not outcome.results:
-            raise RequirementsError("the vision model gave no usable answer, and --require-ai is set")
-        return outcome.results, outcome.coverage
-
-    def _record_ollama(self, info: dict) -> None:
-        path = self.workdir / "runtime_profile.json"
-        try:
-            data = json.loads(path.read_text())
-            data["ollama"] = info
-            atomic_write_json(path, data)
-        except (OSError, ValueError):
-            logger.warning("cannot record the Ollama state in %s", path)
-
-    def _print_analysis(self, analysis: dict) -> None:
-        counts, coverage = analysis["counts"], analysis["coverage"]
+    def _print_analysis(self, analysis: Analysis) -> None:
+        counts, coverage = analysis.counts, analysis.coverage
         self.out(f"Analysis saved in the cache of {self.workdir}")
         self.out(f"  files: {counts['files']} ({counts['readable_files']} readable), candidates: {counts['candidates']}")
         self.out(f"  below the technical threshold: {counts['below_technical_threshold']}, "
@@ -478,18 +363,18 @@ class _Run:
     def _output_spec(self) -> OutputSpec:
         return OutputSpec(self.params.width, self.params.height)
 
-    def _plan(self, analysis: dict) -> tuple[EditPlan, dict]:
+    def _plan(self, analysis: Analysis) -> tuple[EditPlan, dict]:
         params, settings = self.params, self.settings
         self.progress.phase("planning", 1)
-        ranking = analysis["ranking"]
+        ranking = analysis.ranking
         rules = RenderConfig.from_settings(settings).rules
         result = plan_edit(ranking, target=params.duration, output=self._output_spec(), config=settings.selection,
                            rules=rules, structure=params.structure, assumed_tz=params.assume_tz)
-        coverage = analysis["coverage"]
+        coverage = analysis.coverage
         report = {
             **result.report,
             "ai": {"used": ranking.ai_used, "coverage": None if coverage is None else coverage.to_dict()},
-            "candidates": analysis["counts"],
+            "candidates": analysis.counts,
             "notes": ranking.notes,
         }
         plan = replace(result.plan, runtime=report)

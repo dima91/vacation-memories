@@ -1,6 +1,6 @@
 """Command line: global options, start-up (private files, workdir, logging), the pipeline and the subcommands.
 
-Without a subcommand the pipeline runs (see `pipeline`); `doctor` and `bench` are subcommands.
+Without a subcommand the pipeline runs (see `pipeline`); `doctor`, `bench` and `evaluate` are subcommands.
 """
 
 import argparse
@@ -14,9 +14,11 @@ from vacation_memories import __version__, exit_codes
 from vacation_memories.bench import DEFAULT_IMAGE_COUNT, run_bench_vision
 from vacation_memories.config import ConfigError, Settings, ollama_url_is_local, resolve_settings
 from vacation_memories.doctor import format_report, has_blocking_failures, run_doctor
+from vacation_memories.evaluate.synthetic import DEFAULT_SEEDS, SyntheticRequest, run_synthetic
 from vacation_memories.logging_setup import setup_logging
 from vacation_memories.pipeline import ANALYZE_ONLY, DRY_RUN, FULL, RENDER_ONLY, RunRequest, run_pipeline
 from vacation_memories.runtime_profile import DetectionEnv, detect_profile, write_runtime_profile
+from vacation_memories.video_format import FormatError, parse_duration
 from vacation_memories.workdir import prepare_workdir
 
 logger = logging.getLogger(__name__)
@@ -78,6 +80,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     vision.add_argument("--images", type=Path, help="folder with photos to use instead of synthetic images")
     vision.add_argument("--count", type=int, default=DEFAULT_IMAGE_COUNT, help="number of images (default 5)")
+    evaluate = commands.add_parser("evaluate", parents=[common], allow_abbrev=False, help="evaluate the edit")
+    evaluate_commands = evaluate.add_subparsers(dest="evaluate_command", required=True)
+    synthetic = evaluate_commands.add_parser(
+        "synthetic", parents=[common], allow_abbrev=False,
+        help="the full plan against random plans, on a synthetic vacation with known truth",
+    )
+    synthetic.add_argument("--duration", dest="evaluation_duration", default="90",
+                           help="length of the planned edit (default 90 s)")
+    synthetic.add_argument("--seeds", type=int, default=DEFAULT_SEEDS,
+                           help=f"random plans to compare with (default {DEFAULT_SEEDS})")
+    synthetic.add_argument("--dataset-seed", type=int, default=0, help="seed of the synthetic vacation (default 0)")
     return parser
 
 
@@ -91,6 +104,8 @@ def main(
     args = build_parser().parse_args(argv)
     environ = os.environ if environ is None else environ
     options = {key: value for key, value in vars(args).items() if key not in _COMMAND_ARGUMENTS}
+    if args.command == "evaluate" and args.evaluate_command == "synthetic":
+        options["no_ai"] = True  # synthetic mosaics would tell a vision model nothing
     if args.version:
         print(f"vacation-memories {__version__}")
         return exit_codes.OK
@@ -187,11 +202,25 @@ def _pipeline(
     return run_pipeline(settings, request, detection_env=detection_env)
 
 
-_COMMANDS = {"doctor": _doctor, "bench": _bench, None: _pipeline}
+def _evaluate(
+    args: argparse.Namespace, settings: Settings, detection_env: DetectionEnv | None, *, record_profile: bool
+) -> int:
+    if not record_profile:  # the workdir could not be prepared; the reason is in the log
+        return exit_codes.usage_error(ConfigError(f"cannot use the workdir {settings.workdir}"))
+    try:
+        request = SyntheticRequest(duration=parse_duration(args.evaluation_duration), seeds=args.seeds,
+                                   dataset_seed=args.dataset_seed)
+    except (ConfigError, FormatError) as error:
+        return exit_codes.usage_error(error)
+    return run_synthetic(settings, request, detection_env=detection_env)
+
+
+_COMMANDS = {"doctor": _doctor, "bench": _bench, "evaluate": _evaluate, None: _pipeline}
 _MODES = {ANALYZE_ONLY: "analyze_only", DRY_RUN: "dry_run", RENDER_ONLY: "render_only"}
 # Not settings: subcommands, their arguments and the per-run flags of the pipeline.
 _COMMAND_ARGUMENTS = frozenset({
     "command", "bench_command", "images", "count", "version", "preview", "resume", *_MODES.values(),
+    "evaluate_command", "evaluation_duration", "seeds", "dataset_seed",
 })
 
 
