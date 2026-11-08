@@ -320,6 +320,81 @@ the vacation, write it on its own (with its `ground_truth.json`):
 docker compose run --rm -T dev python -m vacation_memories.synthetic_media dev-media/evaluation --evaluation
 ```
 
+### Evaluation on your vacation
+
+A blind comparison of edits of your own material, which you watch and rate. It runs on the server; the review
+happens in a browser, on any computer. The first cycle sets the baseline.
+
+1. Prepare the previews and the review page. The analysis comes from the cache, and Ollama is used as in a normal
+   run (`--require-ai` included):
+
+   ```sh
+   docker compose run --rm app evaluate prepare --duration 90
+   ```
+
+   It writes `WORK_DIR/eval/<run_id>/`: `--run-id` chooses the name, by default the date and time. Inside, there is
+   a low-resolution preview of each variant, under a letter drawn in random order:
+
+   - `full`: the real selection;
+   - `random`: clips drawn by chance from every readable file, with the same section budgets and clip durations.
+     The seed is recorded; `--seed` fixes it;
+   - optional, with `--variants full,random,no-ai,technical-only`: `no-ai`, the same candidates scored without the
+     vision model, which tells whether the model is worth its time; and `technical-only`, the best by technical
+     quality, which tells how much the narrative part adds.
+
+   The folder also holds the thumbnails and `review.html`. `--music` adds a background track to the previews, and
+   `--aspect` changes their shape. The program never opens a browser: it prints the path.
+
+2. Copy the folder to the computer you watch it on, outside the repository. Leave out the JSON files: they say which
+   letter is which variant.
+
+   ```sh
+   rsync -a --exclude '*.json' server:/path/to/WORK_DIR/eval/<run_id>/ ~/vacation-review/<run_id>/
+   ```
+
+3. Open `review.html`. It is a local file, so no server and no Internet are needed. Your work is kept in the browser
+   while you go.
+
+   - For each version: watch it, and click a start time to jump there. Flag clips as repetitive, too long or too
+     short, judge the rhythm of each part, and rate the version from 1 to 5.
+   - In *Left out*: flag the moments that should be in the video. These are the best excluded candidates, plus a
+     sample for each reason.
+   - In *Rank and export*: rank the versions and export `ratings.json`.
+
+4. Copy `ratings.json` back into the run folder on the server, then make the report. The report needs no Ollama:
+
+   ```sh
+   scp ratings.json server:/path/to/WORK_DIR/eval/<run_id>/
+   docker compose run --rm --no-deps app evaluate report --run-id <run_id>
+   ```
+
+   Without `--run-id` it reports the latest prepared run. `--ratings` reads the file from another place; a relative
+   path is inside the workdir.
+
+`report` checks the ratings before it reads which letter is which variant. It writes two files:
+
+- `eval_report.md`: the answers to the five questions and the comparison with the previous cycle. It is private,
+  because it names your files. The five questions are: important moments left out (and why), repetitive scenes,
+  balance (ratings, rhythm, days, sources, moment types, budgets), clip durations, and the comparison with the
+  random selection;
+- `eval_summary.json`: anonymous. Segment ids are hashed with a secret of the workdir (`eval/.salt`) and days are
+  relative, with no paths, file names, thumbnails, descriptions or dates. It is the only file to share for tuning
+  weights and thresholds.
+
+Your flags are remembered in `WORK_DIR/eval/labels.json`, by segment, even when a new analysis cuts the clips
+slightly differently. The next cycle fills them in and marks what is new, so only that needs reviewing.
+`eval_history.json` keeps every cycle. With few cycles, the comparison with the random selection is indicative, not
+statistical, and the report says so.
+
+The `eval/` folder holds previews and thumbnails of private photos: keep it in `WORK_DIR` and, on the PC, outside
+the repository. For every change to the ranking, the duplicates or the structure:
+
+1. change the configuration or the code;
+2. run `evaluate prepare`;
+3. review the versions;
+4. run `evaluate report`;
+5. compare with the previous cycle and with `random`.
+
 ## Docker
 
 Docker is the only way to run the program, on the development PC and on the server. A single `compose.yaml`
