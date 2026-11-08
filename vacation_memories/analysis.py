@@ -10,12 +10,13 @@ import json
 import logging
 import math
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 
 from vacation_memories.atomic import atomic_write_json
 from vacation_memories.cache_manager import CacheManager
 from vacation_memories.config import Settings
-from vacation_memories.duplicate_detector import HashBackend, find_duplicates
+from vacation_memories.duplicate_detector import DuplicateResult, HashBackend, find_duplicates
 from vacation_memories.edit_planner import estimated_clip_count
 from vacation_memories.media_scanner import scan_media
 from vacation_memories.metadata_extractor import MediaMetadata, load_metadata
@@ -65,12 +66,24 @@ class Analysis:
     metadata: dict[Path, MediaMetadata]  # of every readable file
     candidates: list[Candidate]  # every candidate of the readable files, discarded ones included
     ai_results: dict[str, VisionResult]
+    duplicates: DuplicateResult  # the grouping of the candidates above the technical threshold
+
+    @cached_property
+    def duplicates_of_everything(self) -> DuplicateResult:
+        """The grouping, and the similarities, of every candidate of the readable files."""
+        return find_duplicates([candidate.duplicate_item() for candidate in self.candidates], HashBackend())
 
     def ranking_of_everything(self, config) -> Ranking:
         """Every candidate of the readable files, whatever its quality or duplicates (for the random baseline)."""
-        duplicates = find_duplicates([candidate.duplicate_item() for candidate in self.candidates], HashBackend())
-        return rank_candidates(self.candidates, self.metadata, duplicates, self.ai_results, config,
+        return rank_candidates(self.candidates, self.metadata, self.duplicates_of_everything, self.ai_results, config,
                                ai_used=bool(self.ai_results))
+
+    def ranking_without_ai(self, config) -> Ranking:
+        """The same candidates as `ranking`, scored as if the vision model had not answered."""
+        survivors = [item.candidate for item in self.ranking.ranked]
+        ranking = rank_candidates(survivors, self.metadata, self.duplicates, {}, config, ai_used=False)
+        ranking.discarded = list(self.ranking.discarded)
+        return ranking
 
 
 def run_analysis(
@@ -118,7 +131,7 @@ def run_analysis(
         "duplicates": len(passed) - len(survivors),
         "eligible": len(survivors),
     }
-    return Analysis(ranking, coverage, counts, metadata, candidates, ai_results)
+    return Analysis(ranking, coverage, counts, metadata, candidates, ai_results, duplicates)
 
 
 def _ai_phase(request, settings, survivors, readable, cache, controller, progress, env):
