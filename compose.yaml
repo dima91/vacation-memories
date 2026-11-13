@@ -1,0 +1,124 @@
+x-ollama-image: &ollama-image ollama/ollama:0.40.2
+x-ollama-model: &ollama-model ${OLLAMA_MODEL:-qwen3-vl:4b-instruct-q4_K_M}
+
+services:
+  dev:
+    profiles: [dev]
+    build:
+      context: .
+      target: dev
+    image: vacation-memories-dev:local
+    user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
+    working_dir: /src
+    environment:
+      PYTHONPATH: /src
+      PYTHONDONTWRITEBYTECODE: "1"
+      HOME: /tmp
+      XDG_CACHE_HOME: /tmp/.cache
+      OLLAMA_HOST: http://ollama:11434
+      VACATION_MEMORIES_MODEL: *ollama-model
+    volumes:
+      - type: bind
+        source: .
+        target: /src
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp
+    networks:
+      - backend
+
+  app:
+    build:
+      context: .
+      target: runtime
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+    image: vacation-memories:local
+    user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    environment:
+      VACATION_MEMORIES_CONFIG: /etc/vacation-memories/compose.toml
+      VACATION_MEMORIES_MODEL: *ollama-model
+      VACATION_MEMORIES_ASSUME_TZ: ${ASSUME_TZ:-}
+    volumes:
+      - type: bind
+        source: ${MEDIA_DIR:?set MEDIA_DIR in .env}
+        target: /media
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MUSIC_DIR:-./music}
+        target: /music
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${WORK_DIR:-./work}
+        target: /work
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./docker/compose.toml
+        target: /etc/vacation-memories/compose.toml
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+    networks:
+      - backend
+
+  ollama:
+    image: *ollama-image
+    environment:
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_VULKAN
+    volumes:
+      - vacation-ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    networks:
+      - backend
+      - egress
+
+  ollama-pull:
+    image: *ollama-image
+    entrypoint: ["/bin/sh", "-c"]
+    command: ['ollama show "$$OLLAMA_MODEL" >/dev/null 2>&1 || ollama pull "$$OLLAMA_MODEL"']
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: *ollama-model
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - backend
+
+networks:
+  backend:
+    internal: true
+  egress: {}
+
+volumes:
+  vacation-ollama-models:
+    external: true
