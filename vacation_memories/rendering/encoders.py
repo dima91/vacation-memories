@@ -10,9 +10,9 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from vacation_memories.process import Interrupted, ToolError, ToolRunner
-from vacation_memories.render_config import RenderConfig
-from vacation_memories.render_filters import OUTPUT_COLOR_ARGS
+from vacation_memories.core.process import Interrupted, ToolError, ToolRunner
+from vacation_memories.rendering.render_config import RenderConfig
+from vacation_memories.rendering.render_filters import OUTPUT_COLOR_ARGS
 
 SOFTWARE_ENCODER = "libx264"
 FPS_MODE_FIRST_VERSION = (5, 1)  # `-fps_mode` replaces the deprecated `-vsync` from FFmpeg 5.1

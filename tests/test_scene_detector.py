@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 import pytest
 
-from vacation_memories import synthetic_media as sm
-from vacation_memories.scene_detector import SceneCutDetector, TimeSpan, build_segments
+from vacation_memories.analysis.scene_detector import SceneCutDetector, TimeSpan, build_segments
+from vacation_memories.evaluate import synthetic_media as sm
 
 
 def bgr_frame(scene, t=0.0):

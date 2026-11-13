@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from vacation_memories.media_scanner import MediaFile, scan_media
+from vacation_memories.analysis.media_scanner import MediaFile, scan_media
 
 
 def touch(path: Path, content: bytes = b"x") -> Path:

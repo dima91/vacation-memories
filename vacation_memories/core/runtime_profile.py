@@ -19,8 +19,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from vacation_memories.atomic import atomic_write_json
-from vacation_memories.config import Settings, ollama_url_is_local
+from vacation_memories.core.atomic import atomic_write_json
+from vacation_memories.core.config import Settings, ollama_url_is_local
 
 logger = logging.getLogger(__name__)
 

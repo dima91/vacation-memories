@@ -26,19 +26,19 @@ from pathlib import Path
 
 from PIL import Image
 
-from vacation_memories.cache_manager import CacheManager
-from vacation_memories.config import DEFAULT_AI_TIME_BUDGET_SECONDS
-from vacation_memories.frame_sampler import SamplingError, photo_color_frame, video_color_frame
-from vacation_memories.media_scanner import MediaFile
-from vacation_memories.ollama_client import OllamaAborted, OllamaClient, OllamaError
-from vacation_memories.technical_analysis import Candidate
-from vacation_memories.vision_schema import (
+from vacation_memories.ai.ollama_client import OllamaAborted, OllamaClient, OllamaError
+from vacation_memories.ai.vision_schema import (
     PROMPT,
     RESPONSE_SCHEMA,
     VisionResponseError,
     VisionResult,
     prompt_fingerprint,
 )
+from vacation_memories.analysis.cache_manager import CacheManager
+from vacation_memories.analysis.frame_sampler import SamplingError, photo_color_frame, video_color_frame
+from vacation_memories.analysis.media_scanner import MediaFile
+from vacation_memories.analysis.technical_analysis import Candidate
+from vacation_memories.core.config import DEFAULT_AI_TIME_BUDGET_SECONDS
 
 logger = logging.getLogger(__name__)
 

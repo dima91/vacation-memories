@@ -39,10 +39,10 @@ from fractions import Fraction
 
 import numpy as np
 
-from vacation_memories.edit_plan import PHOTO, VIDEO, EditPlan, OutputSpec, PlanElement, finalize_timeline
-from vacation_memories.scene_ranker import RankedCandidate, Ranking
-from vacation_memories.selection_config import SECTIONS, SelectionConfig
-from vacation_memories.transitions import CUT, DISSOLVE, TransitionRequest, TransitionRules, layout_timeline
+from vacation_memories.planning.edit_plan import PHOTO, VIDEO, EditPlan, OutputSpec, PlanElement, finalize_timeline
+from vacation_memories.planning.scene_ranker import RankedCandidate, Ranking
+from vacation_memories.planning.selection_config import SECTIONS, SelectionConfig
+from vacation_memories.planning.transitions import CUT, DISSOLVE, TransitionRequest, TransitionRules, layout_timeline
 
 NARRATIVE = "narrative"
 CHRONOLOGICAL = "chronological"

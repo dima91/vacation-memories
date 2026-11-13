@@ -5,10 +5,10 @@ import pytest
 from image_fakes import natural_image, recompress, scale_brightness
 from PIL import ImageFilter
 
-from vacation_memories import synthetic_media as sm
-from vacation_memories.duplicate_detector import HashBackend, find_duplicates
-from vacation_memories.media_scanner import scan_media
-from vacation_memories.technical_analysis import analyze_media
+from vacation_memories.analysis.duplicate_detector import HashBackend, find_duplicates
+from vacation_memories.analysis.media_scanner import scan_media
+from vacation_memories.analysis.technical_analysis import analyze_media
+from vacation_memories.evaluate import synthetic_media as sm
 
 BACKEND = HashBackend()
 
@@ -118,8 +118,8 @@ def test_full_reference_dataset_is_analyzed_without_surprises(tmp_path):
 
 
 def test_cached_candidates_are_the_same_and_the_media_are_not_decoded_again(tmp_path, monkeypatch):
-    from vacation_memories import technical_analysis
-    from vacation_memories.cache_manager import CacheManager
+    from vacation_memories.analysis import technical_analysis
+    from vacation_memories.analysis.cache_manager import CacheManager
 
     natural_image(1).save(tmp_path / "a.jpg", quality=95)
     sm.make_video(tmp_path / "clip.mp4", [(1, 2.0), (2, 2.0)], 320, 240, fps=10)

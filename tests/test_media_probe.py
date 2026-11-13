@@ -1,8 +1,7 @@
 import pytest
 from render_fakes import RED, RUNNER, ffmpeg, music_file, solid_clip, vfr_clip
 
-from vacation_memories import synthetic_media as sm
-from vacation_memories.media_probe import (
+from vacation_memories.analysis.media_probe import (
     ProbeError,
     is_variable_frame_rate,
     parse_video_stream,
@@ -10,6 +9,7 @@ from vacation_memories.media_probe import (
     stream_rotation,
     video_packet_times,
 )
+from vacation_memories.evaluate import synthetic_media as sm
 
 
 def test_probe_reads_a_clip(tmp_path):

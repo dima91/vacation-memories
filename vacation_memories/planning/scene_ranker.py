@@ -24,11 +24,11 @@ from pathlib import Path
 
 import numpy as np
 
-from vacation_memories.duplicate_detector import DuplicateResult
-from vacation_memories.metadata_extractor import MediaMetadata
-from vacation_memories.selection_config import SelectionConfig
-from vacation_memories.technical_analysis import Candidate
-from vacation_memories.vision_schema import VisionResult
+from vacation_memories.ai.vision_schema import VisionResult
+from vacation_memories.analysis.duplicate_detector import DuplicateResult
+from vacation_memories.analysis.metadata_extractor import MediaMetadata
+from vacation_memories.analysis.technical_analysis import Candidate
+from vacation_memories.planning.selection_config import SelectionConfig
 
 UNRELATED_SIMILARITY = 0.5  # hash similarity of two unrelated images, on average
 BELOW_THRESHOLD = "below_technical_threshold"

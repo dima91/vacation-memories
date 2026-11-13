@@ -4,9 +4,9 @@ import pytest
 from image_fakes import gray_of, natural_image
 from PIL import ImageFilter
 
-from vacation_memories import synthetic_media as sm
-from vacation_memories.frame_sampler import to_analysis_gray
-from vacation_memories.quality_analyzer import SegmentQuality, measure_frame
+from vacation_memories.analysis.frame_sampler import to_analysis_gray
+from vacation_memories.analysis.quality_analyzer import SegmentQuality, measure_frame
+from vacation_memories.evaluate import synthetic_media as sm
 
 
 def quality_of(image):

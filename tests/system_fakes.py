@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from vacation_memories.runtime_profile import DetectionEnv
+from vacation_memories.core.runtime_profile import DetectionEnv
 
 GIB = 1024**3
 MODEL = "qwen3-vl:4b-instruct-q4_K_M"

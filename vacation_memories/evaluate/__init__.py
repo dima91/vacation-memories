@@ -6,5 +6,6 @@
 - `prepare`: `evaluate prepare`, previews of the variants and the review page, for a blind comparison;
 - `page`: `review.html`, its data model and the `ratings.json` it exports;
 - `report`: `evaluate report`, metrics, private report and anonymous summary from the ratings;
-- `labels`: flags kept per stable segment across cycles, the history and the anonymous ids.
+- `labels`: flags kept per stable segment across cycles, the history and the anonymous ids;
+- `synthetic_media`: synthetic photos, clips and vacations with their ground truth, for the tests and the evaluation.
 """

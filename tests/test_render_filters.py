@@ -2,8 +2,9 @@ from fractions import Fraction
 
 import pytest
 
-from vacation_memories.render_config import RenderConfig
-from vacation_memories.render_filters import (
+from vacation_memories.planning.video_format import even
+from vacation_memories.rendering.render_config import RenderConfig
+from vacation_memories.rendering.render_filters import (
     BlockItem,
     Geometry,
     audio_graph,
@@ -14,7 +15,6 @@ from vacation_memories.render_filters import (
     seconds_text,
     video_segment_graph,
 )
-from vacation_memories.video_format import even
 
 CONFIG = RenderConfig()
 FPS = Fraction(30)

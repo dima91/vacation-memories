@@ -20,11 +20,11 @@ import pytest
 from fake_ollama import FakeOllama
 from test_render_signals import ffmpeg_processes_using, finished_segments
 
-from vacation_memories import exit_codes
-from vacation_memories.media_probe import probe
-from vacation_memories.process import ToolRunner
-from vacation_memories.synthetic_media import make_photo, make_video, populate_vacation
-from vacation_memories.workdir import WorkdirLock
+from vacation_memories.analysis.media_probe import probe
+from vacation_memories.core import exit_codes
+from vacation_memories.core.process import ToolRunner
+from vacation_memories.core.workdir import WorkdirLock
+from vacation_memories.evaluate.synthetic_media import make_photo, make_video, populate_vacation
 
 REPO = Path(__file__).parents[1]
 QUICK = ["--no-ai", "--duration", "15", "--resolution", "568x320"]

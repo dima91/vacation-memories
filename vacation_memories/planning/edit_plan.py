@@ -17,9 +17,9 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path, PurePosixPath
 
-from vacation_memories.atomic import atomic_write_json
-from vacation_memories.config import ConfigError
-from vacation_memories.transitions import (
+from vacation_memories.core.atomic import atomic_write_json
+from vacation_memories.core.config import ConfigError
+from vacation_memories.planning.transitions import (
     CUT,
     DISSOLVE,
     TRANSITION_TYPES,

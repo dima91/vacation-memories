@@ -12,9 +12,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from vacation_memories.edit_plan import OutputSpec
-from vacation_memories.process import ToolError, ToolRunner
-from vacation_memories.render_config import RenderConfig
+from vacation_memories.core.process import ToolError, ToolRunner
+from vacation_memories.planning.edit_plan import OutputSpec
+from vacation_memories.rendering.render_config import RenderConfig
 
 TEST_SECONDS = 2.0
 SEGMENT_SPACE_FACTOR = 2.0  # segments use a lower CRF than the final file

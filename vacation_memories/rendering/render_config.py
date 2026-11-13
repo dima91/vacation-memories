@@ -6,13 +6,13 @@ the rest are constants with a name, so no number is buried in a filter string.
 
 from dataclasses import dataclass
 
-from vacation_memories.config import (
+from vacation_memories.core.config import (
     DEFAULT_DURATION_TOLERANCE,
     DEFAULT_FADE_IN_SECONDS,
     DEFAULT_FADE_OUT_SECONDS,
     Settings,
 )
-from vacation_memories.transitions import TransitionRules
+from vacation_memories.planning.transitions import TransitionRules
 
 
 @dataclass(frozen=True)

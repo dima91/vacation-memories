@@ -5,10 +5,10 @@ from datetime import timedelta
 import pytest
 from selection_fakes import START, ranked, ranking_of, shot, vacation
 
-from vacation_memories.edit_plan import OutputSpec, plan_from_dict
-from vacation_memories.edit_planner import plan_edit
-from vacation_memories.selection_config import SelectionConfig
-from vacation_memories.transitions import TransitionRules
+from vacation_memories.planning.edit_plan import OutputSpec, plan_from_dict
+from vacation_memories.planning.edit_planner import plan_edit
+from vacation_memories.planning.selection_config import SelectionConfig
+from vacation_memories.planning.transitions import TransitionRules
 
 CONFIG = SelectionConfig()
 OUTPUT = OutputSpec(1280, 720)

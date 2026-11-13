@@ -8,9 +8,9 @@ from dataclasses import asdict, dataclass
 from fractions import Fraction
 from pathlib import Path
 
-from vacation_memories.media_probe import Probe, ProbeError, probe, video_packet_times
-from vacation_memories.process import ToolRunner
-from vacation_memories.render_config import RenderConfig
+from vacation_memories.analysis.media_probe import Probe, ProbeError, probe, video_packet_times
+from vacation_memories.core.process import ToolRunner
+from vacation_memories.rendering.render_config import RenderConfig
 
 RATE_MATCH_TOLERANCE = 1e-3  # relative difference between r_frame_rate and avg_frame_rate
 

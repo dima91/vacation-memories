@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from system_fakes import FULL_FILTERS, GIB, MODEL, make_env, ollama_with_model
 
-from vacation_memories.config import resolve_settings
-from vacation_memories.doctor import (
+from vacation_memories.core.config import resolve_settings
+from vacation_memories.core.doctor import (
     MIN_FREE_BYTES,
     OPTIONAL_FFMPEG_FILTERS,
     REQUIRED_FFMPEG_FILTERS,
@@ -14,7 +14,7 @@ from vacation_memories.doctor import (
     has_blocking_failures,
     run_doctor,
 )
-from vacation_memories.runtime_profile import detect_profile
+from vacation_memories.core.runtime_profile import detect_profile
 
 
 def doctor(tmp_path, env=None, *, environ=None, hooks=None, **options):

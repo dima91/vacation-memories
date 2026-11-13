@@ -20,10 +20,15 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from PIL import Image
 
-from vacation_memories.cache_manager import CacheManager
-from vacation_memories.media_probe import ProbeError, is_variable_frame_rate, parse_video_stream, stream_rotation
-from vacation_memories.media_scanner import MediaFile, heic_available
-from vacation_memories.process import ToolRunner
+from vacation_memories.analysis.cache_manager import CacheManager
+from vacation_memories.analysis.media_probe import (
+    ProbeError,
+    is_variable_frame_rate,
+    parse_video_stream,
+    stream_rotation,
+)
+from vacation_memories.analysis.media_scanner import MediaFile, heic_available
+from vacation_memories.core.process import ToolRunner
 
 logger = logging.getLogger(__name__)
 

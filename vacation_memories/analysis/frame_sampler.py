@@ -25,8 +25,8 @@ import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
-from vacation_memories.media_scanner import heic_available
-from vacation_memories.scene_detector import SceneCutDetector
+from vacation_memories.analysis.media_scanner import heic_available
+from vacation_memories.analysis.scene_detector import SceneCutDetector
 
 logger = logging.getLogger(__name__)
 

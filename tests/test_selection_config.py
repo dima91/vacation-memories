@@ -1,7 +1,7 @@
 import pytest
 
-from vacation_memories.config import ConfigError, resolve_settings
-from vacation_memories.selection_config import SelectionConfig
+from vacation_memories.core.config import ConfigError, resolve_settings
+from vacation_memories.planning.selection_config import SelectionConfig
 
 
 def settings_from(tmp_path, text):

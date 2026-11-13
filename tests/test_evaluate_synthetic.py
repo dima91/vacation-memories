@@ -5,15 +5,17 @@ import signal
 
 import pytest
 
-from vacation_memories import cli, exit_codes, technical_analysis
-from vacation_memories.config import resolve_settings
+from vacation_memories import cli
+from vacation_memories.analysis import technical_analysis
+from vacation_memories.core import exit_codes
+from vacation_memories.core.config import resolve_settings
+from vacation_memories.core.process import Interrupted
+from vacation_memories.core.workdir import WorkdirLock
 from vacation_memories.evaluate import synthetic
 from vacation_memories.evaluate.ground_truth import GROUND_TRUTH_NAME
 from vacation_memories.evaluate.metrics import METRICS
 from vacation_memories.evaluate.synthetic import REPORT_NAME, SyntheticRequest, dataset_folder
-from vacation_memories.process import Interrupted
-from vacation_memories.renderer import Progress
-from vacation_memories.workdir import WorkdirLock
+from vacation_memories.rendering.renderer import Progress
 
 pytestmark = pytest.mark.usefixtures("isolate_process_state")
 # A remote Ollama that is not allowed, and a configuration that requires the AI: neither concerns

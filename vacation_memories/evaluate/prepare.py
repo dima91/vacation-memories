@@ -34,23 +34,24 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from vacation_memories import __version__, exit_codes
-from vacation_memories.analysis import Analysis, AnalysisRequest, RequirementsError, run_analysis
-from vacation_memories.atomic import atomic_write_json, atomic_write_text
-from vacation_memories.config import ConfigError, Settings
-from vacation_memories.edit_plan import OutputSpec
-from vacation_memories.edit_planner import VIDEO_END_MARGIN_SECONDS, PlanningResult, plan_edit, plan_random
+from vacation_memories import __version__
+from vacation_memories.analysis.frame_sampler import SamplingError, photo_color_frame, video_color_frame
+from vacation_memories.analysis.runner import Analysis, AnalysisRequest, RequirementsError, run_analysis
+from vacation_memories.core import exit_codes
+from vacation_memories.core.atomic import atomic_write_json, atomic_write_text
+from vacation_memories.core.config import ConfigError, Settings
+from vacation_memories.core.process import Interrupted, ShutdownController
+from vacation_memories.core.runtime_profile import DetectionEnv
+from vacation_memories.core.workdir import PRIVATE_MODE, WorkdirInUseError, WorkdirLock
 from vacation_memories.evaluate.labels import Segment, eval_folder, load_labels
 from vacation_memories.evaluate.page import PAGE_NAME, page_data, render_page
-from vacation_memories.frame_sampler import SamplingError, photo_color_frame, video_color_frame
 from vacation_memories.pipeline import detect_runtime
-from vacation_memories.process import Interrupted, ShutdownController
-from vacation_memories.render_config import RenderConfig
-from vacation_memories.renderer import Progress, RenderError, RenderOptions, render_plan
-from vacation_memories.runtime_profile import DetectionEnv
-from vacation_memories.scene_ranker import BELOW_THRESHOLD, MOSTLY_BLACK, Ranking, capture_time
-from vacation_memories.video_format import FormatError
-from vacation_memories.workdir import PRIVATE_MODE, WorkdirInUseError, WorkdirLock
+from vacation_memories.planning.edit_plan import OutputSpec
+from vacation_memories.planning.edit_planner import VIDEO_END_MARGIN_SECONDS, PlanningResult, plan_edit, plan_random
+from vacation_memories.planning.scene_ranker import BELOW_THRESHOLD, MOSTLY_BLACK, Ranking, capture_time
+from vacation_memories.planning.video_format import FormatError
+from vacation_memories.rendering.render_config import RenderConfig
+from vacation_memories.rendering.renderer import Progress, RenderError, RenderOptions, render_plan
 
 logger = logging.getLogger(__name__)
 

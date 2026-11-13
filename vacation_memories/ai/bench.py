@@ -15,19 +15,19 @@ from pathlib import Path
 
 from PIL import Image
 
-from vacation_memories import exit_codes
-from vacation_memories.config import ConfigError, Settings
-from vacation_memories.frame_sampler import SamplingError, photo_color_frame
-from vacation_memories.media_scanner import scan_media
-from vacation_memories.ollama_client import OllamaClient
-from vacation_memories.runtime_profile import (
+from vacation_memories.ai.ollama_client import OllamaClient
+from vacation_memories.ai.vision_analyzer import VisionAnalyzer
+from vacation_memories.analysis.frame_sampler import SamplingError, photo_color_frame
+from vacation_memories.analysis.media_scanner import scan_media
+from vacation_memories.core import exit_codes
+from vacation_memories.core.config import ConfigError, Settings
+from vacation_memories.core.runtime_profile import (
     DetectionEnv,
     RuntimeProfile,
     loaded_model_placement,
     record_model_placement,
 )
-from vacation_memories.synthetic_media import render_scene_frame
-from vacation_memories.vision_analyzer import VisionAnalyzer
+from vacation_memories.evaluate.synthetic_media import render_scene_frame
 
 logger = logging.getLogger(__name__)
 

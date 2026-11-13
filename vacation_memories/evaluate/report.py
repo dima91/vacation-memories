@@ -24,9 +24,10 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from vacation_memories import exit_codes
-from vacation_memories.atomic import atomic_write_json, atomic_write_text
-from vacation_memories.config import ConfigError, Settings
+from vacation_memories.core import exit_codes
+from vacation_memories.core.atomic import atomic_write_json, atomic_write_text
+from vacation_memories.core.config import ConfigError, Settings
+from vacation_memories.core.workdir import WorkdirInUseError, WorkdirLock
 from vacation_memories.evaluate.labels import (
     LENGTHS,
     OK,
@@ -52,7 +53,6 @@ from vacation_memories.evaluate.prepare import (
     RUN_ID_PATTERN,
     VARIANTS,
 )
-from vacation_memories.workdir import WorkdirInUseError, WorkdirLock
 
 logger = logging.getLogger(__name__)
 

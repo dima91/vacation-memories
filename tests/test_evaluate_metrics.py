@@ -2,10 +2,10 @@
 
 import pytest
 
-from vacation_memories.edit_plan import EditPlan, OutputSpec, PlanElement
 from vacation_memories.evaluate.ground_truth import GroundTruth, TruthFile, TruthScene
 from vacation_memories.evaluate.metrics import METRICS, compare, plan_metrics
-from vacation_memories.selection_config import SelectionConfig
+from vacation_memories.planning.edit_plan import EditPlan, OutputSpec, PlanElement
+from vacation_memories.planning.selection_config import SelectionConfig
 
 CONFIG = SelectionConfig()
 

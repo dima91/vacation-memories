@@ -19,10 +19,10 @@ import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from vacation_memories.atomic import atomic_write_json
-from vacation_memories.config import ConfigError
+from vacation_memories.core.atomic import atomic_write_json
+from vacation_memories.core.config import ConfigError
+from vacation_memories.core.workdir import PRIVATE_MODE
 from vacation_memories.evaluate.metrics import INCLUDED_MIN_FRACTION, INCLUDED_MIN_SECONDS
-from vacation_memories.workdir import PRIVATE_MODE
 
 EVAL_FOLDER = "eval"
 LABELS_NAME = "labels.json"

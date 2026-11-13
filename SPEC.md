@@ -251,14 +251,14 @@ In the image: Python 3.12 (3.11 is the minimum), FFmpeg/FFprobe, OpenCV (headles
 
 ## Structure
 
-Package `vacation_memories/` with independent modules:
-- scanning and analysis: `media_scanner`, `metadata_extractor`, `media_probe` (streams, rotation, HDR), `scene_detector`, `frame_sampler`, `quality_analyzer`, `technical_analysis` (candidates with scores and hashes), `duplicate_detector`, `cache_manager`, `analysis` (the whole analysis of a folder, shared by the pipeline and the evaluation);
-- AI: `ollama_client`, `vision_schema` (prompt, JSON schema, validation), `vision_analyzer`, `bench`;
-- selection and plan: `selection_config`, `scene_ranker`, `edit_planner`, `edit_plan`, `transitions` (the layout shared by planner and renderer), `video_format` (`--duration`, `--resolution`, `--aspect`), `estimates`;
-- rendering: `render_config`, `render_filters`, `encoders`, `segments` (phase A), `assembly` (phase B), `render_checks`, `renderer`;
-- running: `cli`, `config`, `pipeline`, `doctor`, `runtime_profile`, `process` (FFmpeg runner and orderly shutdown), `workdir` (lock and `status.json`), `atomic`, `logging_setup`, `exit_codes`;
-- tests: `synthetic_media` (synthetic photos, clips and vacations);
-- from Milestone 2: `evaluate`, a package (`ground_truth`, `metrics`, `synthetic`, `prepare`, `page`, `report`, `labels`).
+Package `vacation_memories/` with independent modules, grouped in subpackages:
+- top level: `cli` and `pipeline` (with `__main__`, the entrypoint);
+- `core/`, running: `config`, `doctor`, `runtime_profile`, `process` (FFmpeg runner and orderly shutdown), `workdir` (lock and `status.json`), `atomic`, `logging_setup`, `exit_codes`;
+- `analysis/`, scanning and analysis: `media_scanner`, `metadata_extractor`, `media_probe` (streams, rotation, HDR), `scene_detector`, `frame_sampler`, `quality_analyzer`, `technical_analysis` (candidates with scores and hashes), `duplicate_detector`, `cache_manager`, `runner` (the whole analysis of a folder, shared by the pipeline and the evaluation);
+- `ai/`: `ollama_client`, `vision_schema` (prompt, JSON schema, validation), `vision_analyzer`, `bench`;
+- `planning/`, selection and plan: `selection_config`, `scene_ranker`, `edit_planner`, `edit_plan`, `transitions` (the layout shared by planner and renderer), `video_format` (`--duration`, `--resolution`, `--aspect`), `estimates`;
+- `rendering/`: `render_config`, `render_filters`, `encoders`, `segments` (phase A), `assembly` (phase B), `render_checks`, `renderer`;
+- `evaluate/` (from Milestone 2): `ground_truth`, `metrics`, `synthetic`, `prepare`, `page`, `report`, `labels`, plus `synthetic_media` (synthetic photos, clips and vacations, for the tests and the evaluation).
 
 Starting with fewer files and splitting later is allowed. At the repository root: `Dockerfile`, `compose*.yaml`, `.env.example`, `docker/`, `scripts/`.
 

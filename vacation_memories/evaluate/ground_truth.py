@@ -18,7 +18,7 @@ from dataclasses import asdict, dataclass
 from functools import cached_property
 from pathlib import Path
 
-from vacation_memories.atomic import atomic_write_json
+from vacation_memories.core.atomic import atomic_write_json
 
 GROUND_TRUTH_NAME = "ground_truth.json"
 SCHEMA_VERSION = 1

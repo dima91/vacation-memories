@@ -5,10 +5,10 @@ from dataclasses import replace
 import pytest
 from selection_fakes import ranking_of, vacation
 
-from vacation_memories.edit_plan import OutputSpec
-from vacation_memories.edit_planner import duration_limits, plan_edit, plan_random
-from vacation_memories.selection_config import SelectionConfig
-from vacation_memories.transitions import TransitionRules
+from vacation_memories.planning.edit_plan import OutputSpec
+from vacation_memories.planning.edit_planner import duration_limits, plan_edit, plan_random
+from vacation_memories.planning.selection_config import SelectionConfig
+from vacation_memories.planning.transitions import TransitionRules
 
 CONFIG = SelectionConfig()
 OUTPUT = OutputSpec(1280, 720)

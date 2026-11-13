@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from vacation_memories import synthetic_media as sm
+from vacation_memories.evaluate import synthetic_media as sm
 
 
 def ffprobe(path):
@@ -128,9 +128,9 @@ def test_main_populates_the_folder(tmp_path, capsys):
 
 
 def test_mosaic_scenes_are_sharp_and_all_different_for_the_perceptual_hash():
-    from vacation_memories.duplicate_detector import HashBackend
-    from vacation_memories.frame_sampler import to_analysis_gray
-    from vacation_memories.quality_analyzer import measure_frame
+    from vacation_memories.analysis.duplicate_detector import HashBackend
+    from vacation_memories.analysis.frame_sampler import to_analysis_gray
+    from vacation_memories.analysis.quality_analyzer import measure_frame
 
     backend = HashBackend()
     grays = [to_analysis_gray(np.asarray(sm.render_mosaic_frame(n, 320, 240).convert("L"))) for n in range(30)]

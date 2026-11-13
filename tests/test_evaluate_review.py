@@ -8,8 +8,12 @@ from datetime import datetime
 
 import pytest
 
-from vacation_memories import cli, exit_codes
-from vacation_memories.config import resolve_settings
+from vacation_memories import cli
+from vacation_memories.analysis.media_probe import probe
+from vacation_memories.core import exit_codes
+from vacation_memories.core.config import resolve_settings
+from vacation_memories.core.process import Interrupted, ToolRunner
+from vacation_memories.core.workdir import WorkdirLock
 from vacation_memories.evaluate import prepare, report
 from vacation_memories.evaluate.ground_truth import NEAR_DUPLICATE
 from vacation_memories.evaluate.labels import LABELS_NAME, Segment, load_history, load_labels
@@ -25,10 +29,7 @@ from vacation_memories.evaluate.prepare import (
     run_prepare,
 )
 from vacation_memories.evaluate.report import REPORT_MD_NAME, SUMMARY_NAME, ReportRequest, run_report
-from vacation_memories.media_probe import probe
-from vacation_memories.process import Interrupted, ToolRunner
-from vacation_memories.synthetic_media import populate_evaluation_vacation
-from vacation_memories.workdir import WorkdirLock
+from vacation_memories.evaluate.synthetic_media import populate_evaluation_vacation
 
 pytestmark = pytest.mark.usefixtures("isolate_process_state")
 QUIET = {"out": lambda line: None}

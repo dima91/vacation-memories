@@ -6,8 +6,11 @@ from datetime import datetime
 
 import pytest
 
-from vacation_memories import synthetic_media as sm
-from vacation_memories.duplicate_detector import HashBackend, find_duplicates
+from vacation_memories.analysis.duplicate_detector import HashBackend, find_duplicates
+from vacation_memories.analysis.media_scanner import scan_media
+from vacation_memories.analysis.metadata_extractor import extract_metadata
+from vacation_memories.analysis.technical_analysis import analyze_media
+from vacation_memories.evaluate import synthetic_media as sm
 from vacation_memories.evaluate.ground_truth import (
     GROUND_TRUTH_NAME,
     NEAR_DUPLICATE,
@@ -15,11 +18,8 @@ from vacation_memories.evaluate.ground_truth import (
     GroundTruthError,
     load_ground_truth,
 )
-from vacation_memories.media_scanner import scan_media
-from vacation_memories.metadata_extractor import extract_metadata
-from vacation_memories.scene_ranker import technical_filter
-from vacation_memories.selection_config import SelectionConfig
-from vacation_memories.technical_analysis import analyze_media
+from vacation_memories.planning.scene_ranker import technical_filter
+from vacation_memories.planning.selection_config import SelectionConfig
 
 CONFIG = SelectionConfig()
 

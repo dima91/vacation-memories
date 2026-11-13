@@ -2,7 +2,7 @@ from fractions import Fraction
 
 import pytest
 
-from vacation_memories.transitions import (
+from vacation_memories.planning.transitions import (
     CUT,
     DISSOLVE,
     TransitionRequest,

@@ -61,7 +61,7 @@ On the development PC, `./dev-media` can be filled with a synthetic vacation:
 
 ```sh
 docker compose --profile dev build
-docker compose run --rm -T dev python -m vacation_memories.synthetic_media dev-media/vacation --vacation
+docker compose run --rm -T dev python -m vacation_memories.evaluate.synthetic_media dev-media/vacation --vacation
 ```
 
 ## Usage
@@ -213,7 +213,7 @@ share = 0.08                  # the shares of the five sections add up to 1
 share = 0.47
 ```
 
-The names and default values are in `vacation_memories/selection_config.py`.
+The names and default values are in `vacation_memories/planning/selection_config.py`.
 
 ## Long jobs on a server
 
@@ -317,7 +317,7 @@ metrics find regressions and check the evaluation itself; they do not say whethe
 the vacation, write it on its own (with its `ground_truth.json`):
 
 ```sh
-docker compose run --rm -T dev python -m vacation_memories.synthetic_media dev-media/evaluation --evaluation
+docker compose run --rm -T dev python -m vacation_memories.evaluate.synthetic_media dev-media/evaluation --evaluation
 ```
 
 ### Evaluation on your vacation

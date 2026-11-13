@@ -13,11 +13,11 @@ from system_fakes import (
     write_cgroup_v2,
 )
 
-from vacation_memories.cache_manager import CacheManager
-from vacation_memories.config import resolve_settings
-from vacation_memories.media_scanner import MediaFile
-from vacation_memories.metadata_extractor import metadata_params
-from vacation_memories.runtime_profile import (
+from vacation_memories.analysis.cache_manager import CacheManager
+from vacation_memories.analysis.media_scanner import MediaFile
+from vacation_memories.analysis.metadata_extractor import metadata_params
+from vacation_memories.core.config import resolve_settings
+from vacation_memories.core.runtime_profile import (
     CONSERVATIVE_CORES,
     CONSERVATIVE_RAM_BYTES,
     DetectionEnv,
@@ -419,19 +419,19 @@ class TestRecordingWhereTheModelRuns:
         (None, "unknown"),
     ])
     def test_the_loaded_model_is_looked_up_in_api_ps(self, tmp_path, loaded, placement):
-        from vacation_memories.runtime_profile import loaded_model_placement
+        from vacation_memories.core.runtime_profile import loaded_model_placement
 
         env = make_env(tmp_path / "sys", ollama=ollama_with_model(loaded=loaded))
         assert loaded_model_placement(env, "http://ollama:11434", MODEL) == placement
 
     def test_an_unreachable_server_gives_unknown(self, tmp_path):
-        from vacation_memories.runtime_profile import loaded_model_placement
+        from vacation_memories.core.runtime_profile import loaded_model_placement
 
         env = make_env(tmp_path / "sys", ollama=None)
         assert loaded_model_placement(env, "http://ollama:11434", MODEL) == "unknown"
 
     def test_the_profile_file_is_updated_in_place(self, tmp_path):
-        from vacation_memories.runtime_profile import record_model_placement
+        from vacation_memories.core.runtime_profile import record_model_placement
 
         env = make_env(tmp_path / "sys", ollama=ollama_with_model())
         profile = profile_for(tmp_path, env, no_ai=False)
@@ -447,7 +447,7 @@ class TestRecordingWhereTheModelRuns:
         assert after["ollama"]["model"] == before["ollama"]["model"]
 
     def test_unknown_leaves_the_file_alone(self, tmp_path):
-        from vacation_memories.runtime_profile import record_model_placement
+        from vacation_memories.core.runtime_profile import record_model_placement
 
         profile = profile_for(tmp_path, make_env(tmp_path / "sys", ollama=ollama_with_model()), no_ai=False)
         path = tmp_path / "runtime_profile.json"
@@ -458,7 +458,7 @@ class TestRecordingWhereTheModelRuns:
 
     @pytest.mark.parametrize("content", [None, "not json", "[]", '{"ollama": null}'])
     def test_a_missing_or_unusable_file_is_not_an_error(self, tmp_path, content):
-        from vacation_memories.runtime_profile import record_model_placement
+        from vacation_memories.core.runtime_profile import record_model_placement
 
         path = tmp_path / "runtime_profile.json"
         if content is not None:

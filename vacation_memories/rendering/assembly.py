@@ -13,11 +13,11 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
-from vacation_memories.encoders import Encoder, fps_mode_args, software_encoder, thread_args
-from vacation_memories.media_probe import ProbeError, probe
-from vacation_memories.process import ToolRunner
-from vacation_memories.render_config import RenderConfig
-from vacation_memories.render_filters import BlockItem, audio_graph, block_graph, fps_text
+from vacation_memories.analysis.media_probe import ProbeError, probe
+from vacation_memories.core.process import ToolRunner
+from vacation_memories.rendering.encoders import Encoder, fps_mode_args, software_encoder, thread_args
+from vacation_memories.rendering.render_config import RenderConfig
+from vacation_memories.rendering.render_filters import BlockItem, audio_graph, block_graph, fps_text
 
 logger = logging.getLogger(__name__)
 

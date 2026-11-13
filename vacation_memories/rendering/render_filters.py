@@ -8,8 +8,8 @@ tests.
 from dataclasses import dataclass
 from fractions import Fraction
 
-from vacation_memories.render_config import RenderConfig
-from vacation_memories.video_format import even
+from vacation_memories.planning.video_format import even
+from vacation_memories.rendering.render_config import RenderConfig
 
 ASPECT_TOLERANCE = 0.01  # a source this close to the output proportions is scaled, not put on a background
 HDR_TO_SDR = (

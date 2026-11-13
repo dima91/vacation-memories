@@ -9,11 +9,13 @@ import sqlite3
 import pytest
 from fake_ollama import FakeOllama
 
-from vacation_memories import analysis, cli, exit_codes, pipeline, technical_analysis
-from vacation_memories.media_probe import probe
-from vacation_memories.process import Interrupted, ToolRunner
-from vacation_memories.renderer import REPORT_NAME, RenderResult
-from vacation_memories.synthetic_media import populate_vacation
+from vacation_memories import cli, pipeline
+from vacation_memories.analysis import runner, technical_analysis
+from vacation_memories.analysis.media_probe import probe
+from vacation_memories.core import exit_codes
+from vacation_memories.core.process import Interrupted, ToolRunner
+from vacation_memories.evaluate.synthetic_media import populate_vacation
+from vacation_memories.rendering.renderer import REPORT_NAME, RenderResult
 
 pytestmark = pytest.mark.usefixtures("isolate_process_state")
 SMALL_FRAME = ["--resolution", "568x320"]  # the smallest 16:9-like frame: quick to render
@@ -124,7 +126,7 @@ class TestModes:
         def no_scan(*args, **kwargs):
             raise AssertionError("--render-only scanned the media")
 
-        monkeypatch.setattr(analysis, "scan_media", no_scan)
+        monkeypatch.setattr(runner, "scan_media", no_scan)
         assert run(few, work, "--render-only", "--duration", "60", "--require-ai") == exit_codes.OK
         assert (work / "memories.mp4").exists()
         assert "--duration 60.0 is ignored" in log_of(work)
@@ -247,7 +249,7 @@ class TestResume:
         config = json.loads((work / "run_config.json").read_text())
         assert config["plan_ready"] and config["state"] == "done" and config["params"]["duration"] == 15
 
-        monkeypatch.setattr(analysis, "scan_media", lambda *a, **k: (_ for _ in ()).throw(AssertionError("scanned")))
+        monkeypatch.setattr(runner, "scan_media", lambda *a, **k: (_ for _ in ()).throw(AssertionError("scanned")))
         assert run(few, work, "--no-ai", "--resume") == exit_codes.OK
         assert json.loads((work / REPORT_NAME).read_text())["segments"]["reused"] > 0
 
@@ -331,8 +333,8 @@ def _own_address() -> str | None:
 
 
 def test_a_phase_that_counts_by_itself_moves_the_status_without_logging(tmp_path, caplog):
-    from vacation_memories.renderer import Progress
-    from vacation_memories.workdir import StatusWriter
+    from vacation_memories.core.workdir import StatusWriter
+    from vacation_memories.rendering.renderer import Progress
 
     status = StatusWriter(tmp_path / "status.json")
     status.start()

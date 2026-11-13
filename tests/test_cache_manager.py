@@ -2,8 +2,8 @@ import os
 import sqlite3
 from pathlib import Path
 
-from vacation_memories.cache_manager import CacheManager
-from vacation_memories.media_scanner import MediaFile
+from vacation_memories.analysis.cache_manager import CacheManager
+from vacation_memories.analysis.media_scanner import MediaFile
 
 
 def media_file(rel="day1/a.jpg", size=10, mtime_ns=1_000, root=Path("/media")) -> MediaFile:

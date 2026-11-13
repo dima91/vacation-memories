@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from vacation_memories.atomic import atomic_write_bytes, atomic_write_json, atomic_write_text
+from vacation_memories.core.atomic import atomic_write_bytes, atomic_write_json, atomic_write_text
 
 
 def test_write_creates_the_file_with_private_permissions(tmp_path):

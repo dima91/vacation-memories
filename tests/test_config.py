@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from vacation_memories.config import ConfigError, resolve_settings
+from vacation_memories.core.config import ConfigError, resolve_settings
 
 
 def resolve(cli=None, env=None):
@@ -214,8 +214,8 @@ class TestAiFlags:
 
 
 def test_rendering_defaults_come_from_one_place():
-    from vacation_memories.render_config import RenderConfig
-    from vacation_memories.transitions import TransitionRules
+    from vacation_memories.planning.transitions import TransitionRules
+    from vacation_memories.rendering.render_config import RenderConfig
 
     settings = resolve()
     assert (settings.transition_duration, settings.transition_max_fraction, settings.transition_min_duration) == (0.8, 0.25, 0.2)
@@ -225,7 +225,7 @@ def test_rendering_defaults_come_from_one_place():
 
 
 def test_rendering_options_follow_the_usual_precedence(tmp_path):
-    from vacation_memories.render_config import RenderConfig
+    from vacation_memories.rendering.render_config import RenderConfig
 
     config = write_config(tmp_path, "transition_duration = 1.2\ntransition_min_duration = 0.1\nfade_out_seconds = 5\n")
     env = {"VACATION_MEMORIES_CONFIG": str(config), "VACATION_MEMORIES_FADE_OUT_SECONDS": "2.5"}
@@ -257,7 +257,7 @@ class TestAiSettings:
         assert settings.ai_timeout > 0
 
     def test_the_default_time_budget_is_defined_in_one_place(self):
-        from vacation_memories.config import DEFAULT_AI_TIME_BUDGET_SECONDS
+        from vacation_memories.core.config import DEFAULT_AI_TIME_BUDGET_SECONDS
 
         assert DEFAULT_AI_TIME_BUDGET_SECONDS > 0
 

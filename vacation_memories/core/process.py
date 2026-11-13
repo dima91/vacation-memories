@@ -18,7 +18,7 @@ from collections.abc import Callable
 from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 
-from vacation_memories import exit_codes
+from vacation_memories.core import exit_codes
 
 HANDLED_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 TERMINATE_GRACE_SECONDS = 2.0
