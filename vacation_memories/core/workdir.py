@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from vacation_memories.atomic import atomic_write_json
+from vacation_memories.core.atomic import atomic_write_json
 
 logger = logging.getLogger(__name__)
 

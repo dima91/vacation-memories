@@ -251,14 +251,14 @@ In the image: Python 3.12 (3.11 is the minimum), FFmpeg/FFprobe, OpenCV (headles
 
 ## Structure
 
-Package `vacation_memories/` with independent modules:
-- scanning and analysis: `media_scanner`, `metadata_extractor`, `media_probe` (streams, rotation, HDR), `scene_detector`, `frame_sampler`, `quality_analyzer`, `technical_analysis` (candidates with scores and hashes), `duplicate_detector`, `cache_manager`, `analysis` (the whole analysis of a folder, shared by the pipeline and the evaluation);
-- AI: `ollama_client`, `vision_schema` (prompt, JSON schema, validation), `vision_analyzer`, `bench`;
-- selection and plan: `selection_config`, `scene_ranker`, `edit_planner`, `edit_plan`, `transitions` (the layout shared by planner and renderer), `video_format` (`--duration`, `--resolution`, `--aspect`), `estimates`;
-- rendering: `render_config`, `render_filters`, `encoders`, `segments` (phase A), `assembly` (phase B), `render_checks`, `renderer`;
-- running: `cli`, `config`, `pipeline`, `doctor`, `runtime_profile`, `process` (FFmpeg runner and orderly shutdown), `workdir` (lock and `status.json`), `atomic`, `logging_setup`, `exit_codes`;
-- tests: `synthetic_media` (synthetic photos, clips and vacations);
-- from Milestone 2: `evaluate`, a package (`ground_truth`, `metrics`, `synthetic`, `prepare`, `page`, `report`, `labels`).
+Package `vacation_memories/` with independent modules, grouped in subpackages:
+- top level: `cli` and `pipeline` (with `__main__`, the entrypoint);
+- `core/`, running: `config`, `doctor`, `runtime_profile`, `process` (FFmpeg runner and orderly shutdown), `workdir` (lock and `status.json`), `atomic`, `logging_setup`, `exit_codes`;
+- `analysis/`, scanning and analysis: `media_scanner`, `metadata_extractor`, `media_probe` (streams, rotation, HDR), `scene_detector`, `frame_sampler`, `quality_analyzer`, `technical_analysis` (candidates with scores and hashes), `duplicate_detector`, `cache_manager`, `runner` (the whole analysis of a folder, shared by the pipeline and the evaluation);
+- `ai/`: `ollama_client`, `vision_schema` (prompt, JSON schema, validation), `vision_analyzer`, `bench`;
+- `planning/`, selection and plan: `selection_config`, `scene_ranker`, `edit_planner`, `edit_plan`, `transitions` (the layout shared by planner and renderer), `video_format` (`--duration`, `--resolution`, `--aspect`), `estimates`;
+- `rendering/`: `render_config`, `render_filters`, `encoders`, `segments` (phase A), `assembly` (phase B), `render_checks`, `renderer`;
+- `evaluate/` (from Milestone 2): `ground_truth`, `metrics`, `synthetic`, `prepare`, `page`, `report`, `labels`, plus `synthetic_media` (synthetic photos, clips and vacations, for the tests and the evaluation).
 
 Starting with fewer files and splitting later is allowed. At the repository root: `Dockerfile`, `compose*.yaml`, `.env.example`, `docker/`, `scripts/`.
 
@@ -345,7 +345,7 @@ Combination rules:
 2. **Above the threshold, narrative prevails:** final score as a weighted sum, with greater weight on the narrative (initial values: 0.65 narrative and 0.35 technical, to be tuned). A unique, slightly imperfect moment can beat a perfect but banal shot.
 3. **Redundancy penalty** on candidates similar to those already chosen. In the MVP the similarity comes from the `hash` backend of section 4; with the semantic level (Milestone 2) the penalty becomes proportional to the similarity and to the temporal neighborhood.
 
-Weights, thresholds and shares live in a single configuration that can be edited, not scattered in the code: `selection_config.py` holds the defaults and the `[selection]` table of the configuration file changes them (unknown keys and inconsistent values, such as weights that do not add up to 1 or shares that do not add up to 1, are rejected with code 2). The components of `narrative_score` have initial weights: AI value 0.45, uniqueness 0.15, variety 0.15, motion 0.10, temporal distribution 0.15.
+Weights, thresholds and shares live in a single configuration that can be edited, not scattered in the code: `planning/selection_config.py` holds the defaults and the `[selection]` table of the configuration file changes them (unknown keys and inconsistent values, such as weights that do not add up to 1 or shares that do not add up to 1, are rejected with code 2). The components of `narrative_score` have initial weights: AI value 0.45, uniqueness 0.15, variety 0.15, motion 0.10, temporal distribution 0.15.
 
 Use of `moment_type` in the edit (initial values to be tuned on the first real dataset). The rules apply to clips with a known `moment_type`, so with partial AI coverage only to the analyzed ones; without AI use the fallbacks described in "Adapting to the available material":
 

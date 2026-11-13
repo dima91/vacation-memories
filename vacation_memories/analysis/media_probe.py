@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
-from vacation_memories.process import ToolError, ToolRunner
+from vacation_memories.core.process import ToolError, ToolRunner
 
 HDR_TRANSFERS = frozenset({"smpte2084", "arib-std-b67"})
 FRAME_RATE_TOLERANCE = 0.005  # relative difference between r_frame_rate and avg_frame_rate

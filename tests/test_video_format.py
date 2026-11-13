@@ -1,7 +1,7 @@
 import pytest
 
-from vacation_memories.config import ConfigError, resolve_settings
-from vacation_memories.video_format import (
+from vacation_memories.core.config import ConfigError, resolve_settings
+from vacation_memories.planning.video_format import (
     FormatError,
     frame_size,
     parse_aspect,

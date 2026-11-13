@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from vacation_memories.logging_setup import setup_logging
+from vacation_memories.core.logging_setup import setup_logging
 
 
 @pytest.fixture(autouse=True)

@@ -2,8 +2,8 @@ from fractions import Fraction
 
 from render_fakes import RED, RUNNER, ffmpeg, solid_clip
 
-from vacation_memories.render_checks import _timestamps_check, check_final, check_segment, failed
-from vacation_memories.render_config import RenderConfig
+from vacation_memories.rendering.render_checks import _timestamps_check, check_final, check_segment, failed
+from vacation_memories.rendering.render_config import RenderConfig
 
 CONFIG = RenderConfig()
 FPS = Fraction(30)
@@ -53,7 +53,7 @@ def test_wrong_pixel_format_time_base_and_sar_are_reported(tmp_path):
 
 
 def test_rotation_metadata_is_reported(tmp_path):
-    from vacation_memories import synthetic_media as sm
+    from vacation_memories.evaluate import synthetic_media as sm
 
     rotated = tmp_path / "rotated.mp4"
     sm.make_video(rotated, [(1, 2.0)], 320, 180, fps=30, rotation=90)

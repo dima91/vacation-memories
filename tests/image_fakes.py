@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from vacation_memories.frame_sampler import to_analysis_gray
+from vacation_memories.analysis.frame_sampler import to_analysis_gray
 
 
 def natural_image(seed: int, width: int = 640, height: int = 480) -> Image.Image:

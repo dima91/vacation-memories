@@ -17,18 +17,18 @@ from pathlib import Path
 
 import numpy as np
 
-from vacation_memories.cache_manager import CacheManager
-from vacation_memories.duplicate_detector import DuplicateItem, SimilarityBackend
-from vacation_memories.frame_sampler import (
+from vacation_memories.analysis.cache_manager import CacheManager
+from vacation_memories.analysis.duplicate_detector import DuplicateItem, SimilarityBackend
+from vacation_memories.analysis.frame_sampler import (
     SAMPLE_INTERVAL_SECONDS,
     SamplingError,
     VideoScan,
     photo_analysis_frame,
     scan_video,
 )
-from vacation_memories.media_scanner import MediaFile
-from vacation_memories.quality_analyzer import FrameQuality, SegmentQuality, measure_frame
-from vacation_memories.scene_detector import MAX_SEGMENT_SECONDS, TimeSpan, build_segments
+from vacation_memories.analysis.media_scanner import MediaFile
+from vacation_memories.analysis.quality_analyzer import FrameQuality, SegmentQuality, measure_frame
+from vacation_memories.analysis.scene_detector import MAX_SEGMENT_SECONDS, TimeSpan, build_segments
 
 logger = logging.getLogger(__name__)
 

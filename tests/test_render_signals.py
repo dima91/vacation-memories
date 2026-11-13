@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from render_fakes import halves_photo, probe_file
 
-from vacation_memories.renderer import REPORT_NAME
+from vacation_memories.rendering.renderer import REPORT_NAME
 
 WORKER = Path(__file__).parent / "render_worker.py"
 PHOTOS = [f"p{n}.jpg" for n in range(5)]

@@ -3,12 +3,12 @@ from datetime import timedelta
 import pytest
 from selection_fakes import START, candidate, metadata, vision
 
-from vacation_memories.duplicate_detector import HashBackend, find_duplicates
-from vacation_memories.edit_plan import OutputSpec
-from vacation_memories.edit_planner import plan_edit
-from vacation_memories.scene_ranker import BELOW_THRESHOLD, MOSTLY_BLACK, rank_candidates, technical_filter
-from vacation_memories.selection_config import SelectionConfig
-from vacation_memories.transitions import TransitionRules
+from vacation_memories.analysis.duplicate_detector import HashBackend, find_duplicates
+from vacation_memories.planning.edit_plan import OutputSpec
+from vacation_memories.planning.edit_planner import plan_edit
+from vacation_memories.planning.scene_ranker import BELOW_THRESHOLD, MOSTLY_BLACK, rank_candidates, technical_filter
+from vacation_memories.planning.selection_config import SelectionConfig
+from vacation_memories.planning.transitions import TransitionRules
 
 CONFIG = SelectionConfig()
 BACKEND = HashBackend()

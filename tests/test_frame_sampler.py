@@ -3,16 +3,16 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from vacation_memories import frame_sampler
-from vacation_memories import synthetic_media as sm
-from vacation_memories.frame_sampler import (
+from vacation_memories.analysis import frame_sampler
+from vacation_memories.analysis.frame_sampler import (
     ANALYSIS_LONG_SIDE,
     SamplingError,
     photo_analysis_frame,
     scan_video,
     to_analysis_gray,
 )
-from vacation_memories.scene_detector import build_segments
+from vacation_memories.analysis.scene_detector import build_segments
+from vacation_memories.evaluate import synthetic_media as sm
 
 
 @pytest.fixture(scope="module")
@@ -216,7 +216,7 @@ class _StoppingCapture:
 
 
 def test_a_decode_that_stops_well_before_the_declared_length_is_logged(caplog):
-    from vacation_memories.scene_detector import SceneCutDetector
+    from vacation_memories.analysis.scene_detector import SceneCutDetector
 
     with caplog.at_level("WARNING"):
         scan = frame_sampler._scan("clip.mp4", _StoppingCapture(), 10.0, lambda gray: None, 0.5,

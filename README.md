@@ -61,7 +61,7 @@ On the development PC, `./dev-media` can be filled with a synthetic vacation:
 
 ```sh
 docker compose --profile dev build
-docker compose run --rm -T dev python -m vacation_memories.synthetic_media dev-media/vacation --vacation
+docker compose run --rm -T dev python -m vacation_memories.evaluate.synthetic_media dev-media/vacation --vacation
 ```
 
 ## Usage
@@ -213,7 +213,7 @@ share = 0.08                  # the shares of the five sections add up to 1
 share = 0.47
 ```
 
-The names and default values are in `vacation_memories/selection_config.py`.
+The names and default values are in `vacation_memories/planning/selection_config.py`.
 
 ## Long jobs on a server
 
@@ -317,7 +317,7 @@ metrics find regressions and check the evaluation itself; they do not say whethe
 the vacation, write it on its own (with its `ground_truth.json`):
 
 ```sh
-docker compose run --rm -T dev python -m vacation_memories.synthetic_media dev-media/evaluation --evaluation
+docker compose run --rm -T dev python -m vacation_memories.evaluate.synthetic_media dev-media/evaluation --evaluation
 ```
 
 ### Evaluation on your vacation
@@ -532,6 +532,22 @@ scripts/test-docker.sh      # the production image and the compose files, see "C
 
 In the `dev` container there is no compose configuration: pass `--input`; the working folder is `./work`. Since
 `OLLAMA_HOST` points to the `ollama` service there, use `--no-ai`, or start Ollama and add `--allow-remote-ollama`.
+
+### Code layout
+
+The package `vacation_memories/` keeps the entry points at the top (`__main__`, `cli`, `pipeline`) and groups the
+other modules by role:
+
+| Subpackage | Contents |
+| --- | --- |
+| `core/` | configuration, `doctor`, runtime profile, FFmpeg runner and orderly shutdown, workdir lock and `status.json`, atomic writes, logging, exit codes |
+| `analysis/` | scanning, metadata, probing, scenes, frame sampling, technical quality, duplicates, analysis cache; `runner` runs the whole analysis of a folder |
+| `ai/` | Ollama client, vision prompt and schema, vision analyzer, `bench vision` |
+| `planning/` | selection weights, ranking, narrative planner, edit plan, transitions, `--duration`/`--resolution`/`--aspect`, estimates |
+| `rendering/` | segments (phase A), assembly and music (phase B), filters, encoders, checks of the output |
+| `evaluate/` | the `evaluate` subcommand and the synthetic media generator (`synthetic_media`) |
+
+The tests stay flat in `tests/`, one `test_<module>.py` per module.
 
 ### Tests with the real model
 

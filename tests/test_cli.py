@@ -6,8 +6,9 @@ import sys
 import pytest
 from system_fakes import FULL_FILTERS, make_env, ollama_with_model
 
-from vacation_memories import cli, exit_codes
-from vacation_memories.workdir import WorkdirLock
+from vacation_memories import cli
+from vacation_memories.core import exit_codes
+from vacation_memories.core.workdir import WorkdirLock
 
 pytestmark = pytest.mark.usefixtures("isolate_process_state")
 

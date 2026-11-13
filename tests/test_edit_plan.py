@@ -5,7 +5,7 @@ from fractions import Fraction
 
 import pytest
 
-from vacation_memories.edit_plan import (
+from vacation_memories.planning.edit_plan import (
     SCHEMA_VERSION,
     EditPlan,
     OutputSpec,
@@ -16,7 +16,7 @@ from vacation_memories.edit_plan import (
     plan_from_dict,
     save_plan,
 )
-from vacation_memories.transitions import DISSOLVE, TransitionRequest, TransitionRules
+from vacation_memories.planning.transitions import DISSOLVE, TransitionRequest, TransitionRules
 
 
 def valid() -> dict:
@@ -85,7 +85,7 @@ def test_unsupported_schema_version_is_rejected_with_a_clear_error():
 
 
 def test_plan_error_is_a_usage_error():
-    from vacation_memories.config import ConfigError
+    from vacation_memories.core.config import ConfigError
 
     assert issubclass(PlanError, ConfigError)  # exit code 2
 

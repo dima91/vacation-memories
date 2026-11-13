@@ -23,25 +23,13 @@ from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from vacation_memories import exit_codes
-from vacation_memories.analysis import Analysis, AnalysisRequest, RequirementsError, run_analysis
-from vacation_memories.atomic import atomic_write_json
-from vacation_memories.config import ConfigError, Settings
-from vacation_memories.doctor import MIN_FREE_BYTES, ffmpeg_problem
-from vacation_memories.edit_plan import EditPlan, OutputSpec, PlanError, load_plan, save_plan
-from vacation_memories.edit_planner import plan_edit
-from vacation_memories.estimates import estimate_render
-from vacation_memories.process import Interrupted, ShutdownController, ToolRunner
-from vacation_memories.render_config import RenderConfig
-from vacation_memories.renderer import (
-    Progress,
-    RenderError,
-    RenderOptions,
-    preview_output,
-    render_plan,
-    resolve_output,
-)
-from vacation_memories.runtime_profile import (
+from vacation_memories.analysis.runner import Analysis, AnalysisRequest, RequirementsError, run_analysis
+from vacation_memories.core import exit_codes
+from vacation_memories.core.atomic import atomic_write_json
+from vacation_memories.core.config import ConfigError, Settings
+from vacation_memories.core.doctor import MIN_FREE_BYTES, ffmpeg_problem
+from vacation_memories.core.process import Interrupted, ShutdownController, ToolRunner
+from vacation_memories.core.runtime_profile import (
     MIB,
     DetectionEnv,
     RuntimeProfile,
@@ -49,7 +37,11 @@ from vacation_memories.runtime_profile import (
     format_profile,
     write_runtime_profile,
 )
-from vacation_memories.video_format import (
+from vacation_memories.core.workdir import WorkdirInUseError, WorkdirLock
+from vacation_memories.planning.edit_plan import EditPlan, OutputSpec, PlanError, load_plan, save_plan
+from vacation_memories.planning.edit_planner import plan_edit
+from vacation_memories.planning.estimates import estimate_render
+from vacation_memories.planning.video_format import (
     LONG_DURATION_SECONDS,
     PRESETS,
     SLOW_SOFTWARE_SHORT_SIDE,
@@ -59,7 +51,15 @@ from vacation_memories.video_format import (
     frame_size,
     resize_keeping_short_side,
 )
-from vacation_memories.workdir import WorkdirInUseError, WorkdirLock
+from vacation_memories.rendering.render_config import RenderConfig
+from vacation_memories.rendering.renderer import (
+    Progress,
+    RenderError,
+    RenderOptions,
+    preview_output,
+    render_plan,
+    resolve_output,
+)
 
 logger = logging.getLogger(__name__)
 

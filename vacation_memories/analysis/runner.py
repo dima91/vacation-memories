@@ -13,26 +13,26 @@ from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 
-from vacation_memories.atomic import atomic_write_json
-from vacation_memories.cache_manager import CacheManager
-from vacation_memories.config import Settings
-from vacation_memories.duplicate_detector import DuplicateResult, HashBackend, find_duplicates
-from vacation_memories.edit_planner import estimated_clip_count
-from vacation_memories.media_scanner import scan_media
-from vacation_memories.metadata_extractor import MediaMetadata, load_metadata
-from vacation_memories.ollama_client import OllamaClient
-from vacation_memories.process import ShutdownController, ToolRunner
-from vacation_memories.renderer import Progress
-from vacation_memories.runtime_profile import (
+from vacation_memories.ai.ollama_client import OllamaClient
+from vacation_memories.ai.vision_analyzer import AiCoverage, VisionAnalyzer, analyze_candidates, prioritize
+from vacation_memories.ai.vision_schema import VisionResult
+from vacation_memories.analysis.cache_manager import CacheManager
+from vacation_memories.analysis.duplicate_detector import DuplicateResult, HashBackend, find_duplicates
+from vacation_memories.analysis.media_scanner import scan_media
+from vacation_memories.analysis.metadata_extractor import MediaMetadata, load_metadata
+from vacation_memories.analysis.technical_analysis import Candidate, analyze_media
+from vacation_memories.core.atomic import atomic_write_json
+from vacation_memories.core.config import Settings
+from vacation_memories.core.process import ShutdownController, ToolRunner
+from vacation_memories.core.runtime_profile import (
     DetectionEnv,
     detect_ollama,
     loaded_model_placement,
     record_model_placement,
 )
-from vacation_memories.scene_ranker import Discarded, Ranking, rank_candidates, technical_filter
-from vacation_memories.technical_analysis import Candidate, analyze_media
-from vacation_memories.vision_analyzer import AiCoverage, VisionAnalyzer, analyze_candidates, prioritize
-from vacation_memories.vision_schema import VisionResult
+from vacation_memories.planning.edit_planner import estimated_clip_count
+from vacation_memories.planning.scene_ranker import Discarded, Ranking, rank_candidates, technical_filter
+from vacation_memories.rendering.renderer import Progress
 
 logger = logging.getLogger(__name__)
 

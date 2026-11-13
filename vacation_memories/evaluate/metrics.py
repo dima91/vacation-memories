@@ -9,8 +9,6 @@ the elements, dissolves left aside.
 import statistics
 from collections import Counter, defaultdict
 
-from vacation_memories.edit_plan import PHOTO, VIDEO, EditPlan, PlanElement
-from vacation_memories.edit_planner import duration_limits
 from vacation_memories.evaluate.ground_truth import (
     MOTION,
     NEAR_DUPLICATE,
@@ -19,7 +17,9 @@ from vacation_memories.evaluate.ground_truth import (
     GroundTruth,
     TruthFile,
 )
-from vacation_memories.selection_config import SelectionConfig
+from vacation_memories.planning.edit_plan import PHOTO, VIDEO, EditPlan, PlanElement
+from vacation_memories.planning.edit_planner import duration_limits
+from vacation_memories.planning.selection_config import SelectionConfig
 
 INCLUDED_MIN_SECONDS = 1.0
 INCLUDED_MIN_FRACTION = 0.5

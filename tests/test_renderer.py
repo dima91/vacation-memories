@@ -28,12 +28,12 @@ from render_fakes import (
     volume,
 )
 
-from vacation_memories import exit_codes
-from vacation_memories import render_checks
-from vacation_memories.edit_plan import PlanError
-from vacation_memories.process import ToolRunner
-from vacation_memories.render_config import RenderConfig
-from vacation_memories.renderer import REPORT_NAME, RenderError, RenderOptions, render_plan
+from vacation_memories.core import exit_codes
+from vacation_memories.core.process import ToolRunner
+from vacation_memories.planning.edit_plan import PlanError
+from vacation_memories.rendering import render_checks
+from vacation_memories.rendering.render_config import RenderConfig
+from vacation_memories.rendering.renderer import REPORT_NAME, RenderError, RenderOptions, render_plan
 
 NO_FADES = RenderConfig(fade_in_seconds=0, fade_out_seconds=0)
 PURE_RED, PURE_BLUE = (255, 0, 0), (0, 0, 255)
@@ -241,7 +241,7 @@ def test_timeline_duration_is_the_sum_of_the_clips_minus_the_dissolves(media, tm
 
 
 def test_destination_timestamps_match_the_video(media, tmp_path):
-    from vacation_memories.edit_plan import finalize_timeline
+    from vacation_memories.planning.edit_plan import finalize_timeline
 
     plan, layout = finalize_timeline(make_plan([
         video_element("red4.mp4", 0, 4), video_element("blue4.mp4", 0, 4, dissolve=1.0), video_element("green4.mp4", 0, 4),
@@ -388,7 +388,7 @@ def test_hdr_clip_is_tone_mapped_to_sdr(tmp_path):
 
 
 def test_hdr_without_tone_mapping_filters_is_converted_with_a_warning(tmp_path, caplog):
-    from vacation_memories.runtime_profile import DetectionEnv, detect_ffmpeg
+    from vacation_memories.core.runtime_profile import DetectionEnv, detect_ffmpeg
 
     media = tmp_path / "media"
     media.mkdir()
@@ -494,7 +494,7 @@ def test_nothing_to_render_is_an_error(media, tmp_path):
 
 def test_failed_check_leaves_a_partial_file_and_exit_code_3(media, tmp_path, monkeypatch, caplog):
     bad = render_checks.Check("duration", False, "99 s, planned 4 s")
-    monkeypatch.setattr("vacation_memories.renderer.check_final", lambda *a, **k: [bad])
+    monkeypatch.setattr("vacation_memories.rendering.renderer.check_final", lambda *a, **k: [bad])
     with caplog.at_level("WARNING"):
         result = render(make_plan([video_element("red.mp4", 0, 2)]), media, tmp_path)
     assert not result.ok and result.exit_code == exit_codes.VERIFICATION_FAILED
@@ -508,7 +508,7 @@ def test_failed_check_leaves_a_partial_file_and_exit_code_3(media, tmp_path, mon
 def test_a_failed_render_does_not_replace_an_existing_output(media, tmp_path, monkeypatch):
     existing = tmp_path / "out.mp4"
     existing.write_bytes(b"previous result")
-    monkeypatch.setattr("vacation_memories.renderer.check_final",
+    monkeypatch.setattr("vacation_memories.rendering.renderer.check_final",
                         lambda *a, **k: [render_checks.Check("duration", False, "x")])
     render(make_plan([video_element("red.mp4", 0, 2)]), media, tmp_path)
     assert existing.read_bytes() == b"previous result"
@@ -667,7 +667,7 @@ def test_preview_segments_use_the_fast_preview_encoder(media, tmp_path, monkeypa
 
 
 def test_a_variable_frame_rate_source_is_scanned_once_per_render(media, tmp_path, monkeypatch):
-    from vacation_memories import segments
+    from vacation_memories.rendering import segments
 
     scans = []
     original = segments.is_variable_frame_rate
@@ -732,7 +732,7 @@ def test_preview_of_a_portrait_plan_keeps_the_proportions(media, tmp_path):
 
 
 def test_unavailable_hardware_encoding_falls_back_to_software_and_says_so(media, tmp_path, caplog):
-    from vacation_memories.runtime_profile import DetectionEnv, detect_ffmpeg
+    from vacation_memories.core.runtime_profile import DetectionEnv, detect_ffmpeg
 
     info = detect_ffmpeg(DetectionEnv(), lambda m: None)
     work = tmp_path / "work"
@@ -747,7 +747,7 @@ def test_unavailable_hardware_encoding_falls_back_to_software_and_says_so(media,
 
 
 def test_missing_ffmpeg_features_are_a_requirements_error(media, tmp_path):
-    from vacation_memories.runtime_profile import DetectionEnv, detect_ffmpeg
+    from vacation_memories.core.runtime_profile import DetectionEnv, detect_ffmpeg
 
     info = detect_ffmpeg(DetectionEnv(), lambda m: None)
     no_x264 = type(info)(info.ffmpeg_version, info.ffprobe_version, info.encoders - {"libx264"}, info.filters, (), ())
@@ -760,7 +760,7 @@ def test_missing_ffmpeg_features_are_a_requirements_error(media, tmp_path):
 
 
 def test_status_file_follows_the_phases(media, tmp_path):
-    from vacation_memories.workdir import StatusWriter
+    from vacation_memories.core.workdir import StatusWriter
 
     work = tmp_path / "work"
     work.mkdir()

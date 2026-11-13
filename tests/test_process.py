@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from vacation_memories import process
-from vacation_memories.process import Interrupted, ShutdownController, ToolError, ToolRunner, parallel_map
+from vacation_memories.core import process
+from vacation_memories.core.process import Interrupted, ShutdownController, ToolError, ToolRunner, parallel_map
 
 
 def is_running(pid: int) -> bool:

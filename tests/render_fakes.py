@@ -8,10 +8,10 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from vacation_memories.edit_plan import PHOTO, VIDEO, EditPlan, OutputSpec, PlanElement
-from vacation_memories.media_probe import probe
-from vacation_memories.process import ToolRunner
-from vacation_memories.transitions import DISSOLVE, TransitionRequest
+from vacation_memories.analysis.media_probe import probe
+from vacation_memories.core.process import ToolRunner
+from vacation_memories.planning.edit_plan import PHOTO, VIDEO, EditPlan, OutputSpec, PlanElement
+from vacation_memories.planning.transitions import DISSOLVE, TransitionRequest
 
 RED, GREEN, BLUE, YELLOW = "0xff0000", "0x00ff00", "0x0000ff", "0xffff00"
 MAGENTA = (255, 0, 255)

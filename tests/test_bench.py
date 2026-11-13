@@ -9,11 +9,12 @@ from fake_ollama import VALID_ANSWER, Reply
 from PIL import Image
 from system_fakes import make_env
 
-from vacation_memories import cli, exit_codes
-from vacation_memories import synthetic_media as sm
-from vacation_memories.bench import run_bench_vision
-from vacation_memories.config import resolve_settings
-from vacation_memories.runtime_profile import detect_profile
+from vacation_memories import cli
+from vacation_memories.ai.bench import run_bench_vision
+from vacation_memories.core import exit_codes
+from vacation_memories.core.config import resolve_settings
+from vacation_memories.core.runtime_profile import detect_profile
+from vacation_memories.evaluate import synthetic_media as sm
 
 pytestmark = pytest.mark.usefixtures("isolate_process_state")  # main() changes process-wide state
 
@@ -28,7 +29,7 @@ class FakeClock:
 
 def real_http_env(tmp_path):
     """Detection that really asks the simulated Ollama server."""
-    from vacation_memories.runtime_profile import _http_get_json
+    from vacation_memories.core.runtime_profile import _http_get_json
 
     env = make_env(tmp_path / "sys")
     env.http_get_json = _http_get_json

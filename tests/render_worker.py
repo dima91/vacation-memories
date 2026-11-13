@@ -13,10 +13,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from render_fakes import make_plan, photo_element  # noqa: E402
 
-from vacation_memories.process import Interrupted, ShutdownController  # noqa: E402
-from vacation_memories.render_config import RenderConfig  # noqa: E402
-from vacation_memories.renderer import RenderOptions, render_plan  # noqa: E402
-from vacation_memories.workdir import StatusWriter  # noqa: E402
+from vacation_memories.core.process import Interrupted, ShutdownController  # noqa: E402
+from vacation_memories.core.workdir import StatusWriter  # noqa: E402
+from vacation_memories.rendering.render_config import RenderConfig  # noqa: E402
+from vacation_memories.rendering.renderer import RenderOptions, render_plan  # noqa: E402
 
 
 def main() -> int:

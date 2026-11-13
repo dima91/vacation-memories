@@ -7,16 +7,17 @@ import os
 
 import pytest
 
-from vacation_memories import cli, exit_codes
-from vacation_memories import synthetic_media as sm
-from vacation_memories.config import DEFAULT_MODEL, normalize_ollama_host
-from vacation_memories.media_scanner import scan_media
-from vacation_memories.ollama_client import OllamaClient
-from vacation_memories.quality_analyzer import SegmentQuality
-from vacation_memories.runtime_profile import DetectionEnv, detect_ollama, loaded_model_placement
-from vacation_memories.technical_analysis import Candidate
-from vacation_memories.vision_analyzer import NUM_PREDICT, VisionAnalyzer, analyze_candidates
-from vacation_memories.vision_schema import CATEGORIES, MOMENT_TYPES, PROMPT, RESPONSE_SCHEMA, VisionResult
+from vacation_memories import cli
+from vacation_memories.ai.ollama_client import OllamaClient
+from vacation_memories.ai.vision_analyzer import NUM_PREDICT, VisionAnalyzer, analyze_candidates
+from vacation_memories.ai.vision_schema import CATEGORIES, MOMENT_TYPES, PROMPT, RESPONSE_SCHEMA, VisionResult
+from vacation_memories.analysis.media_scanner import scan_media
+from vacation_memories.analysis.quality_analyzer import SegmentQuality
+from vacation_memories.analysis.technical_analysis import Candidate
+from vacation_memories.core import exit_codes
+from vacation_memories.core.config import DEFAULT_MODEL, normalize_ollama_host
+from vacation_memories.core.runtime_profile import DetectionEnv, detect_ollama, loaded_model_placement
+from vacation_memories.evaluate import synthetic_media as sm
 
 # main() changes process-wide state
 pytestmark = [pytest.mark.ollama, pytest.mark.usefixtures("isolate_process_state")]
@@ -47,8 +48,8 @@ def synthetic_beach(tmp_path_factory):
 
 
 def test_the_answer_respects_the_schema(ollama, synthetic_beach):
-    from vacation_memories.frame_sampler import photo_color_frame
-    from vacation_memories.vision_analyzer import prepare_image
+    from vacation_memories.ai.vision_analyzer import prepare_image
+    from vacation_memories.analysis.frame_sampler import photo_color_frame
 
     url, model = ollama
     client = OllamaClient(url, model, timeout=REAL_TIMEOUT_SECONDS)

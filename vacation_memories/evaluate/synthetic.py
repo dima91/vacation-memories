@@ -15,20 +15,21 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from vacation_memories import __version__, exit_codes
-from vacation_memories.analysis import AnalysisRequest, run_analysis
-from vacation_memories.atomic import atomic_write_json
-from vacation_memories.config import ConfigError, Settings
-from vacation_memories.edit_plan import OutputSpec, save_plan
-from vacation_memories.edit_planner import plan_edit, plan_random
+from vacation_memories import __version__
+from vacation_memories.analysis.runner import AnalysisRequest, run_analysis
+from vacation_memories.core import exit_codes
+from vacation_memories.core.atomic import atomic_write_json
+from vacation_memories.core.config import ConfigError, Settings
+from vacation_memories.core.process import Interrupted, ShutdownController
+from vacation_memories.core.runtime_profile import DetectionEnv
+from vacation_memories.core.workdir import PRIVATE_MODE, WorkdirInUseError, WorkdirLock
 from vacation_memories.evaluate.ground_truth import GroundTruth, GroundTruthError, load_ground_truth
 from vacation_memories.evaluate.metrics import compare, plan_metrics
-from vacation_memories.process import Interrupted, ShutdownController
-from vacation_memories.render_config import RenderConfig
-from vacation_memories.renderer import Progress
-from vacation_memories.runtime_profile import DetectionEnv
-from vacation_memories.synthetic_media import EVALUATION_VERSION, populate_evaluation_vacation
-from vacation_memories.workdir import PRIVATE_MODE, WorkdirInUseError, WorkdirLock
+from vacation_memories.evaluate.synthetic_media import EVALUATION_VERSION, populate_evaluation_vacation
+from vacation_memories.planning.edit_plan import OutputSpec, save_plan
+from vacation_memories.planning.edit_planner import plan_edit, plan_random
+from vacation_memories.rendering.render_config import RenderConfig
+from vacation_memories.rendering.renderer import Progress
 
 logger = logging.getLogger(__name__)
 

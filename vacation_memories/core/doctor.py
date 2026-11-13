@@ -13,9 +13,9 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from vacation_memories.config import Settings
-from vacation_memories.media_scanner import heic_available as _heic_available
-from vacation_memories.runtime_profile import GIB, MIB, FFmpegInfo, RuntimeProfile, format_profile
+from vacation_memories.analysis.media_scanner import heic_available as _heic_available
+from vacation_memories.core.config import Settings
+from vacation_memories.core.runtime_profile import GIB, MIB, FFmpegInfo, RuntimeProfile, format_profile
 
 MIN_PYTHON = (3, 11)
 REQUIRED_FFMPEG_ENCODERS = ("libx264", "aac")

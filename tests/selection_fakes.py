@@ -6,11 +6,11 @@ from pathlib import Path
 
 import numpy as np
 
-from vacation_memories.metadata_extractor import MediaMetadata
-from vacation_memories.quality_analyzer import SegmentQuality
-from vacation_memories.scene_ranker import RankedCandidate, Ranking
-from vacation_memories.technical_analysis import Candidate
-from vacation_memories.vision_schema import VisionResult
+from vacation_memories.ai.vision_schema import VisionResult
+from vacation_memories.analysis.metadata_extractor import MediaMetadata
+from vacation_memories.analysis.quality_analyzer import SegmentQuality
+from vacation_memories.analysis.technical_analysis import Candidate
+from vacation_memories.planning.scene_ranker import RankedCandidate, Ranking
 
 START = datetime(2023, 7, 14, 8, 0, 0)
 

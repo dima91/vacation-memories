@@ -6,7 +6,7 @@ import tempfile
 
 import pytest
 
-from vacation_memories.workdir import WorkdirInUseError, WorkdirLock, prepare_workdir
+from vacation_memories.core.workdir import WorkdirInUseError, WorkdirLock, prepare_workdir
 
 
 class TestPrepareWorkdir:
@@ -70,7 +70,7 @@ class TestWorkdirLock:
             raise OSError("disk full")
 
         with monkeypatch.context() as patch:
-            patch.setattr("vacation_memories.workdir.StatusWriter.start", broken_start)
+            patch.setattr("vacation_memories.core.workdir.StatusWriter.start", broken_start)
             with pytest.raises(OSError, match="disk full"):
                 WorkdirLock(tmp_path).__enter__()
         with WorkdirLock(tmp_path):  # the failed attempt did not keep the lock
@@ -157,7 +157,7 @@ class TestWorkdirLock:
                 textwrap.dedent(
                     f"""
                     import sys, time
-                    from vacation_memories.workdir import WorkdirLock
+                    from vacation_memories.core.workdir import WorkdirLock
                     with WorkdirLock({str(tmp_path)!r}):
                         print("locked", flush=True)
                         time.sleep(60)

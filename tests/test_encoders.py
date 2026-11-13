@@ -1,6 +1,7 @@
 from render_fakes import RUNNER
 
-from vacation_memories.encoders import (
+from vacation_memories.core.runtime_profile import DetectionEnv, detect_ffmpeg
+from vacation_memories.rendering.encoders import (
     SOFTWARE_ENCODER,
     choose_assembly_encoder,
     fps_mode_args,
@@ -8,8 +9,7 @@ from vacation_memories.encoders import (
     software_encoder,
     thread_args,
 )
-from vacation_memories.render_config import RenderConfig
-from vacation_memories.runtime_profile import DetectionEnv, detect_ffmpeg
+from vacation_memories.rendering.render_config import RenderConfig
 
 CONFIG = RenderConfig()
 HW = ("h264_nvenc", "h264_omx", "h264_qsv", "h264_v4l2m2m", "h264_vaapi")

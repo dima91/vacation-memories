@@ -107,7 +107,7 @@ ensure_built() {
 ensure_media() {
     ensure_built || return 1
     stamp media && return 0
-    dev python -m vacation_memories.synthetic_media "$SCRATCH_REL/media/vacation" --vacation \
+    dev python -m vacation_memories.evaluate.synthetic_media "$SCRATCH_REL/media/vacation" --vacation \
         && dev ffmpeg -nostdin -loglevel error -f lavfi -i "sine=frequency=330:duration=8" -ar 44100 -ac 2 \
             "$SCRATCH_REL/music/track.wav" \
         && (cd "$SCRATCH/media" && find . -type f -exec sha256sum {} + | sort -k2 >"$SCRATCH/media.sha256") \

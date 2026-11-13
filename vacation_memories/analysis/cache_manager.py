@@ -10,7 +10,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-from vacation_memories.media_scanner import MediaFile
+from vacation_memories.analysis.media_scanner import MediaFile
 
 SCHEMA_VERSION = 3
 DB_NAME = "cache.sqlite3"

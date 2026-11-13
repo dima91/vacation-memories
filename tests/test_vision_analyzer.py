@@ -9,19 +9,19 @@ from fake_ollama import VALID_ANSWER, Reply
 from PIL import Image
 from system_fakes import MODEL
 
-from vacation_memories import synthetic_media as sm
-from vacation_memories.cache_manager import CacheManager
-from vacation_memories.media_scanner import scan_media
-from vacation_memories.ollama_client import OllamaClient
-from vacation_memories.quality_analyzer import SegmentQuality
-from vacation_memories.technical_analysis import Candidate
-from vacation_memories.vision_analyzer import (
+from vacation_memories.ai.ollama_client import OllamaClient
+from vacation_memories.ai.vision_analyzer import (
     MAX_CONSECUTIVE_FAILURES,
     VisionAnalyzer,
     analyze_candidates,
     prepare_image,
 )
-from vacation_memories.vision_schema import VisionResult
+from vacation_memories.ai.vision_schema import VisionResult
+from vacation_memories.analysis.cache_manager import CacheManager
+from vacation_memories.analysis.media_scanner import scan_media
+from vacation_memories.analysis.quality_analyzer import SegmentQuality
+from vacation_memories.analysis.technical_analysis import Candidate
+from vacation_memories.evaluate import synthetic_media as sm
 
 
 class FakeClock:

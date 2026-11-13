@@ -10,10 +10,14 @@ import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from vacation_memories import __version__, exit_codes
-from vacation_memories.bench import DEFAULT_IMAGE_COUNT, run_bench_vision
-from vacation_memories.config import ConfigError, Settings, ollama_url_is_local, resolve_settings
-from vacation_memories.doctor import format_report, has_blocking_failures, run_doctor
+from vacation_memories import __version__
+from vacation_memories.ai.bench import DEFAULT_IMAGE_COUNT, run_bench_vision
+from vacation_memories.core import exit_codes
+from vacation_memories.core.config import ConfigError, Settings, ollama_url_is_local, resolve_settings
+from vacation_memories.core.doctor import format_report, has_blocking_failures, run_doctor
+from vacation_memories.core.logging_setup import setup_logging
+from vacation_memories.core.runtime_profile import DetectionEnv, detect_profile, write_runtime_profile
+from vacation_memories.core.workdir import prepare_workdir
 from vacation_memories.evaluate.prepare import (
     DEFAULT_VARIANTS,
     FULL,
@@ -24,11 +28,8 @@ from vacation_memories.evaluate.prepare import (
 )
 from vacation_memories.evaluate.report import ReportRequest, run_report
 from vacation_memories.evaluate.synthetic import DEFAULT_SEEDS, SyntheticRequest, run_synthetic
-from vacation_memories.logging_setup import setup_logging
 from vacation_memories.pipeline import ANALYZE_ONLY, DRY_RUN, FULL, RENDER_ONLY, RunRequest, run_pipeline
-from vacation_memories.runtime_profile import DetectionEnv, detect_profile, write_runtime_profile
-from vacation_memories.video_format import FormatError, parse_duration
-from vacation_memories.workdir import prepare_workdir
+from vacation_memories.planning.video_format import FormatError, parse_duration
 
 logger = logging.getLogger(__name__)
 

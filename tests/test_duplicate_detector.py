@@ -3,13 +3,13 @@ import pytest
 from image_fakes import gray_of, natural_image, recompress, resize_slightly, scale_brightness
 from PIL import ImageFilter
 
-from vacation_memories import synthetic_media as sm
-from vacation_memories.duplicate_detector import (
+from vacation_memories.analysis.duplicate_detector import (
     DuplicateItem,
     HashBackend,
     find_duplicates,
 )
-from vacation_memories.quality_analyzer import measure_frame
+from vacation_memories.analysis.quality_analyzer import measure_frame
+from vacation_memories.evaluate import synthetic_media as sm
 
 BACKEND = HashBackend()
 

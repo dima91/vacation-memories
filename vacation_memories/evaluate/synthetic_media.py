@@ -11,9 +11,9 @@ another for the perceptual hash, which make a whole synthetic vacation
 (`populate_evaluation_vacation`) adds places, repetitions, defects and important
 moments, described in its `ground_truth.json`.
 
-Usage: python -m vacation_memories.synthetic_media OUTPUT_DIR [--seed N]
-       python -m vacation_memories.synthetic_media OUTPUT_DIR --vacation [--photos N] [--videos N] [--days N]
-       python -m vacation_memories.synthetic_media OUTPUT_DIR --evaluation [--days N] [--places-per-day N]
+Usage: python -m vacation_memories.evaluate.synthetic_media OUTPUT_DIR [--seed N]
+       python -m vacation_memories.evaluate.synthetic_media OUTPUT_DIR --vacation [--photos N] [--videos N] [--days N]
+       python -m vacation_memories.evaluate.synthetic_media OUTPUT_DIR --evaluation [--days N] [--places-per-day N]
 """
 
 import argparse

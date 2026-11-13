@@ -5,8 +5,8 @@ import pytest
 from fake_ollama import VALID_ANSWER, Reply
 from system_fakes import MODEL
 
-from vacation_memories.ollama_client import OllamaClient, OllamaError
-from vacation_memories.vision_schema import RESPONSE_SCHEMA
+from vacation_memories.ai.ollama_client import OllamaClient, OllamaError
+from vacation_memories.ai.vision_schema import RESPONSE_SCHEMA
 
 
 def client_for(server, **options) -> OllamaClient:
@@ -85,7 +85,7 @@ def test_abort_cuts_off_a_request_in_progress_and_refuses_new_ones(fake_ollama):
     import threading
     import time
 
-    from vacation_memories.ollama_client import OllamaAborted
+    from vacation_memories.ai.ollama_client import OllamaAborted
 
     fake_ollama.script.append(Reply(VALID_ANSWER, delay=5.0))
     client = client_for(fake_ollama, timeout=30)

@@ -1,6 +1,6 @@
 import pytest
 
-from vacation_memories.vision_schema import (
+from vacation_memories.ai.vision_schema import (
     CATEGORIES,
     MAX_DESCRIPTION_CHARS,
     MAX_DESCRIPTION_WORDS,

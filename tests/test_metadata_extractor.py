@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from vacation_memories import metadata_extractor as me
-from vacation_memories import synthetic_media as sm
-from vacation_memories.cache_manager import CacheManager
-from vacation_memories.media_scanner import MediaFile, scan_media
-from vacation_memories.process import Interrupted, ShutdownController, ToolRunner
+from vacation_memories.analysis import metadata_extractor as me
+from vacation_memories.analysis.cache_manager import CacheManager
+from vacation_memories.analysis.media_scanner import MediaFile, scan_media
+from vacation_memories.core.process import Interrupted, ShutdownController, ToolRunner
+from vacation_memories.evaluate import synthetic_media as sm
 
 
 @pytest.fixture(scope="module")
