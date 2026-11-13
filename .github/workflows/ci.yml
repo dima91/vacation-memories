@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, "release/**"]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          package_version=$(grep -Po '__version__ = "\K[^"]+' vacation_memories/__init__.py)
+          tag_version=${GITHUB_REF_NAME#v}
+          if [[ $package_version != "$tag_version" ]]; then
+            echo "tag $GITHUB_REF_NAME does not match __version__ $package_version" >&2
+            exit 1
+          fi
+
+      - name: Prepare the environment
+        run: |
+          cp .env.example .env
+          sed -i \
+            -e "s/^HOST_UID=.*/HOST_UID=$(id -u)/" \
+            -e "s/^HOST_GID=.*/HOST_GID=$(id -g)/" \
+            -e "s/^COMPOSE_FILE=.*/COMPOSE_FILE=compose.yaml/" \
+            .env
+          mkdir -p dev-media music work
+
+      - name: Build the dev image
+        run: docker compose --profile dev build dev
+
+      - name: Run the tests
+        run: docker compose run --rm -T --no-deps dev pytest
+
+  container-tests:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the container tests
+        run: scripts/test-docker.sh
