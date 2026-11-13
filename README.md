@@ -431,12 +431,13 @@ The image carries its version in the label `org.opencontainers.image.version` an
 `doctor` prints it with the FFmpeg version. Set it at build time:
 
 ```sh
-APP_VERSION=1.0.0 docker compose build app      # or APP_VERSION in .env
+APP_VERSION=0.1.0 docker compose build app      # or APP_VERSION in .env
 docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' vacation-memories:local
 ```
 
-For a release, note the digest of the base image (`docker buildx imagetools inspect python:3.12-slim-bookworm`) and
-pin it in `PYTHON_IMAGE` (`python:3.12-slim-bookworm@sha256:...`). The image is built for the architecture of the
+Without `APP_VERSION` the label is `dev`. The base image is pinned by digest in the `PYTHON_IMAGE` default of the
+`Dockerfile`. To update it for a release, read the new digest with
+`docker buildx imagetools inspect python:3.12-slim-bookworm` and replace it there. The image is built for the architecture of the
 machine; for another one use `docker buildx build --platform linux/arm64 --target runtime ...`. A dependency
 without a wheel for that architecture makes the build fail.
 
@@ -548,6 +549,18 @@ other modules by role:
 | `evaluate/` | the `evaluate` subcommand and the synthetic media generator (`synthetic_media`) |
 
 The tests stay flat in `tests/`, one `test_<module>.py` per module.
+
+### Continuous integration
+
+The GitHub Actions workflow `.github/workflows/ci.yml` runs the same commands as above, in the same containers:
+
+| When | What runs |
+| --- | --- |
+| push to `main`, `develop`, `release/**`; every pull request; tags `v*` | build of `dev` and `pytest` |
+| pull requests; tags `v*` | also `scripts/test-docker.sh` |
+
+On a tag `vX.Y.Z` the workflow also checks that `X.Y.Z` is the `__version__` of the package. The tests with the real
+model (`-m ollama`) do not run in CI: they are skipped there because no Ollama is reachable.
 
 ### Tests with the real model
 
