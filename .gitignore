@@ -10,3 +10,4 @@ __pycache__/
 *.partial.mp4
 *.it.md
 .test-docker/
+**/ui-mockup/
