@@ -426,6 +426,43 @@ print("no media folder in dev")
     rm -f "$created"
 }
 
+# `ui-dev` (from U4): the interface's checks and tests, in a container with the repository mounted, no network and no media.
+check_config_ui_dev() {
+    config_assert '
+service = c["services"]["ui-dev"]
+assert service.get("profiles") == ["dev"], service.get("profiles")
+assert service.get("network_mode") == "none" and not service.get("networks"), "ui-dev must have no network"
+assert [volume["target"] for volume in service["volumes"]] == ["/src"], service["volumes"]
+assert service["working_dir"] == "/src/frontend"
+assert service["user"].count(":") == 1 and not service["user"].startswith("0"), service["user"]
+assert "ui-dev" not in [name for name, other in c["services"].items() if not other.get("profiles")]
+' compose_files || return 1
+    local without_dev
+    without_dev=$(docker compose --env-file "$TEST_ENV" config --services) || return 1
+    ! grep -qx ui-dev <<<"$without_dev" || { echo "a bare docker compose up would start ui-dev"; return 1; }
+}
+
+check_ui_dev_isolation() {
+    ensure_built || return 1
+    local interfaces
+    interfaces=$(dc run --rm -T --no-deps ui-dev ls /sys/class/net) || return 1
+    [[ $interfaces == lo ]] || { echo "ui-dev has network interfaces: $interfaces"; return 1; }
+    dc run --rm -T --no-deps ui-dev sh -c '! grep -q " /media " /proc/mounts && test -z "$(ls -A /media 2>/dev/null)"' \
+        || { echo "MEDIA_DIR is mounted in ui-dev"; return 1; }
+    local created=$SCRATCH/owner-check-ui
+    rm -f "$created"
+    dc run --rm -T --no-deps ui-dev touch "/src/$SCRATCH_REL/owner-check-ui" || return 1
+    [[ $(stat -c %u:%g "$created") == "$(id -u):$(id -g)" ]] || { echo "file created by ui-dev does not belong to the host user"; return 1; }
+    rm -f "$created"
+}
+
+check_ui_dev_checks() {
+    ensure_built || return 1
+    dc run --rm -T --no-deps ui-dev npm run check || return 1
+    dc run --rm -T --no-deps ui-dev npm test || return 1
+    [[ ! -e $ROOT/frontend/node_modules ]] || { echo "node_modules ended up in the repository"; return 1; }
+}
+
 # --- checks: the full job ---
 
 check_cycle_exit() {
@@ -586,6 +623,41 @@ check_editor_serves() {
         echo "a foreign Origin was served"
         return 1
     fi
+}
+
+# The page, its script and stylesheet as nginx serves them: no external reference (UI-SPEC.md, sections 3 and 15).
+check_editor_page_assets() {
+    ensure_editor || return 1
+    local served=$SCRATCH/served page assets url fonts
+    rm -rf "$served" && mkdir -p "$served"
+    page=$(editor_get /) || return 1
+    printf '%s' "$page" >"$served/index.html"
+    assets=$(grep -Eo '/assets/[A-Za-z0-9._-]+\.(js|css)' <<<"$page")
+    [[ $(wc -l <<<"$assets") == 2 && $assets == *.js* && $assets == *.css* ]] \
+        || { echo "the page should load one script and one stylesheet, it loads: $assets"; return 1; }
+    for url in $assets; do
+        editor_get "$url" >"$served/$(basename "$url")" || { echo "cannot fetch $url"; return 1; }
+    done
+    fonts=$(grep -Eo 'url\("?\./[A-Za-z0-9._-]+\.woff2' "$served"/*.css | sed -E 's/.*\.\///')
+    [[ -n $fonts ]] || { echo "the stylesheet bundles no font"; return 1; }
+    for url in $fonts; do
+        dc exec -T nginx wget -q -O /dev/null --header "Host: 127.0.0.1:8080" "http://127.0.0.1:8080/assets/$url" \
+            || { echo "the font $url is not served"; return 1; }
+    done
+    dev python - "$SCRATCH_REL/served" <<'PY' || return 1
+import json, pathlib, re, sys
+
+allowed = json.loads(pathlib.Path("frontend/tools/allowed-urls.json").read_text())["prefixes"]
+pattern = re.compile(r"(?:https?:)?//[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}[^\s\"'`)<>\\]*")
+problems = []
+for path in sorted(pathlib.Path(sys.argv[1]).iterdir()):
+    for url in pattern.findall(path.read_text(encoding="utf-8")):
+        if not url.startswith(tuple(allowed)):
+            problems.append(f"{path.name}: {url}")
+if problems:
+    sys.exit("external references in the served page:\n" + "\n".join(problems))
+print("no external reference in the page, the script and the stylesheet")
+PY
 }
 
 check_editor_network() {
@@ -861,6 +933,9 @@ run_check "ollama: no published port" check_ollama_not_published
 run_check "app: doctor --require-ai with the simulated Ollama" check_doctor_require_ai
 run_check "app: reaches Ollama, not the Internet" check_app_network
 run_check "dev: no media, no Internet, reaches Ollama, files owned by the host user" check_dev_isolation
+run_check "config: ui-dev in the dev profile, no network, only the repository mounted" check_config_ui_dev
+run_check "ui-dev: no network, no media, files owned by the host user" check_ui_dev_isolation
+run_check "ui-dev: npm run check (tsc) and npm test pass" check_ui_dev_checks
 run_check "cycle: exit 0 and AI used" check_cycle_exit
 run_check "cycle: video passes the FFprobe checks" check_cycle_video
 run_check "cycle: originals unchanged" check_cycle_media_unchanged
@@ -869,6 +944,7 @@ run_check "cycle: limits of 1 CPU and 1 GiB read by the profile" check_cycle_lim
 run_check "app: hardening" check_app_hardening
 run_check "config: editor and nginx, only 127.0.0.1:8080 published, app in the cli profile" check_config_editor
 run_check "editor: serves the page through nginx with Ollama stopped, checks Host and Origin" check_editor_serves
+run_check "editor: the served page, script and stylesheet have no external reference" check_editor_page_assets
 run_check "editor: only backend, no Internet, reaches Ollama; nginx publishes only 127.0.0.1:8080" check_editor_network
 run_check "editor: hardening, volumes read-only, nginx with only its configuration" check_editor_hardening
 run_check "editor: analysis and plan, then a preview, through nginx" check_editor_jobs
