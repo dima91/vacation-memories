@@ -264,8 +264,10 @@ class EditorApp:
         durations = self._media_durations(project)
         limits = plan_limits(plan, self.rules, media_durations=durations)
         duration = plan_duration(plan, self.rules)
+        # What names an element in a URL: the preview of its clip and the thumbnail of its file (opaque ids, section 9).
+        refs = {element.id: {"clip": opaque_id(element.id), "media": file_id(element.source)} for element in plan.elements}
         return {"revision": revision, "plan": plan.to_dict(), "limits": limits.to_dict(), "duration": duration,
-                "warnings": self._warnings(project, plan, duration)}
+                "warnings": self._warnings(project, plan, duration), "refs": refs}
 
     def _warnings(self, project: Project, plan: EditPlan, duration: float) -> list[dict]:
         warnings = []
