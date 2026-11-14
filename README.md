@@ -245,6 +245,41 @@ share = 0.47
 
 The names and default values are in `vacation_memories/planning/selection_config.py`.
 
+## Editor
+
+The editor is a local web server on top of the CLI: the analysis, the plan and the rendering stay the CLI, run as
+child processes on the same files, so a project can be continued from either. This step delivers the server and its
+API (`/api`); the page it serves is a placeholder until the interface arrives.
+
+```sh
+docker compose build editor           # after every change of the code
+docker compose up -d editor nginx     # starts the editor and its proxy; Ollama is not needed
+docker compose stop editor nginx
+```
+
+Then open `http://127.0.0.1:8080`. The port is published only on the `127.0.0.1` of the machine that runs Docker. On a
+server without a display use an SSH tunnel and open the same address on your PC:
+
+```sh
+ssh -L 8080:127.0.0.1:8080 <server>
+```
+
+For a tunnel on another local port (`ssh -L 9090:127.0.0.1:8080 …`) add that address to `EDITOR_ALLOWED_HOSTS` in `.env`
+(`127.0.0.1:9090,localhost:9090`): the editor refuses requests whose `Host` or `Origin` is not one of its own, so no
+other web page open in your browser can use it.
+
+- **Projects.** The editor lists the folders under `MEDIA_DIR`. Every folder has its own working folder,
+  `WORK_DIR/projects/<name>-<hash>/`, with the cache, the plan (`edit_plan.json`), `candidates.json` (the catalog the
+  analysis leaves for the editor), `project.json` (the settings), the logs and the videos. The CLI can work on the same
+  one: `docker compose run --rm -T app --input /media/<folder> --workdir /work/projects/<name>-<hash> …`.
+- **Jobs.** Analysis and plan, preview and export are `python -m vacation_memories` processes started by the editor,
+  one at a time. Stopping the editor (`docker compose stop`) stops the job in an orderly way, and running it again
+  resumes it.
+- **Access.** There is no authentication: on `127.0.0.1` any user of the machine can open the editor and so see the
+  photos. Use it on your own PC, or on a server whose users you trust.
+- **Without Ollama.** The editor starts and works with Ollama stopped; it checks it only when you ask for an analysis
+  with AI, and then it never produces a result without AI silently.
+
 ## Long jobs on a server
 
 A run on hundreds of files can take hours, mostly in the AI analysis and in the rendering. Do not tie it to an SSH
@@ -432,25 +467,31 @@ serves both; only `.env` changes.
 
 | File | Purpose |
 | --- | --- |
-| `compose.yaml` | the services `app`, `ollama`, `ollama-pull` and (profile `dev`) `dev` |
+| `compose.yaml` | the services `editor`, `nginx`, `ollama`, `ollama-pull`, `app` (profile `cli`) and `dev` (profile `dev`) |
 | `compose.intel-gpu.yaml` | gives `ollama` the Intel GPU (`/dev/dri`, `OLLAMA_IGPU_ENABLE=1`) |
-| `compose.selinux.yaml` | `label=disable` for `app` and `dev` |
+| `compose.selinux.yaml` | `label=disable` for `app`, `dev` and `editor` |
 | `compose.test.yaml` | for `scripts/test-docker.sh` only: a simulated Ollama, no model downloaded |
-| `docker/compose.toml` | the configuration of `app` (`/media`, `/work`, the Ollama URL, `require_ai`) |
+| `docker/compose.toml` | the configuration of `app` and `editor` (`/media`, `/work`, the Ollama URL, `require_ai`) |
+| `docker/nginx.conf` | the configuration of `nginx`, the reverse proxy of the editor |
 
 ### Services and networks
 
 - `app` is the `runtime` image: Python, FFmpeg and the code, nothing else. It has no compilers, package manager,
   tests, fixtures, `.git`, `.env` or media. The entrypoint is `python -m vacation_memories`, so the arguments of
   `docker compose run app` are those of the CLI. The code is copied in the image: after every change run
-  `docker compose build app`.
+  `docker compose build app` (or `editor`: it is the same image).
+- `app` is in the `cli` profile, so a bare `docker compose up` does not start a full job on `MEDIA_DIR`;
+  `docker compose run app …` still works, because naming a service enables its profile.
+- `editor` is the same image with the `serve` command (see "Editor"); `nginx` is the reverse proxy in front of it.
 - `ollama` serves the vision model; the models are in the external volume `vacation-ollama-models`. `ollama-pull`
   downloads the model only when it is missing, then exits.
 - `dev` is the `dev` image with the repository mounted at `/src`, for the tests. It never mounts `MEDIA_DIR`.
-- `app` and `dev` sit only on the internal network `backend`, which has no route to the Internet: they reach
-  Ollama and nothing else. Only `ollama` is also on `egress`, to download models. No port is published.
+- `app`, `editor` and `dev` sit only on the internal network `backend`, which has no route to the Internet: they
+  reach Ollama and nothing else. Only `ollama` is also on `egress`, to download models. `nginx` is on `backend` and on
+  `frontend`, an ordinary network with nothing else on it (an internal network cannot publish a port). The only
+  published port is `127.0.0.1:8080`, of `nginx`.
 
-`app` runs as `HOST_UID:HOST_GID` (the files in `WORK_DIR` are yours), with a read-only root filesystem, no
+`app` and `editor` run as `HOST_UID:HOST_GID` (the files in `WORK_DIR` are yours), with a read-only root filesystem, no
 capabilities (`cap_drop: [ALL]`), `no-new-privileges`, `init: true` and 30 s to stop. The only writable folder is
 `/work`; `/media` and `/music` are read-only. The image works with any UID: nothing is written outside `/work`.
 There is no `--privileged` and no Docker socket anywhere.
@@ -546,9 +587,14 @@ It checks that:
 - with `cpus: 1` and `mem_limit: 1g`, `runtime_profile.json` reports at most 1 core and 1 GiB;
 - `dev` has no media folder, no Internet and reaches Ollama, and its files belong to you;
 - `app` is hardened as above, reaches Ollama but not the Internet, and no port is published;
+- the editor: only `nginx` publishes a port, only on `127.0.0.1:8080`; `editor` is only on `backend`, without Internet
+  and without `depends_on` on Ollama, and serves the page through `nginx` with Ollama stopped, refusing a foreign `Host`
+  or `Origin`; an analysis and plan job and a preview run through `nginx`; `docker stop` during a render exits with 143
+  in less than 10 s and the same job then finishes; the page has no external reference; a bare `docker compose up`
+  does not start `app`, and `docker compose run app` still works;
 - the compose files are valid: clear errors without `MEDIA_DIR` or `HOST_UID`, no folder created for a missing
-  mount, the GPU only on `ollama` and only with the override, `OLLAMA_VULKAN` only when set, SELinux only on `app`
-  and `dev`.
+  mount, the GPU only on `ollama` and only with the override, `OLLAMA_VULKAN` only when set, SELinux only on `app`,
+  `dev` and `editor`.
 
 ## Development
 
@@ -576,6 +622,7 @@ other modules by role:
 | `ai/` | Ollama client, vision prompt and schema, vision analyzer, `bench vision` |
 | `planning/` | selection weights, ranking, narrative planner, edit plan, transitions, `--duration`/`--resolution`/`--aspect`, estimates |
 | `rendering/` | segments (phase A), assembly (phase B), effects of the clips, music, filters, encoders, checks of the output |
+| `editor/` | the `serve` subcommand: HTTP server and API, projects, jobs, catalog, thumbnails, waveforms and per-clip previews, and `static/` (the page) |
 | `evaluate/` | the `evaluate` subcommand and the synthetic media generator (`synthetic_media`) |
 
 The tests stay flat in `tests/`, one `test_<module>.py` per module.

@@ -15,6 +15,7 @@ Python application for Linux, fully local and run only in Docker containers (in 
 - On the host, use only git, the repository files and the Docker CLI. Do not install Python, packages or FFmpeg on the host and do not create virtual environments on the host.
 - After Step 1, do not modify `.env`: new variables go in `.env.example` (with a default value in the compose file) and in the report.
 - Everything must work without a display or an interactive terminal (section "Headless execution").
+- The editor's projects (`<project>/ui/`, `candidates.json`, thumbnails, previews and plans) generated from real media are not opened or listed either; only those of the synthetic media in `./dev-media`.
 
 ## Commands
 
@@ -24,4 +25,5 @@ Code and tests run only in containers. Your shell has no terminal: always add `-
 - Tests: `docker compose run --rm -T dev pytest`
 - Tests with the real model (`-m ollama`): `docker compose up -d ollama`, then `docker compose run --rm -T dev pytest -m ollama`
 - CLI trial (from Step 6, on the synthetic media in ./dev-media only): `docker compose build app`, then `docker compose run --rm -T app --duration 30 --output prova.mp4`
+- Editor (from U3, `UI-SPEC.md`): `docker compose up -d editor nginx`, then `http://127.0.0.1:8080` (Ollama is not needed); after a change, `docker compose build editor`, as for `app`. `app` is in the `cli` profile.
 - `dev` sees the mounted repository immediately; `app` contains a copy of the code and must be rebuilt with `docker compose build app` after every change.
