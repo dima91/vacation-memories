@@ -5,8 +5,8 @@ from datetime import timedelta
 import pytest
 from selection_fakes import START, ranked, ranking_of, shot, vacation
 
-from vacation_memories.planning.edit_plan import OutputSpec, plan_from_dict
-from vacation_memories.planning.edit_planner import plan_edit
+from vacation_memories.planning.edit_plan import Exclusion, OutputSpec, plan_from_dict
+from vacation_memories.planning.edit_planner import candidate_is_excluded, plan_edit, without_excluded
 from vacation_memories.planning.selection_config import SelectionConfig
 from vacation_memories.planning.transitions import TransitionRules
 
@@ -430,3 +430,139 @@ def test_the_result_names_the_candidate_of_every_clip_what_is_shown_and_the_pool
     assert extended and len(result.shown) > len(result.chosen_by)  # the further segments of a continuous shot
     left_out = [item for item in items if item.id not in result.shown]
     assert left_out and all(result.pools[item.id] in ("beginning", "development", "finale") for item in left_out)
+
+
+class TestSchema2:
+    """The plan the planner writes (section 8 of UI-SPEC.md): ids, origins, effects, exclusions."""
+
+    @pytest.mark.parametrize(
+        "target, structure, kwargs",
+        [(300, "narrative", {}), (300, "chronological", {}), (45, "narrative", {}), (120, "narrative", {"ai_used": False})],
+        ids=["narrative", "chronological", "short", "without AI"],
+    )
+    def test_the_plan_respects_the_editing_rules_and_reads_back_as_it_is(self, target, structure, kwargs):
+        from vacation_memories.planning.plan_rules import check_plan, plan_duration
+
+        result = plan(vacation(200, moments=MOMENTS, videos_every=7), target, structure=structure, **kwargs)
+        rules = TransitionRules()
+        assert check_plan(result.plan, rules) == []
+        loaded = plan_from_dict(result.plan.to_dict())  # a clip's duration is read back as end - start
+        assert [(e.id, e.origin, e.duration_origin, e.effects) for e in loaded.elements] == [
+            (e.id, e.origin, e.duration_origin, e.effects) for e in result.plan.elements]
+        assert [e.duration for e in loaded.elements] == pytest.approx([e.duration for e in result.plan.elements])
+        assert plan_duration(loaded, rules) == pytest.approx(result.plan.planned_duration)
+        assert plan_duration(result.plan, rules) == pytest.approx(result.plan.planned_duration)
+
+    def test_every_element_has_a_unique_id_the_candidate_id_and_the_origin_of_the_planner(self):
+        result = plan(vacation(200, moments=MOMENTS, videos_every=7), 300)
+        ids = [element.id for element in result.plan.elements]
+        assert ids == list(result.chosen_by) and len(set(ids)) == len(ids)
+        assert all(element.origin == "planner" for element in result.plan.elements)
+        assert all(element.duration_origin == "planner" for element in result.plan.elements if element.kind == "photo")
+        assert all(element.duration_origin is None for element in result.plan.elements if element.kind == "video")
+        effect_ids = [effect.id for element in result.plan.elements for effect in element.effects]
+        assert len(set(effect_ids)) == len(effect_ids)
+        assert all(effect.origin == "planner" for element in result.plan.elements for effect in element.effects)
+
+    def test_the_fade_from_black_and_to_black_are_effects_of_the_first_and_the_last_clip(self):
+        result = plan(vacation(200, moments=MOMENTS), 300)
+        first, last = result.plan.elements[0], result.plan.elements[-1]
+        assert [(e.type, e.offset, e.duration) for e in first.effects] == [("fade_in", 0.0, 1.0)]
+        fade_out = [e for e in last.effects if e.type == "fade_out"]
+        assert len(fade_out) == 1 and fade_out[0].duration <= 3.0
+        assert fade_out[0].offset + fade_out[0].duration == pytest.approx(last.duration)
+        middle = [e for element in result.plan.elements[1:-1] for e in element.effects]
+        assert {e.type for e in middle} == {"dissolve"}
+
+    def test_the_lengths_of_the_fades_come_from_the_configuration(self):
+        from vacation_memories.planning.edit_plan import EdgeFades
+
+        items = vacation(200, moments=MOMENTS)
+        result = plan_edit(ranking_of(items), target=300, output=OUTPUT, config=CONFIG, rules=TransitionRules(),
+                           fades=EdgeFades(0.5, 2.0))
+        assert result.plan.elements[0].effects[0].duration == 0.5
+        assert [e.duration for e in result.plan.elements[-1].effects if e.type == "fade_out"] == [2.0]
+        none = plan_edit(ranking_of(items), target=300, output=OUTPUT, config=CONFIG, rules=TransitionRules(),
+                         fades=EdgeFades(0.0, 0.0))
+        assert not any(e.type.startswith("fade") for element in none.plan.elements for e in element.effects)
+
+    def test_every_dissolve_is_the_one_the_layout_applies(self):
+        result = plan(vacation(200, moments=MOMENTS), 300)
+        for element in result.plan.elements:
+            dissolves = [e for e in element.effects if e.type == "dissolve"]
+            assert (len(dissolves) == 1) == (element.transition_in.type == "dissolve")
+            assert all(e.offset == 0.0 for e in dissolves)
+
+    def test_the_closing_dissolve_is_an_effect_of_the_first_clip_of_the_closing(self):
+        result = plan(vacation(200, moments=MOMENTS), 300)
+        closing = elements_of(result, "closing")[0]
+        assert [e.type for e in closing.effects if e.type == "dissolve"] == ["dissolve"]
+        previous = result.plan.elements[result.plan.elements.index(closing) - 1]
+        limit = min(CONFIG.closing_dissolve_seconds,
+                    TransitionRules().max_fraction * min(previous.duration, closing.duration))
+        assert closing.transition_in.duration == pytest.approx(limit, abs=1 / 30)
+
+
+class TestExclusions:
+    def items(self):
+        return vacation(200, moments=MOMENTS, videos_every=7)
+
+    def test_a_deleted_photo_is_not_chosen_again(self):
+        items = self.items()
+        first = plan(items, 300).plan
+        gone = next(e for e in first.elements if e.kind == "photo")
+        again = plan_edit(ranking_of(items), target=300, output=OUTPUT, config=CONFIG, rules=TransitionRules(),
+                          excluded=[Exclusion(gone.source)])
+        assert gone.source not in {e.source for e in again.plan.elements}
+        assert again.report["excluded_candidates"] == 1
+        assert again.plan.planned_duration == pytest.approx(300, rel=0.05)  # others take its place
+
+    def test_the_plan_keeps_the_exclusions(self):
+        exclusions = (Exclusion("day1/item0000.jpg"), Exclusion("day2/x.mp4", 4.0, 9.0))
+        result = plan_edit(ranking_of(self.items()), target=300, output=OUTPUT, config=CONFIG,
+                           rules=TransitionRules(), excluded=exclusions)
+        assert result.plan.excluded == exclusions
+        assert plan_from_dict(result.plan.to_dict()).excluded == exclusions
+
+    def test_a_deleted_moment_excludes_every_segment_it_overlaps_but_not_those_it_only_touches(self):
+        items = ride()  # segments of 10 s: the good moments are in 2, 9, 16 and 23
+        everything = plan_edit(ranking_of(items), target=60, output=OUTPUT, config=CONFIG, rules=TransitionRules())
+        assert pieces(everything, RIDE)
+        trimmed = Exclusion(RIDE, 5.0, 20.0)  # a user's moment inside segments 0-10, 10-20 and touching 20-30 at 20
+        result = plan_edit(ranking_of(items), target=60, output=OUTPUT, config=CONFIG, rules=TransitionRules(),
+                           excluded=[trimmed])
+        assert all(e.start >= 20.0 - 1e-6 for e in pieces(result, RIDE))
+        assert result.report["excluded_candidates"] == 2
+
+    def test_an_exclusion_without_an_extent_covers_the_whole_file(self):
+        items = ride()
+        result = plan_edit(ranking_of(items), target=60, output=OUTPUT, config=CONFIG, rules=TransitionRules(),
+                           excluded=[Exclusion(RIDE)])
+        assert pieces(result, RIDE) == [] and result.report["excluded_candidates"] == len(items)
+
+    def test_other_files_and_other_kinds_are_not_touched(self):
+        items = ride() + vacation(40, moments=MOMENTS)
+        ranking = ranking_of(items)
+        kept = without_excluded(ranking, [Exclusion("day2/ride.mp4.jpg"), Exclusion("nowhere.mp4", 0.0, 99.0)])
+        assert kept is ranking
+        photo = next(item for item in items if item.candidate.kind == "photo")
+        same_name_video = Exclusion(photo.candidate.rel_path.as_posix(), 0.0, 5.0)
+        assert not candidate_is_excluded(photo.candidate, [same_name_video])  # a moment cannot be a photo
+
+    def test_the_similarity_matrix_follows_the_ranked_candidates(self):
+        items = self.items()
+        ranking = ranking_of(items)
+        victim = ranking.ranked[3]
+        kept = without_excluded(ranking, [Exclusion(victim.candidate.rel_path.as_posix(), victim.candidate.start,
+                                                    victim.candidate.end)])
+        assert len(kept.ranked) == len(ranking.ranked) - 1 == len(kept.similarity)
+        assert kept.similarity.shape == (len(kept.ranked),) * 2
+        assert victim.id not in {item.id for item in kept.ranked}
+        assert len(ranking.ranked) == len(items)  # the original is untouched
+
+    def test_no_exclusions_no_change(self):
+        items = self.items()
+        reference = plan(items, 300).plan
+        again = plan_edit(ranking_of(items), target=300, output=OUTPUT, config=CONFIG, rules=TransitionRules(),
+                          excluded=())
+        assert again.plan == reference and again.report["excluded_candidates"] == 0

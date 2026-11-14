@@ -778,3 +778,56 @@ def test_status_file_follows_the_phases(media, tmp_path):
     assert phases == ["normalizing segments", "encoding the video", "verifying the file"]
     assert any(f.get("done") == 2 and f.get("total") == 2 for f in seen)
     assert status.read()["state"] == "done"
+
+
+# --- schema 2: what the renderer reads, and the duration the editor shows ------------------------------------
+
+
+def test_the_duration_of_the_editor_is_the_one_the_renderer_builds(media, tmp_path):
+    """`plan_rules.plan_duration` and the renderer share the layout, also for a dissolve of the user (D2, D3)."""
+    from vacation_memories.planning.edit_plan import VIDEO, Effect, PlanElement
+    from vacation_memories.planning.plan_rules import plan_duration
+    from vacation_memories.planning.transitions import DISSOLVE, USER
+
+    blue = PlanElement(source="blue4.mp4", kind=VIDEO, duration=4.0, start=0.0, end=4.0,
+                       effects=(Effect("u1", DISSOLVE, 0.0, 1.5, USER),))  # beyond a quarter of the 4 s clips
+    plan = make_plan([video_element("red4.mp4", 0, 4), blue, video_element("green4.mp4", 0, 4, dissolve=0.8)])
+    expected = plan_duration(plan, NO_FADES.rules)
+    assert expected == pytest.approx(12 - 1.5 - 0.8)
+
+    result = render(plan, media, tmp_path)
+    assert result.ok
+    assert result.report["planned_duration"] == pytest.approx(expected, abs=1e-3)
+    assert result.report["obtained_duration"] == pytest.approx(expected, abs=0.1)
+    assert result.report["transitions"]["adjusted"] == []  # nothing was reduced: the user's dissolve is allowed
+    middle = color_at(result.output, 2.5 + 1.5 / 2)  # the middle of the dissolve into the blue clip
+    assert not close(middle, PURE_RED, 40) and not close(middle, PURE_BLUE, 40)
+
+
+def test_a_schema_2_plan_with_effects_exclusions_and_music_renders_like_one_without(media, tmp_path):
+    from vacation_memories.planning.edit_plan import (
+        EditPlan,
+        Effect,
+        Exclusion,
+        MusicPart,
+        MusicPlan,
+        MusicTrack,
+        OutputSpec,
+        PlanElement,
+    )
+    from vacation_memories.planning.plan_rules import plan_duration
+
+    bare = make_plan([video_element("red.mp4", 0, 2), video_element("blue.mp4", 0, 2, dissolve=0.4)])
+    first, second = bare.elements
+    decorated = EditPlan(
+        OutputSpec(320, 180, 30.0),
+        [PlanElement(**{**first.__dict__, "effects": (Effect("a", "fade_in", 0.0, 0.5),)}),
+         PlanElement(**{**second.__dict__, "effects": (*second.effects, Effect("b", "fade_out", 1.5, 0.5),
+                                                       Effect("c", "dip", 0.5, 0.5))})],
+        excluded=(Exclusion("gone.jpg"),),
+        music=MusicPlan((MusicTrack("a.mp3", (MusicPart(0, 5, False, 1.0, 1.0),)),), 1.0),
+    )
+    assert plan_duration(decorated, NO_FADES.rules) == plan_duration(bare, NO_FADES.rules)
+    result = render(decorated, media, tmp_path)
+    assert result.ok and result.report["planned_duration"] == pytest.approx(3.6, abs=1e-3)
+    assert result.report["music"] is None  # the music block is for a later step, --music is what plays
