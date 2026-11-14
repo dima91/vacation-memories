@@ -1,5 +1,52 @@
 x-ollama-image: &ollama-image ollama/ollama:0.40.2
 x-ollama-model: &ollama-model ${OLLAMA_MODEL:-qwen3-vl:4b-instruct-q4_K_M}
+x-nginx-image: &nginx-image nginxinc/nginx-unprivileged:1.28.2-alpine
+
+# What `app` and `editor` share: the runtime image, the user, the hardening and the volumes.
+x-runtime: &runtime
+  build:
+    context: .
+    target: runtime
+    args:
+      APP_VERSION: ${APP_VERSION:-dev}
+  image: vacation-memories:local
+  user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  stop_grace_period: 30s
+  volumes:
+    - type: bind
+      source: ${MEDIA_DIR:?set MEDIA_DIR in .env}
+      target: /media
+      read_only: true
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ${MUSIC_DIR:-./music}
+      target: /music
+      read_only: true
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ${WORK_DIR:-./work}
+      target: /work
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ./docker/compose.toml
+      target: /etc/vacation-memories/compose.toml
+      read_only: true
+      bind:
+        create_host_path: false
+  networks:
+    - backend
+x-runtime-environment: &runtime-environment
+  VACATION_MEMORIES_CONFIG: /etc/vacation-memories/compose.toml
+  VACATION_MEMORIES_MODEL: *ollama-model
+  VACATION_MEMORIES_ASSUME_TZ: ${ASSUME_TZ:-}
 
 services:
   dev:
@@ -29,53 +76,63 @@ services:
       - backend
 
   app:
-    build:
-      context: .
-      target: runtime
-      args:
-        APP_VERSION: ${APP_VERSION:-dev}
-    image: vacation-memories:local
-    user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
-    init: true
-    read_only: true
-    cap_drop: [ALL]
-    security_opt:
-      - no-new-privileges:true
-    stop_grace_period: 30s
-    environment:
-      VACATION_MEMORIES_CONFIG: /etc/vacation-memories/compose.toml
-      VACATION_MEMORIES_MODEL: *ollama-model
-      VACATION_MEMORIES_ASSUME_TZ: ${ASSUME_TZ:-}
-    volumes:
-      - type: bind
-        source: ${MEDIA_DIR:?set MEDIA_DIR in .env}
-        target: /media
-        read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ${MUSIC_DIR:-./music}
-        target: /music
-        read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ${WORK_DIR:-./work}
-        target: /work
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ./docker/compose.toml
-        target: /etc/vacation-memories/compose.toml
-        read_only: true
-        bind:
-          create_host_path: false
+    <<: *runtime
+    profiles: [cli]  # a bare `docker compose up` must not start a full job; `docker compose run app …` still works
+    environment: *runtime-environment
     depends_on:
       ollama:
         condition: service_healthy
       ollama-pull:
         condition: service_completed_successfully
+
+  editor:
+    <<: *runtime
+    command: ["serve", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      <<: *runtime-environment
+      VACATION_MEMORIES_EDITOR_HOSTS: ${EDITOR_ALLOWED_HOSTS:-127.0.0.1:8080,localhost:8080}
+    # No depends_on on ollama or ollama-pull: the editor works with Ollama stopped and checks it only for an
+    # analysis with AI.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  nginx:
+    image: *nginx-image
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - type: bind
+        source: ./docker/nginx.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp
+    depends_on:
+      editor:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     networks:
+      - frontend
       - backend
 
   ollama:
@@ -118,6 +175,7 @@ networks:
   backend:
     internal: true
   egress: {}
+  frontend: {}  # an ordinary bridge with only nginx: an internal network cannot publish ports
 
 volumes:
   vacation-ollama-models:
