@@ -1,0 +1,1345 @@
+{
+  "duration": 31.3,
+  "limits": {
+    "elements": {
+      "2023-07-14_day1/IMG_0000.jpg": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": [
+              [
+                0.6,
+                1.8
+              ]
+            ]
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": {
+          "max": 30.0,
+          "min": 1.0,
+          "step": 0.1
+        },
+        "effects": {
+          "fx-1": {
+            "type": "dissolve",
+            "windows": [
+              [
+                0.0,
+                1.8
+              ]
+            ]
+          }
+        },
+        "kind": "photo",
+        "trim": null
+      },
+      "2023-07-14_day1/IMG_0002.jpg": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": [
+              [
+                0.6,
+                1.8
+              ]
+            ]
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": {
+          "max": 30.0,
+          "min": 1.0,
+          "step": 0.1
+        },
+        "effects": {
+          "fx-2": {
+            "type": "dissolve",
+            "windows": [
+              [
+                0.0,
+                1.8
+              ]
+            ]
+          }
+        },
+        "kind": "photo",
+        "trim": null
+      },
+      "2023-07-14_day1/IMG_0003.jpg": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": [
+              [
+                0.6,
+                1.8
+              ]
+            ]
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": {
+          "max": 30.0,
+          "min": 1.0,
+          "step": 0.1
+        },
+        "effects": {
+          "fx-3": {
+            "type": "dissolve",
+            "windows": [
+              [
+                0.0,
+                1.8
+              ]
+            ]
+          }
+        },
+        "kind": "photo",
+        "trim": null
+      },
+      "2023-07-14_day1/IMG_0005.jpg": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": [
+              [
+                0.6,
+                1.8
+              ]
+            ]
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": {
+          "max": 30.0,
+          "min": 1.0,
+          "step": 0.1
+        },
+        "effects": {
+          "fx-4": {
+            "type": "dissolve",
+            "windows": [
+              [
+                0.0,
+                1.8
+              ]
+            ]
+          }
+        },
+        "kind": "photo",
+        "trim": null
+      },
+      "2023-07-14_day1/IMG_0009.jpg": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": [
+              [
+                0.6,
+                1.8
+              ]
+            ]
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": {
+          "max": 30.0,
+          "min": 1.0,
+          "step": 0.1
+        },
+        "effects": {
+          "fx-5": {
+            "type": "dissolve",
+            "windows": [
+              [
+                0.0,
+                1.8
+              ]
+            ]
+          }
+        },
+        "kind": "photo",
+        "trim": null
+      },
+      "2023-07-14_day1/IMG_0010.jpg": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": [
+              [
+                0.6,
+                1.8
+              ]
+            ]
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": {
+          "max": 30.0,
+          "min": 1.0,
+          "step": 0.1
+        },
+        "effects": {
+          "fx-6": {
+            "type": "dissolve",
+            "windows": [
+              [
+                0.0,
+                1.8
+              ]
+            ]
+          }
+        },
+        "kind": "photo",
+        "trim": null
+      },
+      "2023-07-14_day1/IMG_0011.jpg": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": [
+              [
+                1.0,
+                3.9
+              ]
+            ]
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": {
+          "max": 30.0,
+          "min": 1.0,
+          "step": 0.1
+        },
+        "effects": {
+          "fx-15": {
+            "type": "fade_in",
+            "windows": [
+              [
+                0.0,
+                3.9
+              ]
+            ]
+          }
+        },
+        "kind": "photo",
+        "trim": null
+      },
+      "2023-07-14_day1/VID_0000.mp4#4.000-8.000": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": [
+              [
+                0.6,
+                1.0
+              ],
+              [
+                1.6,
+                2.2
+              ]
+            ]
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": null,
+        "effects": {
+          "fx-7": {
+            "type": "dissolve",
+            "windows": [
+              [
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "user-dip-1": {
+            "type": "dip",
+            "windows": [
+              [
+                0.6,
+                2.2
+              ]
+            ]
+          }
+        },
+        "kind": "video",
+        "trim": {
+          "end_max": 12.0,
+          "min_length": 1.0,
+          "start_min": 0.0
+        }
+      },
+      "2023-07-15_day2/IMG_0001.jpg": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": [
+              [
+                0.6,
+                1.8
+              ]
+            ]
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": {
+          "max": 30.0,
+          "min": 1.0,
+          "step": 0.1
+        },
+        "effects": {
+          "fx-8": {
+            "type": "dissolve",
+            "windows": [
+              [
+                0.0,
+                1.2
+              ]
+            ]
+          }
+        },
+        "kind": "photo",
+        "trim": null
+      },
+      "2023-07-15_day2/IMG_0004.jpg": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": [
+              [
+                0.6,
+                1.8
+              ]
+            ]
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": {
+          "max": 30.0,
+          "min": 1.0,
+          "step": 0.1
+        },
+        "effects": {
+          "fx-9": {
+            "type": "dissolve",
+            "windows": [
+              [
+                0.0,
+                1.8
+              ]
+            ]
+          }
+        },
+        "kind": "photo",
+        "trim": null
+      },
+      "2023-07-15_day2/IMG_0006.jpg": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": [
+              [
+                0.6,
+                1.8
+              ]
+            ]
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": {
+          "max": 30.0,
+          "min": 1.0,
+          "step": 0.1
+        },
+        "effects": {
+          "fx-10": {
+            "type": "dissolve",
+            "windows": [
+              [
+                0.0,
+                1.8
+              ]
+            ]
+          }
+        },
+        "kind": "photo",
+        "trim": null
+      },
+      "2023-07-15_day2/IMG_0007.jpg": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": [
+              [
+                0.6,
+                1.8
+              ]
+            ]
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": {
+          "max": 30.0,
+          "min": 1.0,
+          "step": 0.1
+        },
+        "effects": {
+          "fx-11": {
+            "type": "dissolve",
+            "windows": [
+              [
+                0.0,
+                1.8
+              ]
+            ]
+          }
+        },
+        "kind": "photo",
+        "trim": null
+      },
+      "2023-07-15_day2/IMG_0008.jpg": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": [
+              [
+                0.6,
+                1.8
+              ]
+            ]
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": {
+          "max": 30.0,
+          "min": 1.0,
+          "step": 0.1
+        },
+        "effects": {
+          "fx-12": {
+            "type": "dissolve",
+            "windows": [
+              [
+                0.0,
+                1.8
+              ]
+            ]
+          }
+        },
+        "kind": "photo",
+        "trim": null
+      },
+      "2023-07-15_day2/IMG_0012.jpg": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": [
+              [
+                0.6,
+                1.8
+              ]
+            ]
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": {
+          "max": 30.0,
+          "min": 1.0,
+          "step": 0.1
+        },
+        "effects": {
+          "fx-13": {
+            "type": "dissolve",
+            "windows": [
+              [
+                0.0,
+                1.8
+              ]
+            ]
+          }
+        },
+        "kind": "photo",
+        "trim": null
+      },
+      "2023-07-15_day2/IMG_0013.jpg": {
+        "available": {
+          "dip": {
+            "type": "dip",
+            "windows": []
+          },
+          "dissolve": {
+            "type": "dissolve",
+            "windows": []
+          },
+          "fade_in": {
+            "type": "fade_in",
+            "windows": []
+          },
+          "fade_out": {
+            "type": "fade_out",
+            "windows": []
+          }
+        },
+        "duration": {
+          "max": 30.0,
+          "min": 1.0,
+          "step": 0.1
+        },
+        "effects": {
+          "fx-14": {
+            "type": "dissolve",
+            "windows": [
+              [
+                0.0,
+                0.6
+              ]
+            ]
+          },
+          "fx-16": {
+            "type": "fade_out",
+            "windows": [
+              [
+                0.6,
+                3.6
+              ]
+            ]
+          }
+        },
+        "kind": "photo",
+        "trim": null
+      }
+    },
+    "min_effect_seconds": 0.2,
+    "music": {
+      "offset": {
+        "max": 30.3,
+        "min": -19.0,
+        "step": 0.1
+      }
+    }
+  },
+  "plan": {
+    "assumed_tz": null,
+    "elements": [
+      {
+        "captured_at": "2023-07-14T16:40:00.000",
+        "date_source": "exif",
+        "duration": 4.5,
+        "duration_origin": "user",
+        "effects": [
+          {
+            "duration": 1.0,
+            "id": "fx-15",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "fade_in"
+          }
+        ],
+        "id": "2023-07-14_day1/IMG_0011.jpg",
+        "origin": "planner",
+        "reason": "opening: narrative score 0.73",
+        "score": {
+          "components": {
+            "motion": 0.3,
+            "temporal": 1.0,
+            "uniqueness": 0.75
+          },
+          "final": 0.7937,
+          "narrative_score": 0.7312,
+          "technical_score": 0.9097
+        },
+        "section": "opening",
+        "source": "2023-07-14_day1/IMG_0011.jpg",
+        "timestamp": 0.0,
+        "type": "photo"
+      },
+      {
+        "captured_at": "2023-07-14T08:40:00.000",
+        "date_source": "exif",
+        "duration": 2.4,
+        "duration_origin": "planner",
+        "effects": [
+          {
+            "duration": 0.6,
+            "id": "fx-1",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "dissolve"
+          }
+        ],
+        "id": "2023-07-14_day1/IMG_0000.jpg",
+        "origin": "planner",
+        "reason": "body: score 0.91",
+        "score": {
+          "components": {
+            "motion": 0.3,
+            "temporal": 1.0,
+            "uniqueness": 0.625
+          },
+          "final": 0.7641,
+          "narrative_score": 0.6844,
+          "technical_score": 0.9123
+        },
+        "section": "body",
+        "source": "2023-07-14_day1/IMG_0000.jpg",
+        "timestamp": 3.9,
+        "type": "photo"
+      },
+      {
+        "captured_at": "2023-07-14T10:00:00.000",
+        "date_source": "exif",
+        "duration": 2.4,
+        "duration_origin": "planner",
+        "effects": [
+          {
+            "duration": 0.6,
+            "id": "fx-2",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "dissolve"
+          }
+        ],
+        "id": "2023-07-14_day1/IMG_0002.jpg",
+        "origin": "planner",
+        "reason": "body: score 0.74",
+        "score": {
+          "components": {
+            "motion": 0.3,
+            "temporal": 1.0,
+            "uniqueness": 0.5625
+          },
+          "final": 0.7401,
+          "narrative_score": 0.6609,
+          "technical_score": 0.887
+        },
+        "section": "body",
+        "source": "2023-07-14_day1/IMG_0002.jpg",
+        "timestamp": 5.7,
+        "type": "photo"
+      },
+      {
+        "captured_at": "2023-07-14T11:20:00.000",
+        "date_source": "exif",
+        "duration": 2.4,
+        "duration_origin": "planner",
+        "effects": [
+          {
+            "duration": 0.6,
+            "id": "fx-3",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "dissolve"
+          }
+        ],
+        "id": "2023-07-14_day1/IMG_0003.jpg",
+        "origin": "planner",
+        "reason": "body: score 0.74",
+        "score": {
+          "components": {
+            "motion": 0.3,
+            "temporal": 1.0,
+            "uniqueness": 0.5625
+          },
+          "final": 0.7439,
+          "narrative_score": 0.6609,
+          "technical_score": 0.898
+        },
+        "section": "body",
+        "source": "2023-07-14_day1/IMG_0003.jpg",
+        "timestamp": 7.5,
+        "type": "photo"
+      },
+      {
+        "captured_at": "2023-07-14T12:40:00.000",
+        "date_source": "exif",
+        "duration": 2.4,
+        "duration_origin": "planner",
+        "effects": [
+          {
+            "duration": 0.6,
+            "id": "fx-4",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "dissolve"
+          }
+        ],
+        "id": "2023-07-14_day1/IMG_0005.jpg",
+        "origin": "planner",
+        "reason": "body: score 0.75",
+        "score": {
+          "components": {
+            "motion": 0.3,
+            "temporal": 1.0,
+            "uniqueness": 0.5625
+          },
+          "final": 0.7472,
+          "narrative_score": 0.6609,
+          "technical_score": 0.9074
+        },
+        "section": "body",
+        "source": "2023-07-14_day1/IMG_0005.jpg",
+        "timestamp": 9.3,
+        "type": "photo"
+      },
+      {
+        "captured_at": "2023-07-14T14:00:00.000",
+        "date_source": "exif",
+        "duration": 2.4,
+        "duration_origin": "planner",
+        "effects": [
+          {
+            "duration": 0.6,
+            "id": "fx-5",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "dissolve"
+          }
+        ],
+        "id": "2023-07-14_day1/IMG_0009.jpg",
+        "origin": "planner",
+        "reason": "body: score 0.77",
+        "score": {
+          "components": {
+            "motion": 0.3,
+            "temporal": 1.0,
+            "uniqueness": 0.625
+          },
+          "final": 0.774,
+          "narrative_score": 0.6844,
+          "technical_score": 0.9404
+        },
+        "section": "body",
+        "source": "2023-07-14_day1/IMG_0009.jpg",
+        "timestamp": 11.1,
+        "type": "photo"
+      },
+      {
+        "captured_at": "2023-07-14T15:20:00.000",
+        "date_source": "exif",
+        "duration": 2.4,
+        "duration_origin": "planner",
+        "effects": [
+          {
+            "duration": 0.6,
+            "id": "fx-6",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "dissolve"
+          }
+        ],
+        "id": "2023-07-14_day1/IMG_0010.jpg",
+        "origin": "planner",
+        "reason": "body: score 0.77",
+        "score": {
+          "components": {
+            "motion": 0.3,
+            "temporal": 1.0,
+            "uniqueness": 0.6875
+          },
+          "final": 0.775,
+          "narrative_score": 0.7078,
+          "technical_score": 0.8997
+        },
+        "section": "body",
+        "source": "2023-07-14_day1/IMG_0010.jpg",
+        "timestamp": 12.9,
+        "type": "photo"
+      },
+      {
+        "captured_at": "2023-07-14T19:20:04.000",
+        "date_source": "container",
+        "duration": 2.8000000000000007,
+        "effects": [
+          {
+            "duration": 0.6,
+            "id": "fx-7",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "dissolve"
+          },
+          {
+            "duration": 0.6,
+            "id": "user-dip-1",
+            "offset": 1.0,
+            "origin": "user",
+            "type": "dip"
+          }
+        ],
+        "end": 7.4,
+        "id": "2023-07-14_day1/VID_0000.mp4#4.000-8.000",
+        "origin": "planner",
+        "reason": "body: score 0.71",
+        "score": {
+          "components": {
+            "motion": 0.6434,
+            "temporal": 0.5774,
+            "uniqueness": 0.625
+          },
+          "final": 0.7107,
+          "narrative_score": 0.6117,
+          "technical_score": 0.8947
+        },
+        "section": "body",
+        "source": "2023-07-14_day1/VID_0000.mp4",
+        "start": 4.6,
+        "timestamp": 14.7,
+        "type": "video"
+      },
+      {
+        "captured_at": "2023-07-15T08:40:00.000",
+        "date_source": "exif",
+        "duration": 2.4,
+        "duration_origin": "planner",
+        "effects": [
+          {
+            "duration": 0.6,
+            "id": "fx-8",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "dissolve"
+          }
+        ],
+        "id": "2023-07-15_day2/IMG_0001.jpg",
+        "origin": "planner",
+        "reason": "body: score 0.91",
+        "score": {
+          "components": {
+            "motion": 0.3,
+            "temporal": 1.0,
+            "uniqueness": 0.625
+          },
+          "final": 0.7598,
+          "narrative_score": 0.6844,
+          "technical_score": 0.8999
+        },
+        "section": "body",
+        "source": "2023-07-15_day2/IMG_0001.jpg",
+        "timestamp": 16.9,
+        "type": "photo"
+      },
+      {
+        "captured_at": "2023-07-15T10:00:00.000",
+        "date_source": "exif",
+        "duration": 2.4,
+        "duration_origin": "planner",
+        "effects": [
+          {
+            "duration": 0.6,
+            "id": "fx-9",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "dissolve"
+          }
+        ],
+        "id": "2023-07-15_day2/IMG_0004.jpg",
+        "origin": "planner",
+        "reason": "body: score 0.75",
+        "score": {
+          "components": {
+            "motion": 0.3,
+            "temporal": 1.0,
+            "uniqueness": 0.5625
+          },
+          "final": 0.7495,
+          "narrative_score": 0.6609,
+          "technical_score": 0.914
+        },
+        "section": "body",
+        "source": "2023-07-15_day2/IMG_0004.jpg",
+        "timestamp": 18.7,
+        "type": "photo"
+      },
+      {
+        "captured_at": "2023-07-15T11:20:00.000",
+        "date_source": "exif",
+        "duration": 2.4,
+        "duration_origin": "planner",
+        "effects": [
+          {
+            "duration": 0.6,
+            "id": "fx-10",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "dissolve"
+          }
+        ],
+        "id": "2023-07-15_day2/IMG_0006.jpg",
+        "origin": "planner",
+        "reason": "body: score 0.77",
+        "score": {
+          "components": {
+            "motion": 0.3,
+            "temporal": 1.0,
+            "uniqueness": 0.6875
+          },
+          "final": 0.7685,
+          "narrative_score": 0.7078,
+          "technical_score": 0.8811
+        },
+        "section": "body",
+        "source": "2023-07-15_day2/IMG_0006.jpg",
+        "timestamp": 20.5,
+        "type": "photo"
+      },
+      {
+        "captured_at": "2023-07-15T12:40:00.000",
+        "date_source": "exif",
+        "duration": 2.4,
+        "duration_origin": "planner",
+        "effects": [
+          {
+            "duration": 0.6,
+            "id": "fx-11",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "dissolve"
+          }
+        ],
+        "id": "2023-07-15_day2/IMG_0007.jpg",
+        "origin": "planner",
+        "reason": "body: score 0.75",
+        "score": {
+          "components": {
+            "motion": 0.3,
+            "temporal": 1.0,
+            "uniqueness": 0.5625
+          },
+          "final": 0.7478,
+          "narrative_score": 0.6609,
+          "technical_score": 0.9092
+        },
+        "section": "body",
+        "source": "2023-07-15_day2/IMG_0007.jpg",
+        "timestamp": 22.3,
+        "type": "photo"
+      },
+      {
+        "captured_at": "2023-07-15T14:00:00.000",
+        "date_source": "exif",
+        "duration": 2.4,
+        "duration_origin": "planner",
+        "effects": [
+          {
+            "duration": 0.6,
+            "id": "fx-12",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "dissolve"
+          }
+        ],
+        "id": "2023-07-15_day2/IMG_0008.jpg",
+        "origin": "planner",
+        "reason": "body: score 0.75",
+        "score": {
+          "components": {
+            "motion": 0.3,
+            "temporal": 1.0,
+            "uniqueness": 0.5625
+          },
+          "final": 0.7501,
+          "narrative_score": 0.6609,
+          "technical_score": 0.9157
+        },
+        "section": "body",
+        "source": "2023-07-15_day2/IMG_0008.jpg",
+        "timestamp": 24.1,
+        "type": "photo"
+      },
+      {
+        "captured_at": "2023-07-15T15:20:00.000",
+        "date_source": "exif",
+        "duration": 2.4,
+        "duration_origin": "planner",
+        "effects": [
+          {
+            "duration": 0.6,
+            "id": "fx-13",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "dissolve"
+          }
+        ],
+        "id": "2023-07-15_day2/IMG_0012.jpg",
+        "origin": "planner",
+        "reason": "body: score 0.76",
+        "score": {
+          "components": {
+            "motion": 0.3,
+            "temporal": 1.0,
+            "uniqueness": 0.625
+          },
+          "final": 0.7631,
+          "narrative_score": 0.6844,
+          "technical_score": 0.9093
+        },
+        "section": "body",
+        "source": "2023-07-15_day2/IMG_0012.jpg",
+        "timestamp": 25.9,
+        "type": "photo"
+      },
+      {
+        "captured_at": "2023-07-15T16:40:00.000",
+        "date_source": "exif",
+        "duration": 3.6,
+        "duration_origin": "planner",
+        "effects": [
+          {
+            "duration": 0.6,
+            "id": "fx-14",
+            "offset": 0.0,
+            "origin": "planner",
+            "type": "dissolve"
+          },
+          {
+            "duration": 3.0,
+            "id": "fx-16",
+            "offset": 0.6,
+            "origin": "planner",
+            "type": "fade_out"
+          }
+        ],
+        "id": "2023-07-15_day2/IMG_0013.jpg",
+        "origin": "planner",
+        "reason": "closing: calm shot, closing score 0.83",
+        "score": {
+          "components": {
+            "motion": 0.3,
+            "temporal": 1.0,
+            "uniqueness": 0.625
+          },
+          "final": 0.7621,
+          "narrative_score": 0.6844,
+          "technical_score": 0.9066
+        },
+        "section": "closing",
+        "source": "2023-07-15_day2/IMG_0013.jpg",
+        "timestamp": 27.7,
+        "type": "photo"
+      }
+    ],
+    "excluded": [
+      {
+        "end": null,
+        "reason": "user",
+        "source": "2023-07-14_day1/IMG_0015.jpg",
+        "start": null
+      }
+    ],
+    "music": {
+      "offset": 0.0,
+      "tracks": [
+        {
+          "file": "brano.wav",
+          "parts": [
+            {
+              "end": 12.0,
+              "fade_in": 1.0,
+              "fade_out": 0.0,
+              "muted": false,
+              "start": 0.0
+            },
+            {
+              "end": 20.0,
+              "fade_in": 0.0,
+              "fade_out": 2.0,
+              "muted": true,
+              "start": 12.0
+            }
+          ]
+        }
+      ]
+    },
+    "output": {
+      "fps": 30.0,
+      "height": 1080,
+      "width": 1920
+    },
+    "planned_duration": 31.3,
+    "requested_duration": 30.0,
+    "runtime": {
+      "ai": {
+        "coverage": null,
+        "used": false
+      },
+      "candidates": {
+        "below_technical_threshold": 2,
+        "candidates": 22,
+        "duplicates": 0,
+        "eligible": 20,
+        "files": 18,
+        "readable_files": 18
+      },
+      "clips": 15,
+      "excluded_candidates": 0,
+      "extended_shots": 0,
+      "insufficient_material": false,
+      "notes": [
+        "without AI: narrative_score uses only uniqueness, motion and temporal distribution, and the criteria based on moment_type (scenery at the start of a day, calm scenes for the Closing) fall back on motion and non-semantic scores"
+      ],
+      "planned_duration": 29.8,
+      "requested_duration": 30.0,
+      "sections": [
+        {
+          "allowed_range": null,
+          "budget": 3.0,
+          "clips": 1,
+          "initial_budget": 3.0,
+          "moment_runs_relaxed": false,
+          "name": "opening",
+          "planned": 3.0,
+          "ran_out_of_material": false,
+          "redistributed": false,
+          "video_pieces_relaxed": false
+        },
+        {
+          "allowed_range": null,
+          "budget": 24.0,
+          "clips": 13,
+          "initial_budget": 24.0,
+          "moment_runs_relaxed": false,
+          "name": "body",
+          "planned": 23.8,
+          "ran_out_of_material": false,
+          "redistributed": false,
+          "video_pieces_relaxed": false
+        },
+        {
+          "allowed_range": null,
+          "budget": 3.0,
+          "clips": 1,
+          "initial_budget": 3.0,
+          "moment_runs_relaxed": false,
+          "name": "closing",
+          "planned": 3.0,
+          "ran_out_of_material": false,
+          "redistributed": false,
+          "video_pieces_relaxed": false
+        }
+      ],
+      "structure": "compressed",
+      "usable_candidates": 20,
+      "warnings": []
+    },
+    "schema_version": 2
+  },
+  "refs": {
+    "2023-07-14_day1/IMG_0000.jpg": {
+      "clip": "12f16774ab0ffa4c",
+      "media": "12f16774ab0ffa4c"
+    },
+    "2023-07-14_day1/IMG_0002.jpg": {
+      "clip": "6fc416ff00e09e89",
+      "media": "6fc416ff00e09e89"
+    },
+    "2023-07-14_day1/IMG_0003.jpg": {
+      "clip": "82032fd12dafd054",
+      "media": "82032fd12dafd054"
+    },
+    "2023-07-14_day1/IMG_0005.jpg": {
+      "clip": "12f221be48c23d79",
+      "media": "12f221be48c23d79"
+    },
+    "2023-07-14_day1/IMG_0009.jpg": {
+      "clip": "4fce4ec49e76e112",
+      "media": "4fce4ec49e76e112"
+    },
+    "2023-07-14_day1/IMG_0010.jpg": {
+      "clip": "007a7fbce9f9a1bf",
+      "media": "007a7fbce9f9a1bf"
+    },
+    "2023-07-14_day1/IMG_0011.jpg": {
+      "clip": "f0e1e0204a7bca6e",
+      "media": "f0e1e0204a7bca6e"
+    },
+    "2023-07-14_day1/VID_0000.mp4#4.000-8.000": {
+      "clip": "19bd0e3ee4cce9ab",
+      "media": "8ddf12666f27ff1c"
+    },
+    "2023-07-15_day2/IMG_0001.jpg": {
+      "clip": "53cafc445fe51456",
+      "media": "53cafc445fe51456"
+    },
+    "2023-07-15_day2/IMG_0004.jpg": {
+      "clip": "25b0c9dad746d4be",
+      "media": "25b0c9dad746d4be"
+    },
+    "2023-07-15_day2/IMG_0006.jpg": {
+      "clip": "c81ff79ef78ce913",
+      "media": "c81ff79ef78ce913"
+    },
+    "2023-07-15_day2/IMG_0007.jpg": {
+      "clip": "5ee3294e7217f91b",
+      "media": "5ee3294e7217f91b"
+    },
+    "2023-07-15_day2/IMG_0008.jpg": {
+      "clip": "37afe4d79e4bb416",
+      "media": "37afe4d79e4bb416"
+    },
+    "2023-07-15_day2/IMG_0012.jpg": {
+      "clip": "6495eafe6b2d13ce",
+      "media": "6495eafe6b2d13ce"
+    },
+    "2023-07-15_day2/IMG_0013.jpg": {
+      "clip": "3e838f41cfc7a1b3",
+      "media": "3e838f41cfc7a1b3"
+    }
+  },
+  "revision": "35ed3bc9fee294c8",
+  "warnings": []
+}

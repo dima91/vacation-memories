@@ -1,0 +1,45 @@
+{
+  "analysis": {
+    "ai": null,
+    "complete": false,
+    "files": {
+      "analyzed": 0,
+      "new_or_changed": null,
+      "removed": 0,
+      "total": 18
+    },
+    "generated_at": null,
+    "present": false
+  },
+  "busy": false,
+  "exports": [],
+  "folder": "vacation",
+  "id": "vacation-1b24e0c1",
+  "job": null,
+  "plan": {
+    "edited": false,
+    "error": null,
+    "present": false,
+    "revision": null,
+    "valid": true
+  },
+  "preview": {
+    "name": null,
+    "outdated": false,
+    "present": false
+  },
+  "settings": {
+    "ai": null,
+    "ai_frames": null,
+    "ai_time_budget": 600,
+    "aspect": "16:9",
+    "assume_tz": null,
+    "duration": "5:00",
+    "hwaccel": "none",
+    "jobs": "auto",
+    "music": [],
+    "nice": 0,
+    "resolution": "1080p",
+    "structure": "narrative"
+  }
+}

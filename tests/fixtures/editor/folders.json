@@ -1,0 +1,36 @@
+{
+  "folders": [
+    {
+      "id": "media-cdb4ee2a",
+      "path": ".",
+      "photos": 16,
+      "project": false,
+      "state": "not_analyzed",
+      "videos": 2
+    },
+    {
+      "id": "vacation-1b24e0c1",
+      "path": "vacation",
+      "photos": 16,
+      "project": false,
+      "state": "not_analyzed",
+      "videos": 2
+    },
+    {
+      "id": "2023-07-14-day1-c6aec9bb",
+      "path": "vacation/2023-07-14_day1",
+      "photos": 8,
+      "project": false,
+      "state": "not_analyzed",
+      "videos": 1
+    },
+    {
+      "id": "2023-07-15-day2-d84cf67c",
+      "path": "vacation/2023-07-15_day2",
+      "photos": 8,
+      "project": false,
+      "state": "not_analyzed",
+      "videos": 1
+    }
+  ]
+}
