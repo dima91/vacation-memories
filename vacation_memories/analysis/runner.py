@@ -9,7 +9,8 @@ answers are not cached yet.
 import json
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from functools import cached_property
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from vacation_memories.ai.vision_analyzer import AiCoverage, VisionAnalyzer, ana
 from vacation_memories.ai.vision_schema import VisionResult
 from vacation_memories.analysis.cache_manager import CacheManager
 from vacation_memories.analysis.duplicate_detector import DuplicateResult, HashBackend, find_duplicates
-from vacation_memories.analysis.media_scanner import scan_media
+from vacation_memories.analysis.media_scanner import MediaFile, scan_media
 from vacation_memories.analysis.metadata_extractor import MediaMetadata, load_metadata
 from vacation_memories.analysis.technical_analysis import Candidate, analyze_media
 from vacation_memories.core.atomic import atomic_write_json
@@ -31,12 +32,14 @@ from vacation_memories.core.runtime_profile import (
     record_model_placement,
 )
 from vacation_memories.planning.edit_planner import estimated_clip_count
-from vacation_memories.planning.scene_ranker import Discarded, Ranking, rank_candidates, technical_filter
+from vacation_memories.planning.scene_ranker import Discarded, Ranking, capture_time, rank_candidates, technical_filter
 from vacation_memories.rendering.renderer import Progress
 
 logger = logging.getLogger(__name__)
 
 RUNTIME_PROFILE_NAME = "runtime_profile.json"
+CANDIDATES_NAME = "candidates.json"
+CANDIDATES_VERSION = 1
 
 
 class RequirementsError(Exception):
@@ -67,6 +70,7 @@ class Analysis:
     candidates: list[Candidate]  # every candidate of the readable files, discarded ones included
     ai_results: dict[str, VisionResult]
     duplicates: DuplicateResult  # the grouping of the candidates above the technical threshold
+    files: list[MediaFile] = field(default_factory=list)  # every media file found, readable or not
 
     @cached_property
     def duplicates_of_everything(self) -> DuplicateResult:
@@ -131,7 +135,77 @@ def run_analysis(
         "duplicates": len(passed) - len(survivors),
         "eligible": len(survivors),
     }
-    return Analysis(ranking, coverage, counts, metadata, candidates, ai_results, duplicates)
+    return Analysis(ranking, coverage, counts, metadata, candidates, ai_results, duplicates, files)
+
+
+def write_candidates(analysis: Analysis, workdir: Path) -> Path:
+    """Save the catalog of the analysis in `<workdir>/candidates.json`, atomically (section 5 of `UI-SPEC.md`)."""
+    path = Path(workdir) / CANDIDATES_NAME
+    atomic_write_json(path, candidates_document(analysis))
+    return path
+
+
+def candidates_document(analysis: Analysis) -> dict:
+    """What the editor needs to browse the material without rerunning the analysis or opening the cache.
+
+    `files` are the media found in the folder with the size and `mtime_ns` they had when analyzed (the
+    editor compares them with the folder to tell whether the analysis is still complete), `readable`
+    telling the files that gave candidates from those that could not be read. Every candidate of the
+    readable files is listed, with its scores (`final` and `narrative_score` only for those that
+    survived the filters: the others were never ranked), the AI fields, its day, its group of near
+    duplicates and, when it was left out, the reason. Paths are relative to the input folder.
+    """
+    ranked = {item.id: item for item in analysis.ranking.ranked}
+    discarded = {item.id: item for item in analysis.ranking.discarded}
+    groups = {}
+    for group in analysis.duplicates.duplicate_groups:
+        info = {"representative": group.representative, "size": len(group.members)}
+        for member in group.members:
+            groups[member.id] = info
+
+    files = []
+    for media in analysis.files:
+        info = analysis.metadata.get(media.rel_path)
+        files.append({
+            "path": media.rel_path.as_posix(), "type": media.kind, "size": media.size, "mtime_ns": media.mtime_ns,
+            "readable": info is not None, "duration": None if info is None else info.duration,
+        })
+
+    candidates = []
+    for candidate in analysis.candidates:
+        item, removed, ai = ranked.get(candidate.id), discarded.get(candidate.id), analysis.ai_results.get(candidate.id)
+        captured = capture_time(candidate, analysis.metadata[candidate.rel_path])
+        candidates.append({
+            "id": candidate.id,
+            "type": candidate.kind,
+            "source": candidate.rel_path.as_posix(),
+            "start": candidate.start,
+            "end": candidate.end,
+            "status": "eligible" if item else "discarded",
+            "discard": None if item or removed is None else {"reason": removed.reason, "detail": removed.detail},
+            "score": {
+                "final": None if item is None else round(item.final_score, 4),
+                "technical_score": round(candidate.technical_score, 4),
+                "narrative_score": None if item is None else round(item.narrative_score, 4),
+                "components": None if item is None else item.components,
+            },
+            "moment_type": None if ai is None else ai.moment_type,
+            "category": None if ai is None else ai.category,
+            "narrative_value": None if ai is None else ai.narrative_value,
+            "description": None if ai is None else ai.description,
+            "captured_at": captured.isoformat(timespec="milliseconds"),
+            "day": captured.date().isoformat(),
+            "group": groups.get(candidate.id),
+        })
+    return {
+        "version": CANDIDATES_VERSION,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "counts": analysis.counts,
+        "ai": {"used": analysis.ranking.ai_used,
+               "coverage": None if analysis.coverage is None else analysis.coverage.to_dict()},
+        "files": files,
+        "candidates": candidates,
+    }
 
 
 def _ai_phase(request, settings, survivors, readable, cache, controller, progress, env):

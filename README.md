@@ -190,6 +190,22 @@ final score), moment type, capture date and the reason it was chosen. Its `runti
 filled, whether a budget was redistributed, how much the AI covered, and why the video is shorter when the material
 is not enough. `render_report.json` describes the rendering and the checks of the final file.
 
+The plan is `schema_version: 2`. Every clip has a stable `id`, an `origin` (`planner`, or `user` for a clip added by
+hand) and its `effects` (`fade_in`, `fade_out`, `dissolve`, `dip`, each with `offset` and `duration`): a dissolve is
+stored once, in the incoming clip, and the fade from black and to black are effects of the first and last clip. At
+plan level `excluded` lists the moments deleted by hand, which the planner never chooses again, and `music` the
+tracks, their parts and the shift of the music. A schema 1 plan is still read and rendered as before (its
+`transition_in` becomes a dissolve effect); it is written as schema 2 the next time it is saved.
+
+A full run or `--dry-run` over a plan that holds edits made by hand (clips with `origin: user`, a changed photo
+duration, effects of the user, `excluded`, `music`) first copies it into `WORK_DIR/plan_history/` (the last 10
+copies) and keeps its `excluded` moments out of the new plan. A plan without edits is simply replaced.
+
+After every analysis (`--analyze-only`, `--dry-run`, a full run) the pipeline also writes
+`WORK_DIR/candidates.json`: the media files with the size and `mtime` they had, and every candidate with its
+scores, AI fields, day, group of near duplicates and, when it was left out, the reason. Paths are relative to the
+input folder.
+
 ### Configuration
 
 Every option can also come from a TOML file (`--config`, or the `VACATION_MEMORIES_CONFIG` variable) or from a
