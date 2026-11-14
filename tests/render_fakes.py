@@ -59,8 +59,10 @@ def vfr_clip(path: Path, seconds: float = 3.0, size=(320, 180)) -> Path:
     return path
 
 
-def music_file(path: Path, seconds: float, frequency: int = 440) -> Path:
-    ffmpeg("-f", "lavfi", "-i", f"sine=frequency={frequency}:sample_rate=44100:duration={seconds}", str(path))
+def music_file(path: Path, seconds: float, frequency: int = 440, gain: float = 1.0) -> Path:
+    """A sine tone; `gain` makes one track louder or quieter than another."""
+    ffmpeg("-f", "lavfi", "-i", f"sine=frequency={frequency}:sample_rate=44100:duration={seconds}",
+           "-af", f"volume={gain}", str(path))
     return path
 
 
@@ -96,13 +98,14 @@ def dissolve_effects(seconds: float) -> tuple[Effect, ...]:
     return (Effect(f"fx-{next(_effect_numbers)}", DISSOLVE, 0.0, seconds),) if seconds else ()
 
 
-def video_element(source: str, start: float, end: float, *, dissolve: float = 0.0, **extra) -> PlanElement:
+def video_element(source: str, start: float, end: float, *, dissolve: float = 0.0, effects=(), **extra) -> PlanElement:
     return PlanElement(source=source, kind=VIDEO, duration=end - start, start=start, end=end,
-                       effects=dissolve_effects(dissolve), **extra)
+                       effects=(*dissolve_effects(dissolve), *effects), **extra)
 
 
-def photo_element(source: str, duration: float, *, dissolve: float = 0.0, **extra) -> PlanElement:
-    return PlanElement(source=source, kind=PHOTO, duration=duration, effects=dissolve_effects(dissolve), **extra)
+def photo_element(source: str, duration: float, *, dissolve: float = 0.0, effects=(), **extra) -> PlanElement:
+    return PlanElement(source=source, kind=PHOTO, duration=duration,
+                       effects=(*dissolve_effects(dissolve), *effects), **extra)
 
 
 def make_plan(elements: list[PlanElement], width: int = 320, height: int = 180, fps: float = 30.0, **extra) -> EditPlan:

@@ -5,8 +5,10 @@
 
 1. every element becomes a normalized segment (`segments.py`), in parallel on `jobs` threads;
 2. the transitions are laid out on the timeline by the function shared with the planner, with the
-   limits applied to transitions written by hand, and the skipped clips taken out;
-3. the segments are assembled in blocks (`assembly.py`) and the music is added;
+   limits applied to transitions written by hand, and the skipped clips taken out; the fades and
+   dips of the clips (`effects.py`) are brought inside their limits too;
+3. the segments are assembled in blocks (`assembly.py`), with the fades, and the music is added
+   (`music.py`: the plan's tracks and parts, or the `--music` file);
 4. the file is written as `<name>.partial.mp4`, checked with FFprobe and only then renamed.
 
 Nothing is written outside the workdir except the output file. A failed check leaves the
@@ -20,7 +22,7 @@ import shutil
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from vacation_memories.core import exit_codes
@@ -32,8 +34,17 @@ from vacation_memories.core.workdir import StatusWriter
 from vacation_memories.planning.edit_plan import EditPlan, OutputSpec, PlanError
 from vacation_memories.planning.transitions import layout_timeline, split_blocks
 from vacation_memories.planning.video_format import even
-from vacation_memories.rendering.assembly import Assembler, MusicError, music_track_duration, plan_music
+from vacation_memories.rendering.assembly import Assembler, MusicFades
+from vacation_memories.rendering.effects import music_fades, resolve_effects
 from vacation_memories.rendering.encoders import choose_assembly_encoder
+from vacation_memories.rendering.music import (
+    LoopedTrack,
+    MusicError,
+    PartsMusic,
+    TrackSource,
+    load_music,
+    plan_track,
+)
 from vacation_memories.rendering.render_checks import Check, check_final, failed
 from vacation_memories.rendering.render_config import RenderConfig
 from vacation_memories.rendering.render_filters import BlockItem
@@ -42,6 +53,7 @@ from vacation_memories.rendering.segments import REGENERATED, REUSED, SKIPPED, S
 logger = logging.getLogger(__name__)
 
 REPORT_NAME = "render_report.json"
+PREVIEW_REPORT_NAME = "render_report_preview.json"  # a preview does not overwrite the report of the final render
 PARTIAL_SUFFIX = ".partial"
 PREVIEW_SUFFIX = "_preview"
 LOG_INTERVAL_SECONDS = 10.0
@@ -66,7 +78,8 @@ class RenderOptions:
     block_size: int = 20
     hwaccel: str = "none"
     preview: bool = False
-    music: Path | None = None
+    music: Path | None = None  # the `--music` file, for a plan without a `music` block
+    music_dir: Path | None = None  # the root of the tracks of the plan's `music` block
     config: RenderConfig = field(default_factory=RenderConfig)
 
     @classmethod
@@ -78,6 +91,7 @@ class RenderOptions:
             hwaccel=profile.hwaccel,
             preview=preview,
             music=music,
+            music_dir=settings.music_dir,
             config=RenderConfig.from_settings(settings),
         )
 
@@ -165,12 +179,14 @@ def render_plan(
 ) -> RenderResult:
     """Render `plan` into `output` (a relative path is resolved inside the workdir).
 
-    The report goes to `report_path`, by default `<workdir>/render_report.json`.
+    The report goes to `report_path`, by default `<workdir>/render_report.json` (`render_report_preview.json`
+    for a preview).
     """
     options = options or RenderOptions()
     controller = controller or ShutdownController()
     workdir, input_dir = Path(workdir).absolute(), Path(input_dir).absolute()
-    report_path = workdir / REPORT_NAME if report_path is None else Path(report_path)
+    if report_path is None:
+        report_path = workdir / (PREVIEW_REPORT_NAME if options.preview else REPORT_NAME)
     try:
         result = _render(plan, input_dir, workdir, Path(output), options, ffmpeg, controller, status, report_path)
     except Interrupted:
@@ -204,7 +220,7 @@ def _render(plan, input_dir, workdir, output, options, ffmpeg, controller, statu
         raise RenderError(problem, exit_codes.REQUIREMENTS)
 
     runner = ToolRunner(controller)
-    track = _music_track(options, runner)
+    music_source = _load_music(plan, options, runner, warn)
     segments_dir, tmp_root = workdir / "segments", workdir / "tmp"
     for folder in (segments_dir, tmp_root):
         folder.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -245,8 +261,17 @@ def _render(plan, input_dir, workdir, output, options, ffmpeg, controller, statu
         blocks = split_blocks(layout, options.block_size)
         for placement in layout.adjusted():
             warn(f"{elements[placement.index].source}: {placement.note}")
+        effects = resolve_effects(elements, layout, config.rules)
+        for note in effects.adjusted:
+            warn(str(note))
 
-        music = None if track is None else plan_music(options.music, track, layout.duration, config)
+        fade_in, fade_out = music_fades(
+            effects, layout, default_in=config.fade_in_seconds, default_out=config.fade_out_seconds
+        )
+        audio_fades = MusicFades(fade_in, fade_out)
+        music = music_source
+        if isinstance(music_source, TrackSource):
+            music = plan_track(music_source, layout.duration, config)
         _warn_upscaled(usable, size, warn)
 
         encoder, fallback = choose_assembly_encoder(
@@ -259,13 +284,13 @@ def _render(plan, input_dir, workdir, output, options, ffmpeg, controller, statu
             threads=(threads or 0) * max(1, options.jobs) or None,
         )
         paths = [result.path for _, result in usable]
-        items = [BlockItem(p.frames, p.dissolve_frames) for p in layout.placements]
+        items = [BlockItem(p.frames, p.dissolve_frames, fade) for p, fade in zip(layout.placements, effects.fades)]
 
         partial.unlink(missing_ok=True)
         try:
             if len(blocks) == 1:
                 progress.phase("encoding the video", 1)
-                assembler.render_final(paths, items, partial, encoder, music)
+                assembler.render_final(paths, items, partial, encoder, music, audio_fades)
                 progress.advance()
             else:
                 block_files = _render_blocks(
@@ -274,7 +299,7 @@ def _render(plan, input_dir, workdir, output, options, ffmpeg, controller, statu
                 progress.phase("encoding the video", 1)
                 # The blocks are joined like segments: a dissolve into the first clip of a block is made here.
                 whole = [BlockItem(_block_frames(items[b.start : b.stop]), items[b.start].dissolve_frames) for b in blocks]
-                assembler.render_final(block_files, whole, partial, encoder, music)
+                assembler.render_final(block_files, whole, partial, encoder, music, audio_fades)
                 progress.advance()
 
             progress.phase("verifying the file", 1)
@@ -294,7 +319,7 @@ def _render(plan, input_dir, workdir, output, options, ffmpeg, controller, statu
                 warn(f"check failed: {check.name}: {check.detail}")
         report = _report(
             plan, options, final_path if ok else partial, ok, spec, layout, results, usable, blocks,
-            checks, music, encoder.name, fallback, warnings, time.monotonic() - started, final_path,
+            checks, music, audio_fades, effects, encoder.name, fallback, warnings, time.monotonic() - started,
         )
         atomic_write_json(report_path, report)
         _log_outcome(report)
@@ -315,7 +340,7 @@ def _render_blocks(assembler, blocks, paths, items, work, options, controller, p
     def make(number: int) -> Path:
         span = blocks[number]
         block_items = list(items[span.start : span.stop])
-        block_items[0] = BlockItem(block_items[0].frames, 0)  # the first clip of a block has no incoming dissolve
+        block_items[0] = replace(block_items[0], dissolve_frames=0)  # the first clip of a block has no incoming dissolve
         assembler.render_block(list(paths[span.start : span.stop]), block_items, block_files[number], options.preview)
         progress.advance()
         return block_files[number]
@@ -324,14 +349,23 @@ def _render_blocks(assembler, blocks, paths, items, work, options, controller, p
     return block_files
 
 
-def _music_track(options: RenderOptions, runner: ToolRunner) -> float | None:
-    """Length of the music, read first so that an unusable file stops the render before any work."""
-    if options.music is None:
-        return None
+def _load_music(plan: EditPlan, options: RenderOptions, runner: ToolRunner, warn) -> TrackSource | PartsMusic | None:
+    """The music files, read first so that an unusable one stops the render before any work."""
     try:
-        return music_track_duration(options.music, runner)
+        return load_music(plan.music, options.music, options.music_dir, runner, warn)
     except MusicError as error:
         raise RenderError(str(error), exit_codes.USAGE) from error
+
+
+def _music_report(music: LoopedTrack | PartsMusic | None, fades: MusicFades) -> dict | None:
+    if music is None:
+        return None
+    seconds = {"fade_in": round(fades.fade_in, 3), "fade_out": round(fades.fade_out, 3)}
+    if isinstance(music, PartsMusic):  # relative names only: the report says nothing of the host's folders
+        return {"mode": "plan", "tracks": list(music.files), "parts": len(music.parts), "offset": music.offset,
+                "fade_out": seconds["fade_out"]}
+    return {"path": str(music.path), "track_duration": round(music.track_duration, 3), "mode": music.mode,
+            "repeats": music.repeats, **seconds}
 
 
 def _warn_upscaled(usable, size: tuple[int, int], warn) -> None:
@@ -361,8 +395,8 @@ def resolve_output(output: Path, workdir: Path, input_dir: Path, preview: bool) 
 
 
 def _report(
-    plan, options, output, ok, spec, layout, results, usable, blocks, checks, music, encoder, fallback,
-    warnings, elapsed, final_path,
+    plan, options, output, ok, spec, layout, results, usable, blocks, checks, music, fades, effects, encoder,
+    fallback, warnings, elapsed,
 ) -> dict:
     elements = [element for element, _ in usable]
     return {
@@ -396,11 +430,9 @@ def _report(
                 for p in layout.adjusted()
             ],
         },
+        "effects": {"applied": effects.applied, "adjusted": [note.to_dict() for note in effects.adjusted]},
         "blocks": [len(block) for block in blocks],
-        "music": None
-        if music is None
-        else {"path": str(music.path), "track_duration": round(music.track_duration, 3), "mode": music.mode,
-              "repeats": music.repeats},
+        "music": _music_report(music, fades),
         "checks": [check.to_dict() for check in checks],
         "warnings": warnings,
     }

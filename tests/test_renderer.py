@@ -30,7 +30,7 @@ from render_fakes import (
 
 from vacation_memories.core import exit_codes
 from vacation_memories.core.process import ToolRunner
-from vacation_memories.planning.edit_plan import PlanError
+from vacation_memories.planning.edit_plan import FADE_IN, FADE_OUT, Effect, PlanError
 from vacation_memories.rendering import render_checks
 from vacation_memories.rendering.render_config import RenderConfig
 from vacation_memories.rendering.renderer import REPORT_NAME, RenderError, RenderOptions, render_plan
@@ -254,8 +254,8 @@ def test_destination_timestamps_match_the_video(media, tmp_path):
 
 
 def test_video_fades_from_and_to_black(media, tmp_path):
-    config = RenderConfig(fade_in_seconds=1.0, fade_out_seconds=1.5)
-    result = render(make_plan([video_element("red4.mp4", 0, 4)]), media, tmp_path, config=config)
+    fades = (Effect("fi", FADE_IN, 0.0, 1.0), Effect("fo", FADE_OUT, 2.5, 1.5))
+    result = render(make_plan([video_element("red4.mp4", 0, 4, effects=fades)]), media, tmp_path)
     assert result.ok
     assert sum(color_at(result.output, 0.0)) < 30  # black at the first frame
     assert close(color_at(result.output, 1.6), PURE_RED)
@@ -807,7 +807,6 @@ def test_the_duration_of_the_editor_is_the_one_the_renderer_builds(media, tmp_pa
 def test_a_schema_2_plan_with_effects_exclusions_and_music_renders_like_one_without(media, tmp_path):
     from vacation_memories.planning.edit_plan import (
         EditPlan,
-        Effect,
         Exclusion,
         MusicPart,
         MusicPlan,
@@ -825,9 +824,9 @@ def test_a_schema_2_plan_with_effects_exclusions_and_music_renders_like_one_with
          PlanElement(**{**second.__dict__, "effects": (*second.effects, Effect("b", "fade_out", 1.5, 0.5),
                                                        Effect("c", "dip", 0.5, 0.5))})],
         excluded=(Exclusion("gone.jpg"),),
-        music=MusicPlan((MusicTrack("a.mp3", (MusicPart(0, 5, False, 1.0, 1.0),)),), 1.0),
+        music=MusicPlan((MusicTrack("long.wav", (MusicPart(0, 5, False, 1.0, 1.0),)),), 1.0),
     )
     assert plan_duration(decorated, NO_FADES.rules) == plan_duration(bare, NO_FADES.rules)
-    result = render(decorated, media, tmp_path)
+    result = render(decorated, media, tmp_path, music_dir=media)
     assert result.ok and result.report["planned_duration"] == pytest.approx(3.6, abs=1e-3)
-    assert result.report["music"] is None  # the music block is for a later step, --music is what plays
+    assert result.report["music"]["mode"] == "plan"  # the plan's music block is what plays
