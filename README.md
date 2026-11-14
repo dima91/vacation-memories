@@ -102,7 +102,7 @@ docker compose run --rm --no-deps -T app --no-ai --duration 90s
 | `--duration` | length of the video: `300`, `90s`, `5m`, `1m30s`, `05:00`, `1:05:00` (default 5 minutes, minimum 15 s; above 20 minutes only a warning) |
 | `--resolution` | `480p`, `720p`, `1080p` (default), `1440p`, `4k` (or `2160p`), or `WxH` such as `1920x1080`. A preset is the short side of the frame |
 | `--aspect` | `16:9` (default), `9:16`, `1:1`, `4:3`. With `WxH` the ratio comes from the dimensions |
-| `--music` | background music; shorter tracks loop with a crossfade, longer ones fade out at the end |
+| `--music` | background music, a file under the music folder (`/music/track.mp3`, or `track.mp3`); shorter tracks loop with a crossfade, longer ones fade out at the end. A plan with its own `music` tracks ignores it |
 | `--output` | the video file (`.mp4`); never inside the media folder |
 | `--structure` | `narrative` (default: opening, beginning, development, finale, closing) or `chronological` |
 | `--preview` | quick trial: short side 540 px, 24 fps, fast encoder; writes `<name>_preview.mp4` |
@@ -188,7 +188,8 @@ run short, and the report says so. In the Closing this gives one calm, continuou
 `WORK_DIR/edit_plan.json` lists every clip with its section, scores (`technical_score`, `narrative_score` and the
 final score), moment type, capture date and the reason it was chosen. Its `runtime` key says how the sections were
 filled, whether a budget was redistributed, how much the AI covered, and why the video is shorter when the material
-is not enough. `render_report.json` describes the rendering and the checks of the final file.
+is not enough. `render_report.json` describes the rendering and the checks of the final file; a `--preview` writes
+`render_report_preview.json` instead, so it never overwrites it.
 
 The plan is `schema_version: 2`. Every clip has a stable `id`, an `origin` (`planner`, or `user` for a clip added by
 hand) and its `effects` (`fade_in`, `fade_out`, `dissolve`, `dip`, each with `offset` and `duration`): a dissolve is
@@ -196,6 +197,18 @@ stored once, in the incoming clip, and the fade from black and to black are effe
 plan level `excluded` lists the moments deleted by hand, which the planner never chooses again, and `music` the
 tracks, their parts and the shift of the music. A schema 1 plan is still read and rendered as before (its
 `transition_in` becomes a dissolve effect); it is written as schema 2 the next time it is saved.
+
+The renderer applies the effects of every clip: `fade_in` and `fade_out` at the edges of the clip (also in the middle
+of the video), a `dip` (to black and back) anywhere, and the dissolves as before. The fade from black and to black of
+the video are no longer global: they are the effects of the first and last clip. An effect that leaves its clip,
+overlaps another effect or a dissolve, or lasts less than 0.2 s is reduced or left out, with a warning, and
+`render_report.json` lists what was applied and what was changed (`effects`).
+
+The `music` block of the plan lists the tracks (files relative to the music folder, `music_dir`), in order, each cut
+into parts (`start` and `end` in seconds of the track, `muted`, `fade_in`, `fade_out`), and an `offset`: positive, the
+music starts later; negative, it skips its beginning. The music beyond the end of the video is cut, with a fade out as
+long as the last `fade_out` effect of the video (3 s without one), and a music that is shorter leaves the rest silent.
+A plan without a `music` block plays the `--music` file as before.
 
 A full run or `--dry-run` over a plan that holds edits made by hand (clips with `origin: user`, a changed photo
 duration, effects of the user, `excluded`, `music`) first copies it into `WORK_DIR/plan_history/` (the last 10
@@ -215,7 +228,8 @@ Every option can also come from a TOML file (`--config`, or the `VACATION_MEMORI
 
 ```toml
 duration = "4m"
-music = "/music/track.mp3"
+music_dir = "/music"          # the root of the music: --music and the tracks of the plan are relative to it
+music = "track.mp3"
 
 [selection]
 technical_threshold = 0.3     # below it a shot is discarded as blurred, dark or badly exposed
@@ -561,7 +575,7 @@ other modules by role:
 | `analysis/` | scanning, metadata, probing, scenes, frame sampling, technical quality, duplicates, analysis cache; `runner` runs the whole analysis of a folder |
 | `ai/` | Ollama client, vision prompt and schema, vision analyzer, `bench vision` |
 | `planning/` | selection weights, ranking, narrative planner, edit plan, transitions, `--duration`/`--resolution`/`--aspect`, estimates |
-| `rendering/` | segments (phase A), assembly and music (phase B), filters, encoders, checks of the output |
+| `rendering/` | segments (phase A), assembly (phase B), effects of the clips, music, filters, encoders, checks of the output |
 | `evaluate/` | the `evaluate` subcommand and the synthetic media generator (`synthetic_media`) |
 
 The tests stay flat in `tests/`, one `test_<module>.py` per module.
