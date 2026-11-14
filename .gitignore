@@ -11,3 +11,6 @@ __pycache__/
 *.it.md
 .test-docker/
 **/ui-mockup/
+frontend/node_modules/
+frontend/dist/
+vacation_memories/editor/static/

@@ -75,6 +75,28 @@ services:
     networks:
       - backend
 
+  # The interface's checks and tests (`npm run check`, `npm test`). Like `dev`: the repository is mounted, the
+  # dependencies are in the image (change them by rebuilding it) and there is no network and no MEDIA_DIR.
+  ui-dev:
+    profiles: [dev]
+    build:
+      context: .
+      target: ui-dev
+    image: vacation-memories-ui-dev:local
+    user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
+    working_dir: /src/frontend
+    environment:
+      HOME: /tmp
+    volumes:
+      - type: bind
+        source: .
+        target: /src
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp
+    network_mode: none
+
   app:
     <<: *runtime
     profiles: [cli]  # a bare `docker compose up` must not start a full job; `docker compose run app …` still works
