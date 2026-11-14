@@ -1,6 +1,7 @@
 """Command line: global options, start-up (private files, workdir, logging), the pipeline and the subcommands.
 
-Without a subcommand the pipeline runs (see `pipeline`); `doctor`, `bench` and `evaluate` are subcommands.
+Without a subcommand the pipeline runs (see `pipeline`); `doctor`, `bench`, `evaluate` and `serve` (the editor)
+are subcommands.
 """
 
 import argparse
@@ -16,8 +17,10 @@ from vacation_memories.core import exit_codes
 from vacation_memories.core.config import ConfigError, Settings, ollama_url_is_local, resolve_settings
 from vacation_memories.core.doctor import format_report, has_blocking_failures, run_doctor
 from vacation_memories.core.logging_setup import setup_logging
+from vacation_memories.core.process import ShutdownController
 from vacation_memories.core.runtime_profile import DetectionEnv, detect_profile, write_runtime_profile
 from vacation_memories.core.workdir import prepare_workdir
+from vacation_memories.editor.server import DEFAULT_ALLOWED_HOSTS, EditorApp, serve
 from vacation_memories.evaluate.prepare import (
     DEFAULT_VARIANTS,
     FULL,
@@ -32,6 +35,8 @@ from vacation_memories.pipeline import ANALYZE_ONLY, DRY_RUN, FULL, RENDER_ONLY,
 from vacation_memories.planning.video_format import FormatError, parse_duration
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_HOSTS_ENV = "VACATION_MEMORIES_EDITOR_HOSTS"  # comma-separated, used when --allowed-host is not given
 
 
 def _common_options() -> argparse.ArgumentParser:
@@ -90,6 +95,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     vision.add_argument("--images", type=Path, help="folder with photos to use instead of synthetic images")
     vision.add_argument("--count", type=int, default=DEFAULT_IMAGE_COUNT, help="number of images (default 5)")
+    editor = commands.add_parser("serve", parents=[common], allow_abbrev=False,
+                                 help="the interactive editor (a local web page)")
+    editor.add_argument("--host", default="127.0.0.1", help="address to listen on (default 127.0.0.1)")
+    editor.add_argument("--port", type=int, default=8000, help="port to listen on (default 8000)")
+    editor.add_argument("--allowed-host", action="append", dest="allowed_hosts", default=None, metavar="HOST:PORT",
+                        help="Host header accepted by the editor; repeatable "
+                             f"(default {', '.join(DEFAULT_ALLOWED_HOSTS)}, or {ALLOWED_HOSTS_ENV})")
     evaluate = commands.add_parser("evaluate", parents=[common], allow_abbrev=False, help="evaluate the edit")
     evaluate_commands = evaluate.add_subparsers(dest="evaluate_command", required=True)
     synthetic = evaluate_commands.add_parser(
@@ -189,6 +201,9 @@ def _run(
             "the Ollama URL %s is not local: the images travel in base64 over unencrypted HTTP", settings.ollama_url
         )
 
+    if args.command == "serve" and not args.allowed_hosts:
+        listed = [host.strip() for host in environ.get(ALLOWED_HOSTS_ENV, "").split(",") if host.strip()]
+        args.allowed_hosts = listed or list(DEFAULT_ALLOWED_HOSTS)
     return _COMMANDS[args.command](args, settings, detection_env, record_profile=workdir_error is None)
 
 
@@ -221,6 +236,18 @@ def _bench(
         return run_bench_vision(settings, profile, detection_env, images=args.images, count=args.count)
     except ConfigError as error:
         return exit_codes.usage_error(error)
+
+
+def _serve(
+    args: argparse.Namespace, settings: Settings, detection_env: DetectionEnv | None, *, record_profile: bool
+) -> int:
+    if not record_profile:  # the workdir could not be prepared; the reason is in the log
+        return exit_codes.usage_error(ConfigError(f"cannot use the workdir {settings.workdir}"))
+    if settings.input is None or not Path(settings.input).is_dir():
+        return exit_codes.usage_error(ConfigError("--input is required: the media root, a folder the editor lists"))
+    with ShutdownController() as controller:
+        app = EditorApp(settings, allowed_hosts=args.allowed_hosts, controller=controller)
+        return serve(app, args.host, args.port, controller)
 
 
 def _pipeline(
@@ -258,12 +285,13 @@ def _evaluate(
     return run_report(settings, request)
 
 
-_COMMANDS = {"doctor": _doctor, "bench": _bench, "evaluate": _evaluate, None: _pipeline}
+_COMMANDS = {"doctor": _doctor, "bench": _bench, "evaluate": _evaluate, "serve": _serve, None: _pipeline}
 _MODES = {ANALYZE_ONLY: "analyze_only", DRY_RUN: "dry_run", RENDER_ONLY: "render_only"}
 # Not settings: subcommands, their arguments and the per-run flags of the pipeline.
 _COMMAND_ARGUMENTS = frozenset({
     "command", "bench_command", "images", "count", "version", "preview", "resume", *_MODES.values(),
     "evaluate_command", "evaluation_duration", "seeds", "dataset_seed", "variants", "seed", "run_id", "ratings",
+    "host", "port", "allowed_hosts",
 })
 
 
