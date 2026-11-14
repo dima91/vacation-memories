@@ -145,6 +145,23 @@ class TestModes:
         assert run(few, work, "--render-only", "--resolution", "720p", "--aspect", "9:16") == exit_codes.OK
         assert rendered == [(852, 480), (320, 320), (720, 1280)]
 
+    def test_the_music_option_is_relative_to_the_music_folder(self, few, work, tmp_path, monkeypatch):
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "15", *SMALL_FRAME) == exit_codes.OK
+        songs = tmp_path / "songs"
+        songs.mkdir()
+        (songs / "track.wav").write_bytes(b"")
+        seen = []
+
+        def fake_render(plan, **kwargs):
+            seen.append(kwargs["options"])
+            return RenderResult(True, kwargs["output"], {"obtained_duration": plan.planned_duration})
+
+        monkeypatch.setattr(pipeline, "render_plan", fake_render)
+        environ = {"VACATION_MEMORIES_MUSIC_DIR": str(songs)}
+        assert run(few, work, "--render-only", "--music", "track.wav", environ=environ) == exit_codes.OK
+        assert seen[0].music == songs / "track.wav" and seen[0].music_dir == songs
+        assert run(few, work, "--render-only", "--music", "missing.wav", environ=environ) == exit_codes.USAGE
+
     def test_above_1080p_a_warning_with_an_estimate(self, few, work, monkeypatch):
         assert run(few, work, "--no-ai", "--dry-run", "--duration", "15", *SMALL_FRAME) == exit_codes.OK
         monkeypatch.setattr(pipeline, "render_plan",

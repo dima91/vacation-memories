@@ -219,7 +219,7 @@ def _params(settings: Settings, request: RunRequest) -> tuple[RunParams, set[str
         preview=request.preview,
         input=os.fsdecode(Path(settings.input).absolute()),
         output=os.fsdecode(settings.output),
-        music=None if settings.music is None else os.fsdecode(settings.music),
+        music=None if settings.music_path is None else os.fsdecode(settings.music_path),
         duration=settings.duration,
         width=width,
         height=height,

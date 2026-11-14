@@ -83,7 +83,8 @@ class Settings:
     fade_in_seconds: float
     fade_out_seconds: float
     duration_tolerance: float
-    music: Path | None
+    music: Path | None  # the file of `--music`; a relative one is under `music_dir`
+    music_dir: Path | None  # the root of the music: `--music` and the plan's tracks are relative to it
     output: Path
     duration: float
     aspect: str | None  # None: 16:9, or the ratio of an explicit WxH resolution
@@ -91,6 +92,13 @@ class Settings:
     structure: str
     selection: SelectionConfig = field(default_factory=SelectionConfig)
     sources: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def music_path(self) -> Path | None:
+        """The `--music` file as a path to open: a relative one is under the music folder."""
+        if self.music is None or self.music.is_absolute() or self.music_dir is None:
+            return self.music
+        return self.music_dir / self.music
 
     @property
     def output_size(self) -> tuple[int, int]:
@@ -255,6 +263,7 @@ _PARSERS: dict[str, Callable[[object], object]] = {
     "fade_out_seconds": _non_negative_float,
     "duration_tolerance": _non_negative_float,
     "music": _path,
+    "music_dir": _path,
     "output": _path,
     "duration": parse_duration,
     "aspect": parse_aspect,
@@ -292,6 +301,7 @@ _DEFAULTS: dict[str, object] = {
     "fade_out_seconds": DEFAULT_FADE_OUT_SECONDS,
     "duration_tolerance": DEFAULT_DURATION_TOLERANCE,
     "music": None,
+    "music_dir": None,
     "output": DEFAULT_OUTPUT,
     "duration": DEFAULT_DURATION_SECONDS,
     "aspect": None,
@@ -388,7 +398,15 @@ def resolve_settings(cli: Mapping[str, object], env: Mapping[str, str]) -> Setti
     log_file = values["log_file"]
     values["log_file"] = workdir / "run.log" if log_file is None else workdir / log_file
     _check_outside_input(values)
+    _check_music_inside_folder(values)
     return Settings(**values, selection=selection, sources=sources)
+
+
+def _check_music_inside_folder(values: dict[str, object]) -> None:
+    """A relative `--music` is under the music folder and cannot climb out of it."""
+    music, music_dir = values["music"], values["music_dir"]
+    if music is not None and music_dir is not None and not music.is_absolute() and ".." in music.parts:
+        raise ConfigError(f"the music file {music} must stay inside the music folder {music_dir}")
 
 
 def _check_outside_input(values: dict[str, object]) -> None:
