@@ -105,8 +105,10 @@ def test_by_default_it_accepts_the_published_address(started):
 
 
 def test_it_works_with_ollama_unreachable_and_never_contacts_it(started, tmp_path):
-    """The editor starts and serves the page with Ollama stopped (it checks it only for an analysis with AI)."""
+    """The editor starts and answers with Ollama stopped (it checks it only for an analysis with AI).
+
+    The built interface exists only in the image, so the page itself is checked by `scripts/test-docker.sh`.
+    """
     _, port = started(environment={"OLLAMA_HOST": "http://127.0.0.1:9"})
-    status, body = get(port, "/", "127.0.0.1:8080")
-    assert status == 200 and b"Vacation Memories" in body
+    assert get(port, "/api/folders", "127.0.0.1:8080")[0] == 200
     assert get(port, "/api/ai", "127.0.0.1:8080")[0] == 200  # it answers: not available

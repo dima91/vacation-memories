@@ -6,10 +6,15 @@ from editor_fakes import HOST, RunningEditor, editor_settings, make_media
 from vacation_memories.editor.server import EditorApp, parse_range, plan_error_field
 
 
+PAGE = "<!doctype html><title>Vacation Memories</title><div id=root></div>"
+
+
 @pytest.fixture(scope="module")
 def editor(tmp_path_factory):
     media = make_media(tmp_path_factory.mktemp("server-media"))
-    app = EditorApp(editor_settings(media, tmp_path_factory.mktemp("server-work")))
+    static = tmp_path_factory.mktemp("server-static")  # the built interface exists only in the image
+    (static / "index.html").write_text(PAGE, encoding="utf-8")
+    app = EditorApp(editor_settings(media, tmp_path_factory.mktemp("server-work")), static_dir=static)
     with RunningEditor(app) as running:
         yield running
 
@@ -119,7 +124,7 @@ class TestErrors:
 
 
 class TestStaticPage:
-    def test_the_placeholder_page_is_served(self, editor):
+    def test_the_page_is_served(self, editor):
         status, headers, body = editor.client.get("/")
         assert status == 200 and headers["content-type"].startswith("text/html")
         assert b"Vacation Memories" in body

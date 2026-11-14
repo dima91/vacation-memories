@@ -1,0 +1,11 @@
+{
+  "comment": "URLs that appear in the built interface but are never requested: XML namespace identifiers that React writes into SVG and MathML, and the text of React's production error messages. Anything else with http(s):// or // is an external reference and fails `npm test` and scripts/test-docker.sh.",
+  "prefixes": [
+    "http://www.w3.org/1999/xlink",
+    "http://www.w3.org/1999/xhtml",
+    "http://www.w3.org/2000/svg",
+    "http://www.w3.org/XML/1998/namespace",
+    "http://www.w3.org/1998/Math/MathML",
+    "https://react.dev/errors/"
+  ]
+}
