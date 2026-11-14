@@ -26,4 +26,6 @@ Code and tests run only in containers. Your shell has no terminal: always add `-
 - Tests with the real model (`-m ollama`): `docker compose up -d ollama`, then `docker compose run --rm -T dev pytest -m ollama`
 - CLI trial (from Step 6, on the synthetic media in ./dev-media only): `docker compose build app`, then `docker compose run --rm -T app --duration 30 --output prova.mp4`
 - Editor (from U3, `UI-SPEC.md`): `docker compose up -d editor nginx`, then `http://127.0.0.1:8080` (Ollama is not needed); after a change, `docker compose build editor`, as for `app`. `app` is in the `cli` profile.
+- Interface (from U4, sources in `frontend/`): `docker compose run --rm -T ui-dev npm run check` and `docker compose run --rm -T ui-dev npm test`; `ui-dev` sees the repository immediately, but its dependencies are in the image (`docker compose --profile dev build ui-dev` after changing `frontend/package.json`). After a change of the interface, `docker compose build editor`: the bundle is built in the image. Nothing Node is installed on the host.
+- The Italian values of the language catalogs (`frontend/src/i18n/*.ts`) are the only exception to "everything in English"; keys and code stay in English.
 - `dev` sees the mounted repository immediately; `app` contains a copy of the code and must be rebuilt with `docker compose build app` after every change.

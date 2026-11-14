@@ -248,8 +248,8 @@ The names and default values are in `vacation_memories/planning/selection_config
 ## Editor
 
 The editor is a local web server on top of the CLI: the analysis, the plan and the rendering stay the CLI, run as
-child processes on the same files, so a project can be continued from either. This step delivers the server and its
-API (`/api`); the page it serves is a placeholder until the interface arrives.
+child processes on the same files, so a project can be continued from either. The interface is in Italian, in React and
+TypeScript (`frontend/`); at this stage it shows and plays what the project holds, and does not change the plan yet.
 
 ```sh
 docker compose build editor           # after every change of the code
@@ -268,6 +268,15 @@ For a tunnel on another local port (`ssh -L 9090:127.0.0.1:8080 …`) add that a
 (`127.0.0.1:9090,localhost:9090`): the editor refuses requests whose `Host` or `Origin` is not one of its own, so no
 other web page open in your browser can use it.
 
+- **The flow.** The first page lists the folders under `MEDIA_DIR` with the number of photos and videos and the state of
+  their project. A folder without a plan opens the settings (duration, structure, format, music, AI) and, with
+  "Analizza", the analysis with its progress and a stop button; if Ollama is not available the page offers to wait or to
+  continue without AI. A folder with a plan opens the editor: the Media panel (photos by interest score, videos with
+  their moments, transitions, music), the Detail panel (preview, scores, limits, the summary of the whole video) and the
+  timeline with zoom, scrolling, the playhead, the transitions on the clips and the music. The settings stay reachable
+  from the top bar. The address holds the project (`#/p/<id>`), so a reload comes back to it.
+- **What comes later.** Adding, moving, trimming and removing clips, the music and transition editing, undo/redo, the
+  full preview job and the export are the next steps (U5 to U7): until then the page reads and plays.
 - **Projects.** The editor lists the folders under `MEDIA_DIR`. Every folder has its own working folder,
   `WORK_DIR/projects/<name>-<hash>/`, with the cache, the plan (`edit_plan.json`), `candidates.json` (the catalog the
   analysis leaves for the editor), `project.json` (the settings), the logs and the videos. The CLI can work on the same
@@ -279,6 +288,24 @@ other web page open in your browser can use it.
   photos. Use it on your own PC, or on a server whose users you trust.
 - **Without Ollama.** The editor starts and works with Ollama stopped; it checks it only when you ask for an analysis
   with AI, and then it never produces a result without AI silently.
+
+### The interface (`frontend/`)
+
+React and TypeScript, bundled with esbuild and type-checked with `tsc` (strict). The plan and API types are in
+`frontend/src/api/types.ts`; the texts are in a catalog per language (`frontend/src/i18n/it.ts` is the reference, the
+values are Italian and everything else is English); the fonts (IBM Plex Sans, IBM Plex Mono and Bricolage Grotesque, all
+under the SIL Open Font License) are bundled, and the page makes no request outside the editor. The versions and
+licenses of the dependencies are in `frontend/THIRD-PARTY.md`.
+
+```sh
+docker compose run --rm -T ui-dev npm run check   # tsc --noEmit
+docker compose run --rm -T ui-dev npm test        # the tests of the interface
+docker compose build editor                       # after a change of the interface: the bundle is built in the image
+```
+
+`ui-dev` has the repository mounted, no network and no media; its dependencies are in the image, so a change to
+`frontend/package.json` needs `docker compose --profile dev build ui-dev`. Node is only in the build stage and in
+`ui-dev`, never in the image that runs. The bundle (`frontend/dist/`) is not committed.
 
 ## Long jobs on a server
 
@@ -467,7 +494,7 @@ serves both; only `.env` changes.
 
 | File | Purpose |
 | --- | --- |
-| `compose.yaml` | the services `editor`, `nginx`, `ollama`, `ollama-pull`, `app` (profile `cli`) and `dev` (profile `dev`) |
+| `compose.yaml` | the services `editor`, `nginx`, `ollama`, `ollama-pull`, `app` (profile `cli`), `dev` and `ui-dev` (profile `dev`) |
 | `compose.intel-gpu.yaml` | gives `ollama` the Intel GPU (`/dev/dri`, `OLLAMA_IGPU_ENABLE=1`) |
 | `compose.selinux.yaml` | `label=disable` for `app`, `dev` and `editor` |
 | `compose.test.yaml` | for `scripts/test-docker.sh` only: a simulated Ollama, no model downloaded |
@@ -486,6 +513,8 @@ serves both; only `.env` changes.
 - `ollama` serves the vision model; the models are in the external volume `vacation-ollama-models`. `ollama-pull`
   downloads the model only when it is missing, then exits.
 - `dev` is the `dev` image with the repository mounted at `/src`, for the tests. It never mounts `MEDIA_DIR`.
+- `ui-dev` is the Node image of the interface with the repository mounted, for `npm run check` and `npm test`. Like
+  `dev` it never mounts `MEDIA_DIR`, and it has no network at all (`network_mode: none`).
 - `app`, `editor` and `dev` sit only on the internal network `backend`, which has no route to the Internet: they
   reach Ollama and nothing else. Only `ollama` is also on `egress`, to download models. `nginx` is on `backend` and on
   `frontend`, an ordinary network with nothing else on it (an internal network cannot publish a port). The only
@@ -590,8 +619,10 @@ It checks that:
 - the editor: only `nginx` publishes a port, only on `127.0.0.1:8080`; `editor` is only on `backend`, without Internet
   and without `depends_on` on Ollama, and serves the page through `nginx` with Ollama stopped, refusing a foreign `Host`
   or `Origin`; an analysis and plan job and a preview run through `nginx`; `docker stop` during a render exits with 143
-  in less than 10 s and the same job then finishes; the page has no external reference; a bare `docker compose up`
-  does not start `app`, and `docker compose run app` still works;
+  in less than 10 s and the same job then finishes; the page served through `nginx`, its script and its stylesheet have
+  no external reference and its fonts are served; a bare `docker compose up` does not start `app` or `ui-dev`, and
+  `docker compose run app` still works;
+- `ui-dev` has no network and no media folder, its files belong to you, and `npm run check` and `npm test` pass;
 - the compose files are valid: clear errors without `MEDIA_DIR` or `HOST_UID`, no folder created for a missing
   mount, the GPU only on `ollama` and only with the override, `OLLAMA_VULKAN` only when set, SELinux only on `app`,
   `dev` and `editor`.
@@ -603,6 +634,7 @@ Code and tests run only in containers:
 ```sh
 docker compose --profile dev build
 docker compose run --rm -T dev pytest
+docker compose run --rm -T ui-dev npm run check && docker compose run --rm -T ui-dev npm test   # the interface
 docker compose run --rm -T dev python -m vacation_memories --input dev-media --no-ai --duration 30 --resolution 720p
 scripts/test-docker.sh      # the production image and the compose files, see "Container tests"
 ```
@@ -622,10 +654,12 @@ other modules by role:
 | `ai/` | Ollama client, vision prompt and schema, vision analyzer, `bench vision` |
 | `planning/` | selection weights, ranking, narrative planner, edit plan, transitions, `--duration`/`--resolution`/`--aspect`, estimates |
 | `rendering/` | segments (phase A), assembly (phase B), effects of the clips, music, filters, encoders, checks of the output |
-| `editor/` | the `serve` subcommand: HTTP server and API, projects, jobs, catalog, thumbnails, waveforms and per-clip previews, and `static/` (the page) |
+| `editor/` | the `serve` subcommand: HTTP server and API, projects, jobs, catalog, thumbnails, waveforms and per-clip previews, and `static/` (the built interface: it exists only in the image) |
 | `evaluate/` | the `evaluate` subcommand and the synthetic media generator (`synthetic_media`) |
 
-The tests stay flat in `tests/`, one `test_<module>.py` per module.
+The tests stay flat in `tests/`, one `test_<module>.py` per module. The sources of the interface are in `frontend/`,
+and the JSON fixtures that its tests and the server's share are in `tests/fixtures/editor/` (regenerate them after a
+deliberate change of the API with `docker compose run --rm -T dev python tests/test_editor_fixtures.py --write`).
 
 ### Continuous integration
 
@@ -633,7 +667,7 @@ The GitHub Actions workflow `.github/workflows/ci.yml` runs the same commands as
 
 | When | What runs |
 | --- | --- |
-| push to `main`, `develop`, `release/**`; every pull request; tags `v*` | build of `dev` and `pytest` |
+| push to `main`, `develop`, `release/**`; every pull request; tags `v*` | build of `dev` and `ui-dev`, `pytest`, `npm run check` and `npm test` |
 | pull requests; tags `v*` | also `scripts/test-docker.sh` |
 
 On a tag `vX.Y.Z` the workflow also checks that `X.Y.Z` is the `__version__` of the package. The tests with the real
