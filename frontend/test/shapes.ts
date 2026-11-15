@@ -97,7 +97,7 @@ export const planDocument = obj<PlanDocument>({
 });
 
 const catalogItem = obj<CatalogItem>({
-  id: str, source: str, media: str, status: oneOf("selected", "excluded", "discarded", "available"),
+  id: str, clip: opt(str), source: str, media: str, status: oneOf("selected", "excluded", "discarded", "available"),
   discard: nullable(obj({ reason: str, detail: nullable(str) })), score, moment_type: nullable(str), category: nullable(str),
   narrative_value: nullable(num), description: nullable(str), captured_at: str, day: str,
   group: nullable(obj({ representative: str, size: num })), start: opt(num), end: opt(num), thumb_time: opt(num),

@@ -190,6 +190,33 @@ test("the edges of a moment are trimmed from the bar of its video", async ({ pag
   expect(saved.duration).toBeCloseTo((saved.end ?? 0) - (saved.start ?? 0), 5);
 });
 
+/** The video of the Detail panel is there, has its first frame and shows no error. */
+async function expectPlayablePreview(page: Page) {
+  const detail = page.getByRole("complementary");
+  await expect(detail.locator("video")).toBeVisible();
+  await expect.poll(() => detail.locator("video").evaluate((video: HTMLVideoElement) => video.readyState), { timeout: 60_000 }).toBeGreaterThanOrEqual(2);
+  await expect(detail.getByRole("alert")).toHaveCount(0);
+}
+
+test("a whole video and a moment outside the timeline play in the Detail panel, like a moment in the timeline", async ({ page }) => {
+  test.skip(!state().plan.elements.some((element) => element.type === "video"), "the plan has no video moment");
+  await openEditor(page);
+  await page.getByRole("tab", { name: /^Video/ }).click();
+  await page.locator(".video__name").first().click();
+  await expectPlayablePreview(page);
+
+  const toggle = page.getByRole("button", { name: /^Mostra o nascondi i momenti di / }).first();
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  const outside = page.getByRole("group", { name: /^Momenti del video / }).getByRole("button", { name: /, (disponibile|scartato|eliminato)$/ }).first();
+  if (await outside.count()) {
+    await outside.click();
+    await expectPlayablePreview(page);
+  }
+
+  await clipButtons(page).nth(state().plan.elements.findIndex((element) => element.type === "video")).click();
+  await expectPlayablePreview(page);
+});
+
 test("a plan changed elsewhere stops the saving: reload takes the other version", async ({ page, request }) => {
   const { project, plan } = state();
   const index = photoIndex(plan.elements);

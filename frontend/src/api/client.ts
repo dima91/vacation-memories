@@ -79,6 +79,8 @@ export const urls = {
   thumb: (id: string, media: string, seconds?: number) =>
     `/api${project(id)}/thumb/${media}${seconds === undefined ? "" : `?t=${seconds}`}`,
   clip: (id: string, element: string) => `/api${project(id)}/clip/${element}`,
+  candidateClip: (id: string, clip: string) => `/api${project(id)}/candidate/${clip}`,
+  source: (id: string, media: string) => `/api${project(id)}/source/${media}`,
   video: (id: string, name: string) => `/api${project(id)}/video/${encodeURIComponent(name)}`,
   /** The same file as a download (`Content-Disposition: attachment`): the browser saves it instead of playing it. */
   download: (id: string, name: string) => `/api${project(id)}/video/${encodeURIComponent(name)}?download=1`,
