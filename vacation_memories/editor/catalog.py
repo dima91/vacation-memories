@@ -25,6 +25,12 @@ def file_id(source: str) -> str:
     return opaque_id(source)
 
 
+def candidate_clip_id(candidate_id: str) -> str:
+    """What names the preview of a candidate in a URL. It differs from the id of a plan element that carries the same
+    candidate id, so that a trimmed element and its candidate do not discard each other's cached preview."""
+    return opaque_id(f"candidate:{candidate_id}")
+
+
 def music_tracks(music_root: Path | None) -> list[dict]:
     """The audio files under the music root, with an opaque id each (the waveform is asked by it)."""
     if music_root is None or not music_root.is_dir():
@@ -92,7 +98,8 @@ def _item(candidate: dict, in_plan: set[str], excluded: Sequence) -> dict:
         status = AVAILABLE
     media = file_id(source)
     item = {
-        "id": candidate["id"], "source": source, "media": media, "status": status,
+        "id": candidate["id"], "clip": candidate_clip_id(candidate["id"]), "source": source, "media": media,
+        "status": status,
         "discard": candidate.get("discard"), "score": candidate["score"], "moment_type": candidate.get("moment_type"),
         "category": candidate.get("category"), "narrative_value": candidate.get("narrative_value"),
         "description": candidate.get("description"), "captured_at": candidate.get("captured_at"),

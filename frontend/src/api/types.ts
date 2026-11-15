@@ -295,6 +295,7 @@ export type CandidateStatus = "selected" | "excluded" | "discarded" | "available
 
 export interface CatalogItem {
   id: string;
+  clip?: string; // names the preview of a moment of the analysis in a URL (not for a moment the user made)
   source: string;
   media: string;
   status: CandidateStatus;

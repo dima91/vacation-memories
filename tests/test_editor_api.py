@@ -298,6 +298,38 @@ class TestMedia:
         assert editor.client.get(f"/api/projects/{trip}/clip/{'0' * 16}")[0] == 404
         assert editor.client.get(f"/api/projects/{trip}/clip/IMG_0001")[0] == 404
 
+    def test_a_candidate_moment_has_a_preview_whether_or_not_it_is_in_the_plan(self, editor, trip):
+        _, _, catalog = editor.client.get(f"/api/projects/{trip}/catalog")
+        moments = [moment for video in catalog["videos"] for moment in video["moments"]]
+        by_status = {}
+        for moment in moments:
+            by_status.setdefault(moment["status"], moment)
+        assert by_status, "the trip needs moments"
+        for moment in by_status.values():  # one of each status the analysis gave them, in the plan or not
+            status, headers, data = editor.client.get(f"/api/projects/{trip}/candidate/{moment['clip']}")
+            assert status == 200 and headers["content-type"] == "video/mp4" and data[4:8] == b"ftyp"
+            assert headers["accept-ranges"] == "bytes"
+
+    def test_the_preview_of_a_photo_candidate_or_of_an_unknown_one_is_a_404(self, editor, trip):
+        _, _, catalog = editor.client.get(f"/api/projects/{trip}/catalog")
+        photo = catalog["photos"][0]
+        assert editor.client.get(f"/api/projects/{trip}/candidate/{photo['clip']}")[0] == 404
+        assert editor.client.get(f"/api/projects/{trip}/candidate/{'0' * 16}")[0] == 404
+        assert editor.client.get(f"/api/projects/{trip}/candidate/{photo['id']}")[0] == 404
+
+    def test_a_whole_video_has_a_preview(self, editor, trip):
+        _, _, catalog = editor.client.get(f"/api/projects/{trip}/catalog")
+        url = f"/api/projects/{trip}/source/{catalog['videos'][0]['media']}"
+        status, headers, data = editor.client.get(url)
+        assert status == 200 and headers["content-type"] == "video/mp4" and data[4:8] == b"ftyp"
+        assert editor.client.get(url, headers={"Range": "bytes=0-99"})[0] == 206
+
+    def test_the_preview_of_a_photo_or_of_an_unknown_file_is_a_404(self, editor, trip):
+        _, _, catalog = editor.client.get(f"/api/projects/{trip}/catalog")
+        assert editor.client.get(f"/api/projects/{trip}/source/{catalog['photos'][0]['media']}")[0] == 404
+        assert editor.client.get(f"/api/projects/{trip}/source/{'0' * 16}")[0] == 404
+        assert editor.client.get(f"/api/projects/{trip}/source/IMG_0001.jpg")[0] == 404
+
 
 class TestPreviewAndExport:
     def test_the_preview_job_makes_a_video_and_it_streams(self, editor, trip):

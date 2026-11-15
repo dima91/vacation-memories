@@ -86,6 +86,9 @@ export function Player({ src, poster, time, seekVersion, offset, label, playerRe
   );
 }
 
+/** A preview that is not on the timeline (a whole video, a moment outside the plan) leaves the playhead where it is. */
+const ignoreTime = () => undefined;
+
 // --- small pieces ---
 
 function Facts({ rows }: { rows: [string, ReactNode][] }) {
@@ -334,7 +337,10 @@ function CandidateDetail({ props, item }: { props: DetailProps; item: CatalogIte
   return (
     <>
       <Head kind={t(isMoment ? "detail.kind.moment" : "detail.kind.photo")} title={fileName(item.source)} subtitle={candidateStatusText(i18n, item)} />
-      <img className="detail__image" alt="" src={urls.thumb(props.projectId, item.media, isMoment ? item.thumb_time : undefined)} />
+      {isMoment && item.clip ? (
+        <Player src={urls.candidateClip(props.projectId, item.clip)} poster={urls.thumb(props.projectId, item.media, item.thumb_time)}
+          time={0} seekVersion={0} offset={0} label={t("detail.preview")} playerRef={props.playerRef} onTime={ignoreTime} />
+      ) : <img className="detail__image" alt="" src={urls.thumb(props.projectId, item.media)} />}
       <Scores score={item.score} />
       <Section title={t("detail.info")}>
         <Facts rows={[
@@ -374,7 +380,8 @@ function VideoDetail({ props, media }: { props: DetailProps; media: string }) {
   return (
     <>
       <Head kind={t("detail.kind.video")} title={fileName(video.source)} subtitle={video.duration ? t("videos.length", { time: clock(video.duration) }) : undefined} />
-      <img className="detail__image" alt="" src={urls.thumb(props.projectId, video.media)} />
+      <Player src={urls.source(props.projectId, video.media)} poster={urls.thumb(props.projectId, video.media)}
+        time={0} seekVersion={0} offset={0} label={t("detail.preview")} playerRef={props.playerRef} onTime={ignoreTime} />
       <Section title={t("detail.info")}>
         <Facts rows={[
           [t("detail.field.file"), video.source],
