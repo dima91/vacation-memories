@@ -1,6 +1,7 @@
 // What the Media panel shows from the catalog: photos grouped by interest score (section 11).
-import type { CatalogItem } from "../api/types";
+import type { Catalog, CatalogItem, CandidateStatus as CatalogStatus, Plan, PlanElement } from "../api/types";
 import type { MessageKey } from "../i18n/it";
+import { isExcluded } from "./planEdit";
 
 export type PhotoGroupId = "high" | "medium" | "low" | "discarded" | "hidden";
 
@@ -57,3 +58,54 @@ const DISCARD_KEYS = {
 export function discardKey(reason: string): MessageKey {
   return (DISCARD_KEYS as Record<string, MessageKey>)[reason] ?? "discard.unknown";
 }
+
+// --- the catalog as the plan has it ---
+
+const emptyScore = { final: null, technical_score: 0, narrative_score: null, components: null };
+
+/** The moment the user made on a bar of a video (an element of the plan that is not a candidate). */
+function momentOfPlan(element: PlanElement, media: string): CatalogItem {
+  return {
+    id: element.id, source: element.source, media, status: "selected", discard: null, score: element.score ?? emptyScore,
+    moment_type: element.moment_type ?? null, category: element.category ?? null, narrative_value: null,
+    description: element.description ?? null, captured_at: element.captured_at ?? "", day: "", group: null,
+    start: element.start, end: element.end, thumb_time: Math.round((((element.start ?? 0) + (element.end ?? 0)) / 2) * 10) / 10,
+  };
+}
+
+function statusIn(item: CatalogItem, plan: Plan): CatalogStatus {
+  if (plan.elements.some((element) => element.id === item.id)) return "selected";
+  if (isExcluded(plan.excluded, item.source, item.start, item.end)) return "excluded";
+  return item.discard ? "discarded" : "available";
+}
+
+/**
+ * The statuses of the catalog follow the plan on screen, not the one the server last read: an element added, removed or
+ * hidden shows at once. A moment in the plan has the plan's start and end (it may be trimmed), and the moments the user
+ * made are listed with the ones the analysis found.
+ */
+export function withPlan(catalog: Catalog, plan: Plan): Catalog {
+  const inPlan = new Map(plan.elements.map((element) => [element.id, element]));
+  const update = (item: CatalogItem): CatalogItem => {
+    const status = statusIn(item, plan);
+    const element = inPlan.get(item.id);
+    if (element?.type === "video" && element.start !== undefined && element.end !== undefined) {
+      return { ...item, status, start: element.start, end: element.end };
+    }
+    return item.status === status ? item : { ...item, status };
+  };
+  return {
+    ...catalog,
+    photos: catalog.photos.map(update),
+    videos: catalog.videos.map((video) => {
+      const found = video.moments.map(update);
+      const known = new Set(found.map((item) => item.id));
+      const made = plan.elements.filter((element) => element.type === "video" && element.source === video.source && !known.has(element.id))
+        .map((element) => momentOfPlan(element, video.media));
+      return { ...video, moments: [...found, ...made].sort((a, b) => (a.start ?? 0) - (b.start ?? 0)) };
+    }),
+  };
+}
+
+export const hiddenMoments = (catalog: Catalog): CatalogItem[] =>
+  catalog.videos.flatMap((video) => video.moments.filter((moment) => moment.status === "excluded"));
