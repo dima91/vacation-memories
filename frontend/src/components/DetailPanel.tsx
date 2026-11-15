@@ -1,8 +1,9 @@
 // The Detail panel (section 13): it changes with the selection and shows the preview, the scores, the information,
-// the limits the server computed and a help text. Without a selection it summarizes the whole video.
-import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+// the limits the server computed and a help text, and (U5) the controls that edit a photo, a moment or a candidate.
+// Without a selection it summarizes the whole video.
+import { useEffect, useId, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { urls } from "../api/client";
-import type { Catalog, CatalogItem, EffectType, PlanDocument, PlanElement, ProjectState, Score, StatusResponse, Waveform } from "../api/types";
+import type { Catalog, CatalogItem, CatalogVideo, EffectType, PlanDocument, PlanElement, ProjectState, Score, StatusResponse, Waveform } from "../api/types";
 import { useI18n, type MessageKey, type Translator } from "../i18n";
 import { discardKey, similarTo } from "../lib/catalog";
 import { clock } from "../lib/format";
@@ -10,6 +11,7 @@ import { durationRange, effectBounds, largestWindow, trimRange } from "../lib/li
 import { durationDeviation, findElement, planStats, positionOf } from "../lib/plan";
 import type { Selection } from "../lib/selection";
 import { clamp, clipAt, clipStart } from "../lib/timeline";
+import type { EditActions } from "./editing";
 import { ChevronLeftIcon, ChevronRightIcon, CloseIcon } from "./icons";
 import { fileName } from "./MediaPanel";
 import { ProgressBar } from "./ui";
@@ -26,6 +28,7 @@ export interface DetailProps {
   seekVersion: number;
   job: StatusResponse | null;
   collapsed: boolean;
+  actions: EditActions;
   playerRef: MutableRefObject<HTMLVideoElement | null>;
   onTime: (time: number) => void;
   onSelect: (selection: Selection) => void;
@@ -118,6 +121,27 @@ function Head({ kind, title, subtitle }: { kind: string; title: string; subtitle
 
 const momentLabel = (item: Pick<CatalogItem, "start" | "end">) => `${clock(item.start ?? 0)} – ${clock(item.end ?? 0)}`;
 
+/** A slider of the edit controls: every change goes to the editor, and the gesture is over when the pointer or the key is up. */
+function Slider({ label, value, min, max, text, disabled, onChange, onCommit }: {
+  label: string; value: number; min: number; max: number; text: string; disabled: boolean;
+  onChange: (value: number) => void; onCommit: () => void;
+}) {
+  const id = useId();
+  return (
+    <div className="slider">
+      <label htmlFor={id}>{label}</label>
+      <input id={id} type="range" min={min} max={max} step={0.1} value={Math.min(max, Math.max(min, value))} disabled={disabled}
+        aria-valuetext={text} onChange={(event) => onChange(Number(event.target.value))}
+        onPointerUp={onCommit} onKeyUp={onCommit} onBlur={onCommit} />
+      <output className="num" htmlFor={id}>{text}</output>
+    </div>
+  );
+}
+
+function Buttons({ children }: { children: ReactNode }) {
+  return <div className="buttons">{children}</div>;
+}
+
 // --- one detail per kind of selection ---
 
 function ElementDetail({ props, element }: { props: DetailProps; element: PlanElement }) {
@@ -153,6 +177,7 @@ function ElementDetail({ props, element }: { props: DetailProps; element: PlanEl
           [t("detail.field.origin"), t(`detail.origin.${element.origin}` as MessageKey)],
         ]} />
       </Section>
+      <EditSection props={props} element={element} />
       {duration || trim ? (
         <Section title={t("detail.limits")}>
           <Facts rows={[
@@ -179,6 +204,66 @@ function ElementDetail({ props, element }: { props: DetailProps; element: PlanEl
       ) : null}
       <Help text={t(isVideo ? "detail.help.moment" : "detail.help.photo")} />
     </>
+  );
+}
+
+function EditSection({ props, element }: { props: DetailProps; element: PlanElement }) {
+  const { t, format } = useI18n();
+  const { document: doc, actions } = props;
+  if (!doc) return null;
+  if (actions.readOnly) return <Section title={t("edit.title")}><p className="note">{t("edit.readOnly")}</p></Section>;
+  const limits = doc.limits.elements[element.id];
+  const index = doc.plan.elements.findIndex((entry) => entry.id === element.id);
+  const last = doc.plan.elements.length - 1;
+  const duration = durationRange(limits);
+  const trim = trimRange(limits, element);
+  const isVideo = element.type === "video";
+  const endMax = trim && Number.isFinite(trim.end.max) ? trim.end.max : (element.end ?? 0) + 60;
+  return (
+    <Section title={t("edit.title")}>
+      {!isVideo ? (
+        <Slider label={t("edit.durationSlider")} value={element.duration} min={duration?.min ?? element.duration} max={duration?.max ?? element.duration}
+          text={format.seconds(element.duration)} disabled={!duration}
+          onChange={(value) => actions.setDuration(element.id, value)} onCommit={actions.seal} />
+      ) : (
+        <>
+          <Slider label={t("edit.startSlider")} value={element.start ?? 0} min={trim?.start.min ?? 0} max={trim?.start.max ?? 0}
+            text={format.seconds(element.start ?? 0)} disabled={!trim}
+            onChange={(value) => actions.setEdge(element.id, "start", value)} onCommit={actions.seal} />
+          <Slider label={t("edit.endSlider")} value={element.end ?? 0} min={trim?.end.min ?? 0} max={endMax}
+            text={format.seconds(element.end ?? 0)} disabled={!trim}
+            onChange={(value) => actions.setEdge(element.id, "end", value)} onCommit={actions.seal} />
+        </>
+      )}
+      <p className="help">{t("edit.keys")}</p>
+      <Buttons>
+        <button type="button" className="btn" disabled={index <= 0} onClick={() => actions.move(element.id, index - 1)}>{t("edit.earlier")}</button>
+        <button type="button" className="btn" disabled={index < 0 || index >= last} onClick={() => actions.move(element.id, index + 2)}>{t("edit.later")}</button>
+        <button type="button" className="btn" onClick={() => actions.remove(element.id)}>{t("edit.remove")}</button>
+        <button type="button" className="btn" onClick={() => actions.hide(element.id)}>{t(isVideo ? "edit.delete" : "edit.hide")}</button>
+      </Buttons>
+      <p className="help">{t("edit.help.reorder")} {t("edit.help.remove")} {t("edit.help.hide")}</p>
+    </Section>
+  );
+}
+
+function CandidateActions({ props, item }: { props: DetailProps; item: CatalogItem }) {
+  const { t } = useI18n();
+  const { actions } = props;
+  if (actions.readOnly) return <Section title={t("edit.title")}><p className="note">{t("edit.readOnly")}</p></Section>;
+  const isMoment = item.start !== undefined;
+  return (
+    <Section title={t("edit.title")}>
+      <Buttons>
+        {item.status === "available" || item.status === "discarded" ? (
+          <button type="button" className="btn btn--primary" onClick={() => actions.addCandidates([item])}>{t("edit.add")}</button>
+        ) : null}
+        {item.status === "excluded" ? <button type="button" className="btn" onClick={() => actions.restore(item)}>{t("edit.restore")}</button> : null}
+        {item.status === "selected" ? <button type="button" className="btn" onClick={() => actions.remove(item.id)}>{t("edit.remove")}</button> : null}
+        {item.status !== "excluded" ? <button type="button" className="btn" onClick={() => actions.hideCandidate(item)}>{t(isMoment ? "edit.delete" : "edit.hide")}</button> : null}
+      </Buttons>
+      <p className="help">{t("edit.help.hide")}</p>
+    </Section>
   );
 }
 
@@ -215,6 +300,7 @@ function CandidateDetail({ props, item }: { props: DetailProps; item: CatalogIte
           [t("detail.field.category"), item.category],
         ]} />
       </Section>
+      <CandidateActions props={props} item={item} />
       {similar.length > 0 ? (
         <Section title={t("detail.field.similar")}>
           <ul className="links">
@@ -248,6 +334,7 @@ function VideoDetail({ props, media }: { props: DetailProps; media: string }) {
           [t("detail.field.onTimeline"), video.moments.filter((moment) => moment.status === "selected").length],
         ]} />
       </Section>
+      <VideoActions props={props} video={video} />
       <Section title={t("detail.field.moments")}>
         <ul className="links">
           {video.moments.map((moment) => (
@@ -261,6 +348,24 @@ function VideoDetail({ props, media }: { props: DetailProps; media: string }) {
       </Section>
       <Help text={t("detail.help.video")} />
     </>
+  );
+}
+
+function VideoActions({ props, video }: { props: DetailProps; video: CatalogVideo }) {
+  const { t } = useI18n();
+  const { actions } = props;
+  if (actions.readOnly) return <Section title={t("edit.title")}><p className="note">{t("edit.readOnly")}</p></Section>;
+  const addable = video.moments.filter((moment) => moment.status === "available");
+  const hidden = video.moments.some((moment) => moment.status === "excluded");
+  return (
+    <Section title={t("edit.title")}>
+      <Buttons>
+        <button type="button" className="btn" disabled={addable.length === 0} onClick={() => actions.addCandidates(addable)}>{t("edit.addAll")}</button>
+        <button type="button" className="btn" disabled={!video.duration} onClick={() => actions.addMoment(video.source, video.duration ?? 0, null)}>{t("edit.addMoment")}</button>
+        {hidden ? <button type="button" className="btn" onClick={actions.restoreMoments}>{t("edit.restoreMoments")}</button> : null}
+      </Buttons>
+      <p className="help">{t("edit.help.addMoment")}</p>
+    </Section>
   );
 }
 

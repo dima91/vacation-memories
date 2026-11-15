@@ -1,15 +1,22 @@
 // The final timeline (section 12): two lanes on one time axis, the ruler, zoom and scrolling, with the clips,
-// their transitions and the music laid out from the plan. Read-only in this step: nothing here changes the plan.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+// their transitions and the music laid out from the plan. Clips are reordered by dragging, items of the Media panel are
+// dropped on the lane, and the duration of a selected photo is changed with its two handles (U5). The music and the
+// transitions are read here: they are edited with step U6.
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from "react";
 import { urls } from "../api/client";
 import type { EffectType, PlanDocument, PlanElement, Waveform } from "../api/types";
 import { useI18n, type MessageKey } from "../i18n";
+import { DRAG_TYPE, beginDrag, currentDrag, decodePayload, encodePayload, endDrag } from "../lib/dnd";
+import { insertionSlot, isNoopSlot, slotX } from "../lib/drag";
 import { clock } from "../lib/format";
+import { durationRange } from "../lib/limits";
 import type { Selection } from "../lib/selection";
 import {
   MAX_ZOOM, MIN_ZOOM, ZOOM_STEP, clipRects, clampZoom, contentWidth, musicSlots, peaksBetween, pixelsPerSecond,
   scrollAfterZoom, scrollByPage, scrollToReveal, stepPlayhead, tickTimes, timeAtPointer, timeToX, windowSeconds, type View,
 } from "../lib/timeline";
+import type { EditActions } from "./editing";
+import { Handle } from "./Handle";
 import { ChevronLeftIcon, ChevronRightIcon } from "./icons";
 
 interface Props {
@@ -18,6 +25,7 @@ interface Props {
   waveforms: ReadonlyMap<string, Waveform | null>;
   selection: Selection;
   playhead: number;
+  actions: EditActions;
   onSelect: (selection: Selection) => void;
   onSeek: (time: number) => void;
 }
@@ -37,7 +45,7 @@ export function WaveformBars({ peaks }: { peaks: readonly number[] }) {
   );
 }
 
-export function Timeline({ projectId, document: doc, waveforms, selection, playhead, onSelect, onSeek }: Props) {
+export function Timeline({ projectId, document: doc, waveforms, selection, playhead, actions, onSelect, onSeek }: Props) {
   const { t, format } = useI18n();
   const { plan } = doc;
   const total = doc.duration;
@@ -50,6 +58,7 @@ export function Timeline({ projectId, document: doc, waveforms, selection, playh
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const pendingScroll = useRef<number | null>(null);
+  const [mark, setMark] = useState<number | null>(null);
 
   const view: View = { window: windowSeconds(showAllMusic ? Math.max(total, musicEnd) : total), zoom, width };
   const pps = pixelsPerSecond(view);
@@ -117,6 +126,33 @@ export function Timeline({ projectId, document: doc, waveforms, selection, playh
     }
   };
 
+  // Dragging over the lane: a clip of the timeline or an item of the Media panel, dropped at the insertion mark.
+  const slotAt = (event: DragEvent<HTMLElement>): number => {
+    const rect = contentRef.current?.getBoundingClientRect();
+    return insertionSlot(rects, event.clientX - (rect?.left ?? 0));
+  };
+  const onLaneOver = (event: DragEvent<HTMLDivElement>) => {
+    const drag = currentDrag();
+    if (!drag || actions.readOnly) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = drag.kind === "clip" ? "move" : "copy";
+    const slot = slotAt(event);
+    const from = drag.kind === "clip" ? plan.elements.findIndex((element) => element.id === drag.id) : -1;
+    setMark(from >= 0 && isNoopSlot(from, slot) ? null : slot);
+  };
+  const onLaneDrop = (event: DragEvent<HTMLDivElement>) => {
+    const payload = currentDrag() ?? decodePayload(event.dataTransfer.getData(DRAG_TYPE));
+    setMark(null);
+    if (!payload || actions.readOnly) return;
+    event.preventDefault();
+    const slot = slotAt(event);
+    endDrag();
+    actions.drop(payload, slot);
+  };
+  const onLaneLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMark(null);
+  };
+
   const selectedElement = selection.kind === "element" ? selection.id : selection.kind === "effect" ? selection.element : null;
   const requested = plan.requested_duration;
 
@@ -161,15 +197,17 @@ export function Timeline({ projectId, document: doc, waveforms, selection, playh
               ))}
             </div>
 
-            <div className="lane lane--clips" role="list" aria-label={t("timeline.clips")}>
+            <div className="lane lane--clips" role="list" aria-label={t("timeline.clips")} onDragOver={onLaneOver} onDrop={onLaneDrop} onDragLeave={onLaneLeave}>
               {plan.elements.length === 0 ? <p className="lane__empty">{t("timeline.empty")}</p> : null}
               {plan.elements.map((element, index) => {
                 const rect = rects[index];
                 if (!rect) return null;
                 return <ClipView key={element.id} projectId={projectId} document={doc} element={element} position={index + 1}
-                  left={rect.x} width={rect.width} pps={pps} selected={selectedElement === element.id}
-                  selectedEffect={selection.kind === "effect" && selection.element === element.id ? selection.id : null} onSelect={onSelect} />;
+                  left={rect.x} width={rect.width} pps={pps} selected={selectedElement === element.id} actions={actions}
+                  selectedEffect={selection.kind === "effect" && selection.element === element.id ? selection.id : null}
+                  onSelect={onSelect} onDragEnd={() => setMark(null)} />;
               })}
+              {mark !== null ? <div className="insertion" style={{ left: slotX(rects, mark) }} aria-hidden="true" /> : null}
             </div>
 
             <div className="lane lane--music" role="list" aria-label={t("timeline.musicLane")}>
@@ -217,24 +255,44 @@ interface ClipProps {
   pps: number;
   selected: boolean;
   selectedEffect: string | null;
+  actions: EditActions;
   onSelect: (selection: Selection) => void;
+  onDragEnd: () => void;
 }
 
-function ClipView({ projectId, document: doc, element, position, left, width, pps, selected, selectedEffect, onSelect }: ClipProps) {
+function ClipView({ projectId, document: doc, element, position, left, width, pps, selected, selectedEffect, actions, onSelect, onDragEnd }: ClipProps) {
   const { t, format } = useI18n();
   const missing = doc.warnings.some((warning) => warning.code === "media_missing" && warning.element === element.id);
   const media = doc.refs[element.id]?.media;
   const isVideo = element.type === "video";
   const kind = isVideo ? t("clip.video") : t("clip.photo");
   const label = `${t("clip.label", { position, kind, duration: format.seconds(element.duration) })}${missing ? `, ${t("clip.missing")}` : ""}${element.origin === "user" ? `, ${t("clip.userAdded")}` : ""}`;
+  const range = !isVideo && selected && !actions.readOnly ? durationRange(doc.limits.elements[element.id]) : null;
+  const grab = (event: DragEvent<HTMLDivElement>) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(DRAG_TYPE, encodePayload({ kind: "clip", id: element.id }));
+    beginDrag({ kind: "clip", id: element.id });
+  };
   return (
     <div className={`clip clip--${element.type}${selected ? " is-selected" : ""}${missing ? " is-missing" : ""}`} style={{ left, width }} role="listitem">
-      <button type="button" className="clip__body" aria-pressed={selected} aria-label={label} onClick={() => onSelect({ kind: "element", id: element.id })}>
-        {media && !missing ? <img className="clip__thumb" alt="" loading="lazy" draggable={false}
-          src={urls.thumb(projectId, media, isVideo ? element.start : undefined)} /> : null}
-        <span className="clip__band" aria-hidden="true" />
-        <span className="clip__label" aria-hidden="true">{isVideo ? t("clip.videoLetter") : t("clip.photoLetter")} {format.number(element.duration, 1)}</span>
-      </button>
+      <div className="clip__grab" draggable={!actions.readOnly} onDragStart={grab} onDragEnd={() => { endDrag(); onDragEnd(); }}>
+        <button type="button" className="clip__body" aria-pressed={selected} aria-label={label} onClick={() => onSelect({ kind: "element", id: element.id })}>
+          {media && !missing ? <img className="clip__thumb" alt="" loading="lazy" draggable={false}
+            src={urls.thumb(projectId, media, isVideo ? element.start : undefined)} /> : null}
+          <span className="clip__band" aria-hidden="true" />
+          <span className="clip__label" aria-hidden="true">{isVideo ? t("clip.videoLetter") : t("clip.photoLetter")} {format.number(element.duration, 1)}</span>
+        </button>
+      </div>
+      {range ? (
+        <>
+          <Handle className="handle handle--start" label={t("clip.handleStart")} value={element.duration} min={range.min} max={range.max}
+            valueText={format.seconds(element.duration)} sign={-1} scale={() => pps}
+            onChange={(value) => actions.setDuration(element.id, value)} onCommit={actions.seal} />
+          <Handle className="handle handle--end" label={t("clip.handleEnd")} value={element.duration} min={range.min} max={range.max}
+            valueText={format.seconds(element.duration)} scale={() => pps}
+            onChange={(value) => actions.setDuration(element.id, value)} onCommit={actions.seal} />
+        </>
+      ) : null}
       {element.effects.map((effect) => (
         <button key={effect.id} type="button" className={`clip__fx clip__fx--${effect.type}${selectedEffect === effect.id ? " is-selected" : ""}`}
           style={{ left: effect.offset * pps, width: Math.max(effect.duration * pps, 6) }} aria-pressed={selectedEffect === effect.id}

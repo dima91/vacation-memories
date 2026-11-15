@@ -26,3 +26,8 @@ export const MusicIcon = () => <Icon><path d="M9 18V5l11-2v13" /><circle cx="6" 
 export const ImageIcon = () => <Icon><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="2" /><path d="m21 16-5-5-8 8" /></Icon>;
 export const StopIcon = () => <Icon><rect x="6" y="6" width="12" height="12" rx="1" /></Icon>;
 export const PlusIcon = () => <Icon><path d="M12 5v14M5 12h14" /></Icon>;
+export const UndoIcon = () => <Icon><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-3" /></Icon>;
+export const RedoIcon = () => <Icon><path d="m15 14 5-5-5-5" /><path d="M20 9H10a6 6 0 0 0 0 12h3" /></Icon>;
+export const EyeOffIcon = () => <Icon size={16}><path d="M3 3l18 18" /><path d="M10.6 6.2A10 10 0 0 1 12 6c6 0 9 6 9 6a15 15 0 0 1-3 3.7M6.6 7.6C4 9.3 3 12 3 12s3 6 9 6a9 9 0 0 0 3.2-.6" /></Icon>;
+export const EyeIcon = () => <Icon size={16}><path d="M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6z" /><circle cx="12" cy="12" r="3" /></Icon>;
+export const TrashIcon = () => <Icon><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></Icon>;

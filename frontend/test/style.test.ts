@@ -80,3 +80,12 @@ test("transitions last 140 ms and are turned off for reduced motion", () => {
 test("the stylesheet loads nothing from outside", () => {
   assert.doesNotMatch(css, /https?:|@import|url\(\s*["']?\/\//);
 });
+
+test("the controls of the editing are as big as the others: 36 px buttons, 44 px thumbnails, a handle a finger wide", () => {
+  assert.match(css, /\.thumb__action \{[^}]*width: var\(--control\); height: var\(--control\)/);
+  assert.match(css, /\.toast__undo \{[^}]*min-height: var\(--control\)/);
+  assert.match(css, /\.toast__close \{[^}]*width: var\(--control\); height: var\(--control\)/);
+  const handle = /\.handle \{[^}]*width: (\d+)px/.exec(css);
+  assert.ok(Number(handle?.[1]) >= 12, "the handles have a grab area");
+  assert.match(css, /\.thumb \{[^}]*aspect-ratio: 4 \/ 3/);
+});

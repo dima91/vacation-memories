@@ -50,3 +50,23 @@ export function Field({ id, label, hint, error, children }: { id: string; label:
 export function Spinner({ label }: { label: string }) {
   return <p className="loading" role="status">{label}</p>;
 }
+
+export interface ToastProps {
+  text: string;
+  /** The label of the button that takes the change back; none for a notice that only informs. */
+  undo?: string;
+  onUndo?: () => void;
+  closeLabel: string;
+  onClose: () => void;
+}
+
+/** The notice at the bottom ("Element removed · Undo", section 12): the editor closes it after 7 seconds. */
+export function Toast({ text, undo, onUndo, closeLabel, onClose }: ToastProps) {
+  return (
+    <div className="toast" role="status">
+      <span>{text}</span>
+      {undo && onUndo ? <button type="button" className="toast__undo" onClick={onUndo}>{undo}</button> : null}
+      <button type="button" className="toast__close" aria-label={closeLabel} onClick={onClose}>×</button>
+    </div>
+  );
+}

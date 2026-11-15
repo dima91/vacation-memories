@@ -300,3 +300,42 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent);
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
+
+/* --- editing (U5) --- */
+
+[draggable="true"] { cursor: grab; }
+.topbar__edit { display: flex; align-items: center; gap: 8px; }
+.save { color: var(--muted); margin-right: 8px; white-space: nowrap; }
+.save--unsaved { color: var(--accent); }
+.save--failed, .save--conflict { color: var(--danger); }
+.actions--tight { margin-top: 10px; }
+.banner--error { border-left: 4px solid var(--danger); }
+.banner p + p { margin-top: 4px; }
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.slider { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 12px; margin-bottom: 4px; }
+.slider label { grid-column: 1 / -1; font-weight: 500; }
+.slider output { min-width: 64px; text-align: right; }
+.toolbar__text--block { margin-bottom: 12px; }
+
+.group__bar { display: flex; align-items: center; gap: 12px; }
+.group__bar .group__head { flex: 1; min-width: 0; }
+.thumbcell { position: relative; }
+.thumb__action { position: absolute; right: 6px; top: 6px; display: grid; place-items: center; width: var(--control); height: var(--control); padding: 0; background: rgba(19, 20, 21, 0.85); border: 1px solid var(--ctl); border-radius: 6px; cursor: pointer; }
+.thumb__action:hover { background: var(--panel2); }
+.video__row > .btn { flex: none; }
+.moment { cursor: pointer; }
+.moment__hit { display: block; width: 100%; height: 100%; padding: 0; background: none; border: 0; cursor: pointer; }
+
+/* A handle: a bar the size of a finger, with a thin mark inside it. */
+.handle { position: absolute; top: 0; bottom: 0; width: 14px; margin-left: -7px; cursor: ew-resize; touch-action: none; z-index: 2; }
+.handle::after { content: ""; position: absolute; left: 5px; right: 5px; top: 10px; bottom: 10px; border-radius: 2px; background: #fff; box-shadow: 0 0 0 1px #000; }
+.clip .handle--start { left: 0; }
+.clip .handle--end { left: 100%; }
+.handle--bar { top: 2px; bottom: 2px; }
+.handle--bar::after { top: 6px; bottom: 6px; }
+.insertion { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--accent); pointer-events: none; z-index: 3; }
+.clip__grab { width: 100%; height: 100%; }
+
+.toast { position: fixed; left: 50%; bottom: 24px; z-index: 40; display: flex; align-items: center; gap: 16px; max-width: min(720px, calc(100vw - 48px)); padding: 6px 8px 6px 16px; background: var(--panel2); border: 1px solid var(--ctl); border-radius: 8px; transform: translateX(-50%); }
+.toast__undo { min-height: var(--control); padding: 0 12px; background: none; border: 0; color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.toast__close { width: var(--control); height: var(--control); background: none; border: 0; color: var(--muted); font-size: 20px; cursor: pointer; }

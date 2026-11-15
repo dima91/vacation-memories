@@ -71,6 +71,23 @@ interface Props {
   onBack?: () => void;
 }
 
+/** The confirmation before a new plan replaces the current one (section 5): what is kept, and that a copy is made. */
+export function RegenerateDialog({ edited, working, onConfirm, onCancel }: { edited: boolean; working: boolean; onConfirm: () => void; onCancel: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="notice notice--warn" role="alertdialog" aria-labelledby="regenerate-title" aria-describedby="regenerate-body">
+      <div>
+        <p id="regenerate-title"><strong>{t("regenerate.title")}</strong></p>
+        <p id="regenerate-body">{edited ? `${t("regenerate.body")} ${t("regenerate.bodyEdited")}` : t("regenerate.body")}</p>
+        <div className="actions actions--tight">
+          <button type="button" className="btn btn--primary" disabled={working} autoFocus onClick={onConfirm}>{t("regenerate.confirm")}</button>
+          <button type="button" className="btn" onClick={onCancel}>{t("regenerate.cancel")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsForm({ project, mode, onSaved, onStarted, onBack, ai, tracks, initial }: Props & { ai: AiStatus | null; tracks: string[]; initial?: Form }) {
   const { t, languages, language, setLanguage } = useI18n();
   const [form, setForm] = useState<Form>(() => initial ?? formFrom(project.settings));
@@ -78,6 +95,7 @@ export function SettingsForm({ project, mode, onSaved, onStarted, onBack, ai, tr
   const [saved, setSaved] = useState<Requirement[] | null>(null);
   const [working, setWorking] = useState(false);
   const [choice, setChoice] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const set = <K extends keyof Form>(key: K, value: Form[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
     setSaved(null);
@@ -101,6 +119,7 @@ export function SettingsForm({ project, mode, onSaved, onStarted, onBack, ai, tr
   const start = async (withAi?: boolean) => {
     setWorking(true);
     setChoice(false);
+    setConfirming(false);
     try {
       if (withAi === undefined && !(await save())) return;
       await api.startPlan(project.id, withAi);
@@ -231,6 +250,12 @@ export function SettingsForm({ project, mode, onSaved, onStarted, onBack, ai, tr
         </p>
       ) : null}
 
+      {saved && (saved.includes("plan") || saved.includes("analysis")) && mode === "edit" ? (
+        <p className="notice notice--info" role="status">{t("regenerate.hint")}</p>
+      ) : null}
+
+      {confirming ? <RegenerateDialog edited={project.plan.edited} working={working} onConfirm={() => void start()} onCancel={() => setConfirming(false)} /> : null}
+
       {choice ? (
         <div className="notice notice--warn" role="alertdialog" aria-labelledby="ai-choice-title" aria-describedby="ai-choice-body">
           <div>
@@ -250,7 +275,8 @@ export function SettingsForm({ project, mode, onSaved, onStarted, onBack, ai, tr
         ) : (
           <>
             <button type="submit" className="btn btn--primary" disabled={working}>{working ? t("settings.saving") : t("settings.save")}</button>
-            {incomplete ? <button type="button" className="btn" disabled={working} onClick={() => void start()}>{t("settings.complete")}</button> : null}
+            <button type="button" className="btn" disabled={working || !project.plan.present} onClick={() => setConfirming(true)}>{t("regenerate.button")}</button>
+            {incomplete ? <button type="button" className="btn" disabled={working} onClick={() => setConfirming(true)}>{t("settings.complete")}</button> : null}
           </>
         )}
         {onBack ? <button type="button" className="btn" onClick={onBack}>{t("settings.backToEditor")}</button> : null}

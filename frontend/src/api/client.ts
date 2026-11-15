@@ -1,6 +1,6 @@
 // The editor's JSON API (section 9). Same origin: the browser sends the `Origin` and the `Host` the server checks.
 import type {
-  AiStatus, ApiErrorBody, Catalog, FoldersResponse, OpenedProject, PlanDocument, ProjectState, Settings,
+  AiStatus, ApiErrorBody, Catalog, FoldersResponse, OpenedProject, Plan, PlanDocument, ProjectState, Settings,
   SettingsSaved, StatusResponse, Waveform,
 } from "./types";
 
@@ -62,6 +62,8 @@ export const api = {
   project: (id: string) => request<ProjectState>("GET", project(id)),
   saveSettings: (id: string, changes: Partial<Settings>) => request<SettingsSaved>("PUT", `${project(id)}/settings`, changes),
   plan: (id: string) => request<PlanDocument>("GET", `${project(id)}/plan`),
+  /** Saves the whole plan. `revision` is the one read; `"*"` overwrites whatever is there (the server keeps a copy in plan_history). */
+  savePlan: (id: string, plan: Plan, revision: string) => request<PlanDocument>("PUT", `${project(id)}/plan`, plan, { "If-Match": revision }),
   catalog: (id: string) => request<Catalog>("GET", `${project(id)}/catalog`),
   waveform: (id: string, track: string) => request<Waveform>("GET", `${project(id)}/waveform/${track}`),
   startPlan: (id: string, ai?: boolean) => request<unknown>("POST", `${project(id)}/jobs`, ai === undefined ? { type: "plan" } : { type: "plan", ai }),
