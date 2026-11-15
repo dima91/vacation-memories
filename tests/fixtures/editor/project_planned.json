@@ -11,7 +11,7 @@
       "removed": 0,
       "total": 18
     },
-    "generated_at": "2026-11-14T18:02:18+00:00",
+    "generated_at": "2026-11-15T10:06:08+00:00",
     "present": true
   },
   "busy": false,
@@ -25,10 +25,11 @@
       "key": "done",
       "message": "the job finished"
     },
-    "finished_at": "2026-11-14T18:02:19+00:00",
-    "id": "f89a593920aa",
+    "finished_at": "2026-11-15T10:06:09+00:00",
+    "id": "fbaade69fb75",
     "name": null,
-    "started_at": "2026-11-14T18:02:16+00:00",
+    "plan_revision": null,
+    "started_at": "2026-11-15T10:06:07+00:00",
     "state": "done",
     "type": "plan"
   },
@@ -40,6 +41,7 @@
     "valid": true
   },
   "preview": {
+    "modified": null,
     "name": null,
     "outdated": false,
     "present": false
@@ -50,6 +52,7 @@
     "ai_time_budget": 600,
     "aspect": "16:9",
     "assume_tz": null,
+    "auto_preview": true,
     "duration": "0:30",
     "hwaccel": "none",
     "jobs": "auto",

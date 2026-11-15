@@ -112,7 +112,8 @@ class TestFoldersAndProjects:
         assert body["plan"]["present"] is False and body["analysis"]["present"] is False
         assert body["analysis"]["files"]["total"] == 2
         assert body["job"] is None and body["busy"] is False and body["exports"] == []
-        assert body["preview"] == {"present": False, "name": None, "outdated": False}
+        assert body["preview"] == {"present": False, "name": None, "modified": None, "outdated": False}
+        assert body["settings"]["auto_preview"] is True
 
     def test_settings_errors_name_the_field(self, editor):
         project = editor.client.post("/api/projects", {"folder": "other"})[2]["id"]
@@ -306,7 +307,9 @@ class TestPreviewAndExport:
         done = wait_for_job(client, trip)
         assert done["job"]["state"] == "done", done
         _, _, state = client.get(f"/api/projects/{trip}")
-        assert state["preview"] == {"present": True, "name": "memories_preview", "outdated": False}
+        assert (state["preview"]["present"], state["preview"]["name"], state["preview"]["outdated"]) == (True, "memories_preview", False)
+        assert state["preview"]["modified"]
+        assert job["plan_revision"] == state["plan"]["revision"] == done["job"]["plan_revision"]
         url = f"/api/projects/{trip}/video/memories_preview"
         status, headers, data = client.get(url, headers={"Range": "bytes=0-1023"})
         assert status == 206 and len(data) == 1024 and data[4:8] == b"ftyp"
@@ -320,6 +323,22 @@ class TestPreviewAndExport:
         os.utime(plan, (later, later))
         assert editor.client.get(f"/api/projects/{trip}")[2]["preview"]["outdated"] is True
 
+    def test_a_plan_saved_while_the_preview_rendered_makes_it_outdated(self, editor, trip, world):
+        _, work, _ = world
+        client = editor.client
+        plan = work / "projects" / trip / "edit_plan.json"
+        past = time.time() - 60
+        os.utime(plan, (past, past))  # an earlier test pushed its date into the future
+        assert client.post(f"/api/projects/{trip}/jobs", {"type": "preview"})[0] == 202
+        assert wait_for_job(client, trip)["job"]["state"] == "done"
+        assert client.get(f"/api/projects/{trip}")[2]["preview"]["outdated"] is False
+        document = json.loads(plan.read_text())
+        document["elements"][0]["duration"] = round(document["elements"][0]["duration"] + 1, 1)
+        plan.write_text(json.dumps(document))
+        earlier = (work / "projects" / trip / "memories_preview.mp4").stat().st_mtime - 30
+        os.utime(plan, (earlier, earlier))  # saved before the video was finished, as a save during the render is
+        assert editor.client.get(f"/api/projects/{trip}")[2]["preview"]["outdated"] is True
+
     def test_the_export_is_downloaded_with_its_name(self, editor, trip):
         client = editor.client
         assert client.post(f"/api/projects/{trip}/jobs", {"type": "export", "name": "summer trip"})[0] == 202
@@ -327,6 +346,7 @@ class TestPreviewAndExport:
         assert done["job"]["state"] == "done" and done["job"]["name"] == "summer trip", done
         _, _, state = client.get(f"/api/projects/{trip}")
         assert [entry["name"] for entry in state["exports"]] == ["summer trip"]
+        assert state["exports"][0]["path"] == f"projects/{trip}/summer trip.mp4"  # relative to the work folder
         status, headers, data = client.get(f"/api/projects/{trip}/video/summer%20trip?download=1")
         assert status == 200 and data[4:8] == b"ftyp"
         assert headers["content-disposition"] == 'attachment; filename="summer trip.mp4"'

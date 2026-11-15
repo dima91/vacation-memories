@@ -95,6 +95,15 @@ def live_documents(root: Path) -> dict[str, object]:
         documents["catalog.json"] = client.get(f"/api/projects/{project}/catalog")[2]
         track = documents["catalog.json"]["music"]["tracks"][0]["id"]
         documents["waveform.json"] = client.get(f"/api/projects/{project}/waveform/{track}")[2]
+
+        # A project with its videos: rendered without the music, which the child process of the test has no folder for.
+        silent_plan = {key: value for key, value in saved["plan"].items() if key != "music"}
+        status, _, silent = client.put(f"/api/projects/{project}/plan", silent_plan, headers={"If-Match": saved["revision"]})
+        assert status == 200, silent
+        for kind in ("preview", "export"):
+            assert client.post(f"/api/projects/{project}/jobs", {"type": kind, "name": "memories"})[0] == 202
+            assert wait_for_job(client, project)["job"]["state"] == "done"
+        documents["project_rendered.json"] = client.get(f"/api/projects/{project}")[2]
     return documents
 
 
@@ -130,7 +139,7 @@ NULLABLE = ("duration_origin", "detail", "group", "discard", "final", "narrative
             "category", "narrative_value", "description", "end_max", "ai", "coverage", "job", "exit", "name",
             "finished_at", "revision", "generated_at", "error", "start", "end", "percent", "phase", "done", "total",
             "eta_seconds", "started_at", "updated_at", "requested_duration", "planned_duration", "assumed_tz",
-            "assume_tz", "ai_frames", "music", "duration", "trim")
+            "assume_tz", "ai_frames", "music", "duration", "trim", "modified", "plan_revision")
 
 
 @pytest.fixture(scope="module")
@@ -139,7 +148,8 @@ def live(tmp_path_factory):
 
 
 @pytest.mark.parametrize("name", ["folders.json", "project_new.json", "project_planned.json", "status_done.json",
-                                  "plan_document.json", "plan_v2.json", "catalog.json", "waveform.json"])
+                                  "plan_document.json", "plan_v2.json", "catalog.json", "waveform.json",
+                                  "project_rendered.json"])
 def test_the_stored_fixture_has_the_shape_of_the_live_answer(live, name):
     stored = json.loads((FIXTURES / name).read_text(encoding="utf-8"))
     assert_same_shape(live[name], stored, name.removesuffix(".json"))

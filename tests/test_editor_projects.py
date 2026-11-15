@@ -102,6 +102,12 @@ class TestSettings:
         project = projects.open("trip")
         assert project.save_settings({"music": ["album/song.mp3"]})["requires"] == ["music"]
 
+    def test_the_automatic_preview_is_on_by_default_and_requires_nothing(self, projects):
+        project = projects.open("trip")
+        assert project.settings()["auto_preview"] is True
+        saved = project.save_settings({"auto_preview": False})
+        assert saved["requires"] == [] and project.settings()["auto_preview"] is False
+
     def test_the_analysis_options_require_the_analysis(self, projects):
         project = projects.open("trip")
         assert project.save_settings({"ai": True})["requires"] == ["analysis"]
@@ -116,6 +122,7 @@ class TestSettings:
         ({"nice": 99}, "nice"),
         ({"colour": "red"}, "colour"),
         ({"ai": "yes"}, "ai"),
+        ({"auto_preview": "yes"}, "auto_preview"),
         ({"music": ["../secret.mp3"]}, "music"),
         ({"music": ["album/missing.mp3"]}, "music"),
         ({"music": "album/song.mp3"}, "music"),

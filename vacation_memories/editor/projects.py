@@ -51,6 +51,7 @@ DEFAULT_SETTINGS: dict = {
     "jobs": "auto",
     "hwaccel": "none",
     "nice": 0,
+    "auto_preview": True,  # the preview job starts by itself after every new plan (section 6)
 }
 # What each change requires (section 7): the analysis again, a new plan, only the rendering, only the music block.
 _REQUIRES = {
@@ -199,15 +200,16 @@ class Project:
                 continue
             info = path.stat()
             stem = path.name[: -len(".mp4")]
-            entry = {"name": stem, "size": info.st_size,
+            entry = {"name": stem, "path": f"{PROJECTS_DIR}/{self.id}/{path.name}", "size": info.st_size,
                      "modified": datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat(timespec="seconds"),
                      "partial": stem.endswith(PARTIAL_SUFFIX)}
             (previews if stem.endswith(PREVIEW_SUFFIX) else exports).append((info.st_mtime, entry))
         plan_time = self.plan_path.stat().st_mtime if self.plan_path.exists() else None
         newest = max(previews, key=lambda item: item[0], default=None)
-        preview = {"present": newest is not None, "name": None, "outdated": False}
+        preview = {"present": newest is not None, "name": None, "modified": None, "outdated": False}
         if newest is not None:
-            preview.update(name=newest[1]["name"], outdated=plan_time is not None and plan_time > newest[0])
+            preview.update(name=newest[1]["name"], modified=newest[1]["modified"],
+                           outdated=plan_time is not None and plan_time > newest[0])
         return {"preview": preview, "exports": [entry for _, entry in exports]}
 
     def state(self) -> str:
@@ -325,7 +327,7 @@ class Projects:
 
     def validate_settings(self, project: Project, settings: dict) -> None:
         """Run the settings through the CLI's own validation, so the messages are the same (section 7)."""
-        for key, expected in (("ai", (bool, type(None))), ("music", (list,))):
+        for key, expected in (("ai", (bool, type(None))), ("music", (list,)), ("auto_preview", (bool,))):
             if not isinstance(settings[key], expected):
                 raise bad_request("invalid_settings", f"{key} has the wrong type", field=key)
         music = self._check_music(settings["music"])

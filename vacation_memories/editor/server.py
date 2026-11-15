@@ -179,11 +179,18 @@ class EditorApp:
 
     def project_state(self, project: Project) -> dict:
         videos = project.videos()
+        plan, job = project.plan_info(), self.jobs.current(project.id, project.workdir)
+        preview = videos["preview"]
+        # A plan saved while the preview was rendering is newer than the version the render read, but older than the
+        # video's own date: the revision the job started from tells.
+        if (preview["present"] and not preview["outdated"] and job and job["type"] == job_module.PREVIEW
+                and job["state"] == "done" and job["name"] is not None and preview["name"] == f"{job['name']}_preview"
+                and job["plan_revision"] and plan["revision"] and job["plan_revision"] != plan["revision"]):
+            preview = {**preview, "outdated": True}
         return {
             "id": project.id, "folder": project.folder, "settings": project.settings(),
-            "analysis": project.analysis(), "plan": project.plan_info(), "preview": videos["preview"],
-            "exports": videos["exports"], "job": self.jobs.current(project.id, project.workdir),
-            "busy": self._busy_elsewhere(project),
+            "analysis": project.analysis(), "plan": plan, "preview": preview,
+            "exports": videos["exports"], "job": job, "busy": self._busy_elsewhere(project),
         }
 
     def _busy_elsewhere(self, project: Project) -> bool:
@@ -396,7 +403,8 @@ class EditorApp:
                 raise bad_request("invalid_name", "the name must be a plain file name without extension", field="name")
             arguments = job_module.render_arguments(project.input_dir, project.workdir, settings, name=name,
                                                     preview=kind == job_module.PREVIEW)
-        job = self.jobs.start(project.id, project.workdir, kind, arguments, name=name)
+        revision = None if kind == job_module.PLAN else project.plan_info()["revision"]
+        job = self.jobs.start(project.id, project.workdir, kind, arguments, name=name, plan_revision=revision)
         return 202, job.to_dict()
 
     def _wants_ai(self, settings: dict, body: dict) -> bool:

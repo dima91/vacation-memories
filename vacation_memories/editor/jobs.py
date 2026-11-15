@@ -71,6 +71,7 @@ class Job:
     finished_at: str | None = None
     exit_code: int | None = None
     cancelled: bool = False
+    plan_revision: str | None = None  # the version of the plan a render started from (section 6)
     _done: threading.Event = field(default_factory=threading.Event, repr=False)
 
     @property
@@ -89,7 +90,7 @@ class Job:
         detail = _error_line(self.workdir) if self.exit_code not in (None, exit_codes.OK) else None
         return {"id": self.id, "type": self.type, "name": self.name, "state": self.state,
                 "started_at": self.started_at, "finished_at": self.finished_at,
-                "exit": exit_message(self.exit_code, detail)}
+                "exit": exit_message(self.exit_code, detail), "plan_revision": self.plan_revision}
 
 
 def _now() -> str:
@@ -121,12 +122,13 @@ class JobManager:
     # --- starting and stopping ---
 
     def start(self, project: str, workdir: Path, job_type: str, arguments: Sequence[str], *,
-              name: str | None = None) -> Job:
+              name: str | None = None, plan_revision: str | None = None) -> Job:
         """Start a job, unless one is running anywhere in the editor (409)."""
         with self._lock:
             if self._job is not None and self._job.running:
                 raise conflict("job_running", "another job is already running", job=self._job.id)
-            job = Job(uuid.uuid4().hex[:12], project, job_type, Path(workdir), name, started_at=_now())
+            job = Job(uuid.uuid4().hex[:12], project, job_type, Path(workdir), name, started_at=_now(),
+                      plan_revision=plan_revision)
             try:
                 output = open(Path(workdir) / OUTPUT_FILE, "wb")
             except OSError as error:
@@ -194,6 +196,7 @@ class JobManager:
             atomic_write_json(job.workdir / JOB_FILE, {
                 "id": job.id, "type": job.type, "name": job.name, "started_at": job.started_at,
                 "finished_at": job.finished_at, "exit_code": job.exit_code, "cancelled": job.cancelled,
+                "plan_revision": job.plan_revision,
             })
         except OSError as error:
             logger.warning("cannot record the job: %s", error.strerror or error)
@@ -224,7 +227,8 @@ class JobManager:
             return {"id": stored["id"], "type": stored["type"], "name": stored.get("name"),
                     "state": Job(stored["id"], project, stored["type"], Path(workdir), None, exit_code=code).state,
                     "started_at": stored["started_at"], "finished_at": stored.get("finished_at"),
-                    "exit": exit_message(code, _error_line(workdir) if code != exit_codes.OK else None)}
+                    "exit": exit_message(code, _error_line(workdir) if code != exit_codes.OK else None),
+                    "plan_revision": stored.get("plan_revision")}
         except (OSError, ValueError, KeyError, TypeError):
             return None
 

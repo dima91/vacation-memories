@@ -24,6 +24,7 @@
     "valid": true
   },
   "preview": {
+    "modified": null,
     "name": null,
     "outdated": false,
     "present": false
@@ -34,6 +35,7 @@
     "ai_time_budget": 600,
     "aspect": "16:9",
     "assume_tz": null,
+    "auto_preview": true,
     "duration": "5:00",
     "hwaccel": "none",
     "jobs": "auto",

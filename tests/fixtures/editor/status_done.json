@@ -7,10 +7,11 @@
       "key": "done",
       "message": "the job finished"
     },
-    "finished_at": "2026-11-14T18:02:19+00:00",
-    "id": "f89a593920aa",
+    "finished_at": "2026-11-15T10:06:09+00:00",
+    "id": "fbaade69fb75",
     "name": null,
-    "started_at": "2026-11-14T18:02:16+00:00",
+    "plan_revision": null,
+    "started_at": "2026-11-15T10:06:07+00:00",
     "state": "done",
     "type": "plan"
   },
@@ -18,9 +19,9 @@
     "done": 1,
     "eta_seconds": 0.0,
     "phase": "planning",
-    "started_at": "2026-11-14T18:02:17+00:00",
+    "started_at": "2026-11-15T10:06:07+00:00",
     "state": "done",
     "total": 1,
-    "updated_at": "2026-11-14T18:02:19+00:00"
+    "updated_at": "2026-11-15T10:06:09+00:00"
   }
 }
