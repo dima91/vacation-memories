@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Single-file launcher (`dist/vacation-memories`, built with PyInstaller by the `launcher-build` service): a Google Chrome
+  `--app` window asks the folders on the first start, pulls the image from Docker Hub, starts the editor and stops the
+  containers when the window is closed. `--install-desktop` adds the applications menu entry, `--reconfigure` asks
+  the folders again, `--stop` stops it. Without Chrome it opens the default browser with `xdg-open` and waits for `--stop`.
+- `VM_IMAGE` variable: image of `app` and `editor` (default `vacation-memories:local`).
+
 ## [0.1.0] - 2026-11-13
 
 First release.

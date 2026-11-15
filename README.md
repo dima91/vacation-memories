@@ -372,6 +372,38 @@ make their plan with the real analysis job (no AI), put it back before each test
 server saved; the screenshots of a failure are in `frontend/e2e/results/`. A change to `frontend/e2e/package.json` needs
 `docker compose --profile dev build e2e`.
 
+### Launcher (one file, double click)
+
+`dist/vacation-memories` is a single executable that starts everything and opens the editor in its own window. It needs
+Docker Engine with the Compose plugin and Google Chrome on the PC, nothing else (Python is inside the file). Without
+Google Chrome the page opens in your default browser (`xdg-open`); then nothing tells the launcher that you have finished,
+so stop it with the menu action "Stop Vacation Memories" or `vacation-memories --stop`.
+
+```sh
+chmod +x vacation-memories
+./vacation-memories --install-desktop    # adds "Vacation Memories" to the applications menu; then a double click works
+```
+
+On the first start the window asks the folders (the vacations, where to write the projects and videos, the music), saves
+the answers in `~/.config/vacation-memories/`, downloads the application image from Docker Hub (a few minutes, once),
+starts the editor and shows it. Closing the window stops the containers. `--reconfigure` (or the "Change folders and
+settings" action of the menu entry) asks the folders again; `--stop` stops a running launcher and its containers;
+`--browser PATH` chooses another Chrome; the log is
+`~/.config/vacation-memories/launcher.log`. Your repository `.env` is not used by the launcher.
+
+To build it, once you have published the image (the repository is yours, e.g. `yourname/vacation-memories`):
+
+```sh
+docker compose --profile dev build launcher-build
+docker build --target runtime --build-arg APP_VERSION=0.1.0 -t yourname/vacation-memories:0.1.0 .
+docker push yourname/vacation-memories:0.1.0              # up to you: logs in with your Docker Hub account
+IMAGE_REPO=yourname/vacation-memories APP_VERSION=0.1.0 docker compose run --rm -T launcher-build
+```
+
+The file embeds `compose.yaml` and the files it needs, so it can be copied to another PC on its own. It is built on an
+old glibc and runs on any Linux x86-64 with a newer one. A change to `requirements-launcher.txt` needs
+`docker compose --profile dev build launcher-build`.
+
 ## Long jobs on a server
 
 A run on hundreds of files can take hours, mostly in the AI analysis and in the rendering. Do not tie it to an SSH
