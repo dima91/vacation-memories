@@ -26,7 +26,13 @@ from vacation_memories.core.process import ShutdownController, ToolRunner
 from vacation_memories.core.runtime_profile import DetectionEnv, detect_ollama
 from vacation_memories.editor import jobs as job_module
 from vacation_memories.editor import media
-from vacation_memories.editor.catalog import build_catalog, file_id, music_tracks, transition_library
+from vacation_memories.editor.catalog import (
+    build_catalog,
+    candidate_clip_id,
+    file_id,
+    music_tracks,
+    transition_library,
+)
 from vacation_memories.editor.errors import ApiError, bad_request, conflict, not_found
 from vacation_memories.editor.ids import is_opaque_id, opaque_id
 from vacation_memories.editor.jobs import JobManager
@@ -36,8 +42,11 @@ from vacation_memories.planning.edit_plan import (
     DISSOLVE,
     FADE_IN,
     FADE_OUT,
+    VIDEO,
     EdgeFades,
     EditPlan,
+    OutputSpec,
+    PlanElement,
     PlanError,
     back_up_plan,
     finalize_timeline,
@@ -54,6 +63,7 @@ DEFAULT_ALLOWED_HOSTS = ("127.0.0.1:8080", "localhost:8080")
 MAX_BODY_BYTES = 8 * 1024 * 1024
 MAX_DISCARD_BYTES = 32 * 1024 * 1024
 CHUNK_BYTES = 64 * 1024
+DEFAULT_PREVIEW_OUTPUT = OutputSpec(1920, 1080, 30.0)  # the frame of the previews while there is no plan
 DURATION_TOLERANCE = 0.05  # of the requested duration (section 14)
 STATIC_DIR = Path(__file__).parent / "static"
 SECURITY_HEADERS = {
@@ -376,6 +386,38 @@ class EditorApp:
         path = media.clip_preview(project.workdir, project.input_dir, element, plan.output, self.runner)
         return FileResponse(path, "video/mp4")
 
+    def candidate_clip(self, project: Project, clip_id: str) -> FileResponse:
+        """The preview of a moment of the analysis, whether or not it is in the plan."""
+        document = self._document(project) or {}
+        candidate = next((item for item in document.get("candidates", [])
+                          if item["type"] == "video" and candidate_clip_id(item["id"]) == clip_id), None)
+        if candidate is None:
+            raise not_found("candidate")
+        start, end = candidate["start"], candidate["end"]
+        element = PlanElement(candidate["source"], VIDEO, end - start, start=start, end=end, id=f"candidate:{candidate['id']}")
+        return self._preview_of(project, element)
+
+    def source_clip(self, project: Project, media_id: str) -> FileResponse:
+        """The preview of a whole video of the folder."""
+        document = self._document(project) or {}
+        entry = next((item for item in document.get("files", [])
+                      if item["type"] == "video" and file_id(item["path"]) == media_id), None)
+        if entry is None:
+            raise not_found("media")
+        duration = entry.get("duration")
+        if not duration:
+            raise ApiError(422, "unreadable_media", "cannot make the preview of this video")
+        element = PlanElement(entry["path"], VIDEO, duration, start=0.0, end=duration, id=f"video:{media_id}")
+        return self._preview_of(project, element)
+
+    def _preview_of(self, project: Project, element: PlanElement) -> FileResponse:
+        try:
+            output = self._read_plan(project)[0].output
+        except ApiError:  # no plan yet: the previews have the frame of the default format
+            output = DEFAULT_PREVIEW_OUTPUT
+        path = media.clip_preview(project.workdir, project.input_dir, element, output, self.runner)
+        return FileResponse(path, "video/mp4")
+
     def video(self, project: Project, name: str, download: bool) -> FileResponse:
         path = project.video_path(name)
         return FileResponse(path, "video/mp4", download=f"{name}.mp4" if download else None)
@@ -685,6 +727,18 @@ class EditorHandler(BaseHTTPRequestHandler):
         if not is_opaque_id(element):
             raise not_found("element")
         return self.app.clip(self._project(p), element)
+
+    @route("GET", r"/projects/(?P<p>[^/]+)/candidate/(?P<clip>[^/]+)")
+    def candidate_clip(self, p, clip):
+        if not is_opaque_id(clip):
+            raise not_found("candidate")
+        return self.app.candidate_clip(self._project(p), clip)
+
+    @route("GET", r"/projects/(?P<p>[^/]+)/source/(?P<media>[^/]+)")
+    def source_clip(self, p, media):
+        if not is_opaque_id(media):
+            raise not_found("media")
+        return self.app.source_clip(self._project(p), media)
 
     @route("POST", r"/projects/(?P<p>[^/]+)/jobs")
     def start_job(self, p):

@@ -12,7 +12,7 @@
       "files": 18,
       "readable_files": 18
     },
-    "generated_at": "2026-11-14T18:02:18+00:00"
+    "generated_at": "2026-11-15T17:42:21+00:00"
   },
   "music": {
     "tracks": [
@@ -26,6 +26,7 @@
     {
       "captured_at": "2023-07-14T08:40:00.000",
       "category": null,
+      "clip": "53992484bc5af1a8",
       "day": "2023-07-14",
       "description": null,
       "discard": null,
@@ -50,6 +51,7 @@
     {
       "captured_at": "2023-07-14T10:00:00.000",
       "category": null,
+      "clip": "c06a067be46bf71c",
       "day": "2023-07-14",
       "description": null,
       "discard": null,
@@ -74,6 +76,7 @@
     {
       "captured_at": "2023-07-14T11:20:00.000",
       "category": null,
+      "clip": "12059b825b5f4689",
       "day": "2023-07-14",
       "description": null,
       "discard": null,
@@ -98,6 +101,7 @@
     {
       "captured_at": "2023-07-14T12:40:00.000",
       "category": null,
+      "clip": "4b635432dedf8842",
       "day": "2023-07-14",
       "description": null,
       "discard": null,
@@ -122,6 +126,7 @@
     {
       "captured_at": "2023-07-14T14:00:00.000",
       "category": null,
+      "clip": "4820ba6c08a13395",
       "day": "2023-07-14",
       "description": null,
       "discard": null,
@@ -146,6 +151,7 @@
     {
       "captured_at": "2023-07-14T15:20:00.000",
       "category": null,
+      "clip": "401c10b48f90a6dc",
       "day": "2023-07-14",
       "description": null,
       "discard": null,
@@ -170,6 +176,7 @@
     {
       "captured_at": "2023-07-14T16:40:00.000",
       "category": null,
+      "clip": "fd223cc75275e563",
       "day": "2023-07-14",
       "description": null,
       "discard": null,
@@ -194,6 +201,7 @@
     {
       "captured_at": "2023-07-14T18:00:00.000",
       "category": null,
+      "clip": "c85ff88da976ab59",
       "day": "2023-07-14",
       "description": null,
       "discard": {
@@ -217,6 +225,7 @@
     {
       "captured_at": "2023-07-15T08:40:00.000",
       "category": null,
+      "clip": "881e9baaedb07ea5",
       "day": "2023-07-15",
       "description": null,
       "discard": null,
@@ -241,6 +250,7 @@
     {
       "captured_at": "2023-07-15T10:00:00.000",
       "category": null,
+      "clip": "ecee60dc41d011b4",
       "day": "2023-07-15",
       "description": null,
       "discard": null,
@@ -265,6 +275,7 @@
     {
       "captured_at": "2023-07-15T11:20:00.000",
       "category": null,
+      "clip": "d99727464a5458a7",
       "day": "2023-07-15",
       "description": null,
       "discard": null,
@@ -289,6 +300,7 @@
     {
       "captured_at": "2023-07-15T12:40:00.000",
       "category": null,
+      "clip": "333307d24ae7cace",
       "day": "2023-07-15",
       "description": null,
       "discard": null,
@@ -313,6 +325,7 @@
     {
       "captured_at": "2023-07-15T14:00:00.000",
       "category": null,
+      "clip": "5b96205c0c011ea0",
       "day": "2023-07-15",
       "description": null,
       "discard": null,
@@ -337,6 +350,7 @@
     {
       "captured_at": "2023-07-15T15:20:00.000",
       "category": null,
+      "clip": "0d44e7326bbedc73",
       "day": "2023-07-15",
       "description": null,
       "discard": null,
@@ -361,6 +375,7 @@
     {
       "captured_at": "2023-07-15T16:40:00.000",
       "category": null,
+      "clip": "c367a13b8edfa469",
       "day": "2023-07-15",
       "description": null,
       "discard": null,
@@ -385,6 +400,7 @@
     {
       "captured_at": "2023-07-15T18:00:00.000",
       "category": null,
+      "clip": "c2c30dfe1d4d52d0",
       "day": "2023-07-15",
       "description": null,
       "discard": {
@@ -441,6 +457,7 @@
         {
           "captured_at": "2023-07-14T19:20:00.000",
           "category": null,
+          "clip": "6983305c8f9c6743",
           "day": "2023-07-14",
           "description": null,
           "discard": null,
@@ -468,6 +485,7 @@
         {
           "captured_at": "2023-07-14T19:20:04.000",
           "category": null,
+          "clip": "e0d4871b3aa0b946",
           "day": "2023-07-14",
           "description": null,
           "discard": null,
@@ -495,6 +513,7 @@
         {
           "captured_at": "2023-07-14T19:20:08.000",
           "category": null,
+          "clip": "bf4f3534a92b99ae",
           "day": "2023-07-14",
           "description": null,
           "discard": null,
@@ -530,6 +549,7 @@
         {
           "captured_at": "2023-07-15T19:20:00.000",
           "category": null,
+          "clip": "37640b77aa75f36b",
           "day": "2023-07-15",
           "description": null,
           "discard": null,
@@ -557,6 +577,7 @@
         {
           "captured_at": "2023-07-15T19:20:04.000",
           "category": null,
+          "clip": "f8c2a58933b18286",
           "day": "2023-07-15",
           "description": null,
           "discard": null,
@@ -584,6 +605,7 @@
         {
           "captured_at": "2023-07-15T19:20:08.000",
           "category": null,
+          "clip": "44afb1bce519c4de",
           "day": "2023-07-15",
           "description": null,
           "discard": null,
