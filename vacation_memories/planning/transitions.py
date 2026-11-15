@@ -7,7 +7,9 @@ is computed in whole frames and converted to seconds only at the end.
 
 Rules (section 8 of the specification):
 1. `d_eff = min(d, max_fraction * t_min)`, where `t_min` is the shorter of the two clips, so the
-   dissolves in and out of a clip never take more than twice `max_fraction` of it;
+   dissolves in and out of a clip never take more than twice `max_fraction` of it. The limit is the
+   planner's: a dissolve with `origin: user` (decision D3) may take up to the whole shorter clip, and
+   `plan_rules` checks that it fits the free space of both clips;
 2. `d_eff` is rounded down to a whole number of frames;
 3. if `d_eff` is shorter than `min_seconds`, the dissolve becomes a `cut`.
 """
@@ -19,6 +21,10 @@ from fractions import Fraction
 CUT = "cut"
 DISSOLVE = "dissolve"
 TRANSITION_TYPES = (CUT, DISSOLVE)
+
+PLANNER = "planner"  # who wrote a transition: the planner (or a migrated plan), or the user in the editor
+USER = "user"
+ORIGINS = (PLANNER, USER)
 
 DEFAULT_DISSOLVE_SECONDS = 0.8
 MAX_DISSOLVE_FRACTION = 0.25
@@ -41,6 +47,7 @@ class TransitionRequest:
 
     type: str = CUT
     duration: float = 0.0
+    origin: str = PLANNER
 
 
 @dataclass(frozen=True)
@@ -95,8 +102,9 @@ def effective_dissolve_frames(
     """Frames of the dissolve between two clips, and a note when it differs from the request."""
     if request.type == CUT or request.duration <= 0:
         return 0, None
-    shorter = min(left_frames, right_frames) / fps
-    allowed = min(request.duration, rules.max_fraction * float(shorter))
+    shorter = float(min(left_frames, right_frames) / fps)
+    limit = shorter if request.origin == USER else rules.max_fraction * shorter
+    allowed = min(request.duration, limit)
     frames = math.floor(allowed * fps + _EPSILON)
     if frames / fps < rules.min_seconds - _EPSILON:
         return 0, (

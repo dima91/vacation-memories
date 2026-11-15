@@ -1,0 +1,16 @@
+{
+  "name": "vacation-memories-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Browser tests of the editor (Playwright), run in the e2e container against the editor served by nginx",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2"
+  }
+}

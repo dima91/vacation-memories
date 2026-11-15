@@ -23,7 +23,13 @@ from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from vacation_memories.analysis.runner import Analysis, AnalysisRequest, RequirementsError, run_analysis
+from vacation_memories.analysis.runner import (
+    Analysis,
+    AnalysisRequest,
+    RequirementsError,
+    run_analysis,
+    write_candidates,
+)
 from vacation_memories.core import exit_codes
 from vacation_memories.core.atomic import atomic_write_json
 from vacation_memories.core.config import ConfigError, Settings
@@ -38,7 +44,15 @@ from vacation_memories.core.runtime_profile import (
     write_runtime_profile,
 )
 from vacation_memories.core.workdir import WorkdirInUseError, WorkdirLock
-from vacation_memories.planning.edit_plan import EditPlan, OutputSpec, PlanError, load_plan, save_plan
+from vacation_memories.planning.edit_plan import (
+    EdgeFades,
+    EditPlan,
+    OutputSpec,
+    PlanError,
+    keep_user_edits,
+    load_plan,
+    save_plan,
+)
 from vacation_memories.planning.edit_planner import plan_edit
 from vacation_memories.planning.estimates import estimate_render
 from vacation_memories.planning.video_format import (
@@ -205,7 +219,7 @@ def _params(settings: Settings, request: RunRequest) -> tuple[RunParams, set[str
         preview=request.preview,
         input=os.fsdecode(Path(settings.input).absolute()),
         output=os.fsdecode(settings.output),
-        music=None if settings.music is None else os.fsdecode(settings.music),
+        music=None if settings.music_path is None else os.fsdecode(settings.music_path),
         duration=settings.duration,
         width=width,
         height=height,
@@ -325,7 +339,7 @@ class _Run:
             return self._render(self._load_plan_for_render_only())
         if resume_with_plan and params.mode == FULL:
             logger.info("the plan of the interrupted run is ready: going straight to rendering")
-            return self._render(load_plan(self.workdir / PLAN_NAME))
+            return self._render(load_plan(self.workdir / PLAN_NAME, fades=self._fades()))
 
         analysis = self._analyze()
         if params.mode == ANALYZE_ONLY:
@@ -349,7 +363,9 @@ class _Run:
             no_ai=params.no_ai, model=params.model, ai_resolution=params.ai_resolution, ai_frames=params.ai_frames,
             ai_time_budget=params.ai_time_budget,
         )
-        return run_analysis(request, self.settings, controller=self.controller, progress=self.progress, env=self.env)
+        analysis = run_analysis(request, self.settings, controller=self.controller, progress=self.progress, env=self.env)
+        write_candidates(analysis, self.workdir)
+        return analysis
 
     def _print_analysis(self, analysis: Analysis) -> None:
         counts, coverage = analysis.counts, analysis.coverage
@@ -364,13 +380,19 @@ class _Run:
     def _output_spec(self) -> OutputSpec:
         return OutputSpec(self.params.width, self.params.height)
 
+    def _fades(self) -> EdgeFades:
+        return EdgeFades(self.settings.fade_in_seconds, self.settings.fade_out_seconds)
+
     def _plan(self, analysis: Analysis) -> tuple[EditPlan, dict]:
         params, settings = self.params, self.settings
         self.progress.phase("planning", 1)
         ranking = analysis.ranking
         rules = RenderConfig.from_settings(settings).rules
+        # A plan with user edits is copied into plan_history/ before it is overwritten; its exclusions stay.
+        excluded = keep_user_edits(self.workdir / PLAN_NAME)
         result = plan_edit(ranking, target=params.duration, output=self._output_spec(), config=settings.selection,
-                           rules=rules, structure=params.structure, assumed_tz=params.assume_tz)
+                           rules=rules, structure=params.structure, assumed_tz=params.assume_tz, excluded=excluded,
+                           fades=self._fades())
         coverage = analysis.coverage
         report = {
             **result.report,
@@ -420,7 +442,7 @@ class _Run:
 
     def _load_plan_for_render_only(self) -> EditPlan:
         params, settings = self.params, self.settings
-        plan = load_plan(self.workdir / PLAN_NAME)
+        plan = load_plan(self.workdir / PLAN_NAME, fades=self._fades())
         if settings.sources.get("duration", "default") != "default" and plan.planned_duration is not None \
                 and abs(params.duration - plan.planned_duration) > 0.5:
             logger.warning("--render-only uses the duration of the plan (%.1f s): --duration %.1f is ignored",

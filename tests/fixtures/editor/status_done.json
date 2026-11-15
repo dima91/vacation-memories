@@ -1,0 +1,27 @@
+{
+  "busy": false,
+  "job": {
+    "exit": {
+      "code": 0,
+      "detail": null,
+      "key": "done",
+      "message": "the job finished"
+    },
+    "finished_at": "2026-11-15T10:06:09+00:00",
+    "id": "fbaade69fb75",
+    "name": null,
+    "plan_revision": null,
+    "started_at": "2026-11-15T10:06:07+00:00",
+    "state": "done",
+    "type": "plan"
+  },
+  "progress": {
+    "done": 1,
+    "eta_seconds": 0.0,
+    "phase": "planning",
+    "started_at": "2026-11-15T10:06:07+00:00",
+    "state": "done",
+    "total": 1,
+    "updated_at": "2026-11-15T10:06:09+00:00"
+  }
+}

@@ -145,6 +145,23 @@ class TestModes:
         assert run(few, work, "--render-only", "--resolution", "720p", "--aspect", "9:16") == exit_codes.OK
         assert rendered == [(852, 480), (320, 320), (720, 1280)]
 
+    def test_the_music_option_is_relative_to_the_music_folder(self, few, work, tmp_path, monkeypatch):
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "15", *SMALL_FRAME) == exit_codes.OK
+        songs = tmp_path / "songs"
+        songs.mkdir()
+        (songs / "track.wav").write_bytes(b"")
+        seen = []
+
+        def fake_render(plan, **kwargs):
+            seen.append(kwargs["options"])
+            return RenderResult(True, kwargs["output"], {"obtained_duration": plan.planned_duration})
+
+        monkeypatch.setattr(pipeline, "render_plan", fake_render)
+        environ = {"VACATION_MEMORIES_MUSIC_DIR": str(songs)}
+        assert run(few, work, "--render-only", "--music", "track.wav", environ=environ) == exit_codes.OK
+        assert seen[0].music == songs / "track.wav" and seen[0].music_dir == songs
+        assert run(few, work, "--render-only", "--music", "missing.wav", environ=environ) == exit_codes.USAGE
+
     def test_above_1080p_a_warning_with_an_estimate(self, few, work, monkeypatch):
         assert run(few, work, "--no-ai", "--dry-run", "--duration", "15", *SMALL_FRAME) == exit_codes.OK
         monkeypatch.setattr(pipeline, "render_plan",
@@ -174,6 +191,114 @@ class TestModes:
     def test_render_only_without_a_plan_is_a_usage_error(self, few, work, capsys):
         assert run(few, work, "--render-only") == exit_codes.USAGE
         assert "plan not found" in capsys.readouterr().err
+
+
+class TestRegeneration:
+    """A new plan over one with user edits (section 7 of the specification) and the catalog of the analysis."""
+
+    @pytest.fixture
+    def work(self, tmp_path):
+        return tmp_path / "work"
+
+    def plan_file(self, work):
+        return work / "edit_plan.json"
+
+    def history(self, work):
+        folder = work / "plan_history"
+        return sorted(folder.iterdir()) if folder.exists() else []
+
+    def test_every_mode_that_analyzes_writes_the_candidates_file(self, few, work):
+        assert run(few, work, "--no-ai", "--analyze-only") == exit_codes.OK
+        catalog = json.loads((work / "candidates.json").read_text())
+        assert len(catalog["files"]) == 6 and len(catalog["candidates"]) == 6
+        assert not (work / "edit_plan.json").exists()
+        (work / "candidates.json").unlink()
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "20") == exit_codes.OK
+        assert (work / "candidates.json").exists()
+        (work / "candidates.json").unlink()
+        assert run(few, work, "--no-ai", "--duration", "15", *SMALL_FRAME) == exit_codes.OK
+        assert (work / "candidates.json").exists()
+
+    def test_the_plan_is_written_as_schema_2(self, few, work):
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "20") == exit_codes.OK
+        plan = json.loads(self.plan_file(work).read_text())
+        assert plan["schema_version"] == 2 and plan["excluded"] == [] and "music" not in plan
+        assert all(element["id"] and element["origin"] == "planner" for element in plan["elements"])
+
+    def test_a_plan_without_user_edits_is_overwritten_without_a_copy(self, few, work):
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "20") == exit_codes.OK
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "15") == exit_codes.OK
+        assert self.history(work) == []
+        assert json.loads(self.plan_file(work).read_text())["requested_duration"] == 15
+
+    def test_a_plan_with_user_edits_is_copied_and_its_exclusions_are_kept(self, few, work):
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "20") == exit_codes.OK
+        plan = json.loads(self.plan_file(work).read_text())
+        hidden = plan["elements"][0]["source"]
+        plan["excluded"] = [{"source": hidden, "start": None, "end": None, "reason": "user"}]
+        plan["elements"][1]["origin"] = "user"
+        self.plan_file(work).write_text(json.dumps(plan))
+        edited = self.plan_file(work).read_bytes()
+
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "15") == exit_codes.OK
+        (copy_,) = self.history(work)
+        assert copy_.read_bytes() == edited
+        new = json.loads(self.plan_file(work).read_text())
+        assert new["requested_duration"] == 15 and new["excluded"] == plan["excluded"]
+        assert hidden not in {element["source"] for element in new["elements"]}
+        assert new["runtime"]["excluded_candidates"] == 1
+        assert not any(element["origin"] == "user" for element in new["elements"])  # the planner wrote it again
+
+    def test_a_third_regeneration_keeps_the_exclusions_and_copies_again(self, few, work):
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "20") == exit_codes.OK
+        plan = json.loads(self.plan_file(work).read_text())
+        plan["excluded"] = [{"source": plan["elements"][0]["source"], "start": None, "end": None, "reason": "user"}]
+        self.plan_file(work).write_text(json.dumps(plan))
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "18") == exit_codes.OK
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "16") == exit_codes.OK
+        assert len(self.history(work)) == 2  # the plan always holds the exclusions, so it always counts as edited
+        assert json.loads(self.plan_file(work).read_text())["excluded"] == plan["excluded"]
+
+    def test_a_schema_1_plan_is_replaced_without_a_copy(self, few, work):
+        work.mkdir()
+        self.plan_file(work).write_text(json.dumps({
+            "schema_version": 1, "output": {"width": 640, "height": 360, "fps": 30},
+            "elements": [{"source": "x.jpg", "type": "photo", "duration": 3}],
+        }))
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "20") == exit_codes.OK
+        assert self.history(work) == []
+        assert json.loads(self.plan_file(work).read_text())["schema_version"] == 2
+
+    def test_a_plan_that_cannot_be_read_is_copied_before_it_is_replaced(self, few, work):
+        work.mkdir()
+        self.plan_file(work).write_text("{ a hand edit that broke the file")
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "20") == exit_codes.OK
+        (copy_,) = self.history(work)
+        assert copy_.read_text() == "{ a hand edit that broke the file"
+
+    def test_if_the_copy_fails_the_plan_is_not_overwritten(self, few, work, capsys):
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "20") == exit_codes.OK
+        plan = json.loads(self.plan_file(work).read_text())
+        plan["excluded"] = [{"source": plan["elements"][0]["source"], "start": None, "end": None, "reason": "user"}]
+        self.plan_file(work).write_text(json.dumps(plan))
+        before = self.plan_file(work).read_bytes()
+        (work / "plan_history").write_text("a file where the folder should be")
+        assert run(few, work, "--no-ai", "--dry-run", "--duration", "15") == exit_codes.USAGE
+        assert "cannot copy the plan" in capsys.readouterr().err
+        assert self.plan_file(work).read_bytes() == before
+
+    def test_a_hand_written_schema_1_plan_still_renders(self, few, work):
+        work.mkdir()
+        sources = sorted(p.relative_to(few).as_posix() for p in few.rglob("*.jpg"))[:2]
+        self.plan_file(work).write_text(json.dumps({
+            "schema_version": 1, "output": {"width": 568, "height": 320, "fps": 30},
+            "elements": [{"source": sources[0], "type": "photo", "duration": 3},
+                         {"source": sources[1], "type": "photo", "duration": 3,
+                          "transition_in": {"type": "dissolve", "duration": 0.5}}],
+        }))
+        assert run(few, work, "--render-only", "--output", "old.mp4") == exit_codes.OK
+        assert duration_of(work / "old.mp4") == pytest.approx(3 + 3 - 0.5, abs=0.2)
+        assert json.loads(self.plan_file(work).read_text())["schema_version"] == 1  # rendering does not rewrite it
 
 
 class TestPaths:

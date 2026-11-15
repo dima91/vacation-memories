@@ -1,5 +1,53 @@
 x-ollama-image: &ollama-image ollama/ollama:0.40.2
 x-ollama-model: &ollama-model ${OLLAMA_MODEL:-qwen3-vl:4b-instruct-q4_K_M}
+x-nginx-image: &nginx-image nginxinc/nginx-unprivileged:1.28.2-alpine
+
+# What `app` and `editor` share: the runtime image, the user, the hardening and the volumes.
+x-runtime: &runtime
+  build:
+    context: .
+    target: runtime
+    args:
+      APP_VERSION: ${APP_VERSION:-dev}
+  # `VM_IMAGE` is set only by the single-file launcher, which pulls the published image instead of building it.
+  image: ${VM_IMAGE:-vacation-memories:local}
+  user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  stop_grace_period: 30s
+  volumes:
+    - type: bind
+      source: ${MEDIA_DIR:?set MEDIA_DIR in .env}
+      target: /media
+      read_only: true
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ${MUSIC_DIR:-./music}
+      target: /music
+      read_only: true
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ${WORK_DIR:-./work}
+      target: /work
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ./docker/compose.toml
+      target: /etc/vacation-memories/compose.toml
+      read_only: true
+      bind:
+        create_host_path: false
+  networks:
+    - backend
+x-runtime-environment: &runtime-environment
+  VACATION_MEMORIES_CONFIG: /etc/vacation-memories/compose.toml
+  VACATION_MEMORIES_MODEL: *ollama-model
+  VACATION_MEMORIES_ASSUME_TZ: ${ASSUME_TZ:-}
 
 services:
   dev:
@@ -28,54 +76,145 @@ services:
     networks:
       - backend
 
-  app:
+  # The interface's checks and tests (`npm run check`, `npm test`). Like `dev`: the repository is mounted, the
+  # dependencies are in the image (change them by rebuilding it) and there is no network and no MEDIA_DIR.
+  ui-dev:
+    profiles: [dev]
     build:
       context: .
-      target: runtime
-      args:
-        APP_VERSION: ${APP_VERSION:-dev}
-    image: vacation-memories:local
+      target: ui-dev
+    image: vacation-memories-ui-dev:local
     user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
-    init: true
-    read_only: true
+    working_dir: /src/frontend
+    environment:
+      HOME: /tmp
+    volumes:
+      - type: bind
+        source: .
+        target: /src
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp
+    network_mode: none
+
+  # Builds the single-file launcher into ./dist (UI-SPEC.md, D15): `docker compose run --rm -T launcher-build`, with
+  # IMAGE_REPO set to the Docker Hub repository of the runtime image. Like `ui-dev`: the repository is mounted, the tool
+  # is in the image and there is no network and no media. /tmp allows exec: the one-file binary unpacks itself there.
+  launcher-build:
+    profiles: [dev]
+    build:
+      context: .
+      target: launcher-build
+    image: vacation-memories-launcher-build:local
+    user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
+    working_dir: /src
+    environment:
+      HOME: /tmp
+      IMAGE_REPO: ${IMAGE_REPO:-}
+      APP_VERSION: ${APP_VERSION:-dev}
+    command: ["python", "scripts/build_launcher.py"]
+    volumes:
+      - type: bind
+        source: .
+        target: /src
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:exec
+    network_mode: none
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    stop_grace_period: 30s
+
+  # The browser tests of the editor (UI-SPEC.md, D14): Chromium in the nginx container's network, so the page is
+  # `http://localhost:8080` as in the user's browser (the editor checks `Host` and `Origin`). It has no network of its
+  # own, no port and no media; `docker compose run --rm -T e2e` starts the editor and nginx it depends on.
+  e2e:
+    profiles: [dev]
+    build:
+      context: .
+      target: e2e
+    image: vacation-memories-e2e:local
+    user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
+    working_dir: /src/frontend/e2e
     environment:
-      VACATION_MEMORIES_CONFIG: /etc/vacation-memories/compose.toml
-      VACATION_MEMORIES_MODEL: *ollama-model
-      VACATION_MEMORIES_ASSUME_TZ: ${ASSUME_TZ:-}
+      HOME: /tmp
+    network_mode: "service:nginx"
+    depends_on:
+      nginx:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 1gb
     volumes:
       - type: bind
-        source: ${MEDIA_DIR:?set MEDIA_DIR in .env}
-        target: /media
-        read_only: true
+        source: .
+        target: /src
         bind:
           create_host_path: false
-      - type: bind
-        source: ${MUSIC_DIR:-./music}
-        target: /music
-        read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ${WORK_DIR:-./work}
-        target: /work
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ./docker/compose.toml
-        target: /etc/vacation-memories/compose.toml
-        read_only: true
-        bind:
-          create_host_path: false
+    tmpfs:
+      - /tmp
+
+  app:
+    <<: *runtime
+    profiles: [cli]  # a bare `docker compose up` must not start a full job; `docker compose run app …` still works
+    environment: *runtime-environment
     depends_on:
       ollama:
         condition: service_healthy
       ollama-pull:
         condition: service_completed_successfully
+
+  editor:
+    <<: *runtime
+    command: ["serve", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      <<: *runtime-environment
+      VACATION_MEMORIES_EDITOR_HOSTS: ${EDITOR_ALLOWED_HOSTS:-127.0.0.1:8080,localhost:8080}
+    # No depends_on on ollama or ollama-pull: the editor works with Ollama stopped and checks it only for an
+    # analysis with AI.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  nginx:
+    image: *nginx-image
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - type: bind
+        source: ./docker/nginx.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp
+    depends_on:
+      editor:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     networks:
+      - frontend
       - backend
 
   ollama:
@@ -118,6 +257,7 @@ networks:
   backend:
     internal: true
   egress: {}
+  frontend: {}  # an ordinary bridge with only nginx: an internal network cannot publish ports
 
 volumes:
   vacation-ollama-models:

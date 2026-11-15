@@ -34,7 +34,7 @@ while (($#)); do
 done
 
 # Whatever the shell exports must not leak into the tests: only the env file counts.
-for variable in MEDIA_DIR MUSIC_DIR WORK_DIR HOST_UID HOST_GID OLLAMA_MODEL OLLAMA_VULKAN ASSUME_TZ APP_VERSION \
+for variable in MEDIA_DIR MUSIC_DIR WORK_DIR HOST_UID HOST_GID OLLAMA_MODEL OLLAMA_VULKAN ASSUME_TZ APP_VERSION VM_IMAGE IMAGE_REPO \
     COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES COMPOSE_ENV_FILES; do
     unset "$variable"
 done
@@ -44,9 +44,10 @@ done
 dc() { docker compose --env-file "$TEST_ENV" "$@"; }
 dev() { dc run --rm -T --no-deps dev "$@"; }
 app() { dc run --rm -T app "$@"; }
-compose_example() { docker compose --env-file "$ROOT/.env.example" --profile dev "$@"; }
+# `app` is in the `cli` profile (D13 of UI-SPEC.md): the profile is on wherever a check looks at its configuration.
+compose_example() { docker compose --env-file "$ROOT/.env.example" --profile dev --profile cli "$@"; }
 compose_files() { # compose.yaml plus the leading *.yaml arguments, then the compose command; the test env file
-    local arguments=(--env-file "$TEST_ENV" --profile dev -f compose.yaml)
+    local arguments=(--env-file "$TEST_ENV" --profile dev --profile cli -f compose.yaml)
     while [[ ${1:-} == *.yaml ]]; do arguments+=(-f "$1"); shift; done
     docker compose "${arguments[@]}" "$@"
 }
@@ -226,7 +227,9 @@ app_files = sorted(
     os.path.relpath(os.path.join(folder, name), "/app")
     for folder, _, names in os.walk("/app") if "__pycache__" not in folder for name in names
 )
-problems += [f"/app/{name}" for name in app_files if not name.endswith(".py")]
+# Only code, and the built interface the editor serves (`editor/static/`, UI-SPEC.md section 4).
+problems += [f"/app/{name}" for name in app_files
+             if not name.endswith(".py") and not name.startswith("vacation_memories/editor/static/")]
 if os.listdir("/work"):
     problems.append("/work is not empty")
 
@@ -313,7 +316,7 @@ check_config_selinux() {
     ensure_built || return 1
     config_assert '
 labelled = sorted(name for name, service in c["services"].items() if "label=disable" in service.get("security_opt", []))
-assert labelled == ["app", "dev"], labelled
+assert labelled == ["app", "dev", "editor"], labelled
 ' compose_files compose.selinux.yaml || return 1
     config_assert '
 assert not [name for name, service in c["services"].items() if "label=disable" in service.get("security_opt", [])]
@@ -330,11 +333,44 @@ assert not [name for name, volume in c.get("volumes", {}).items() if volume.get(
 models = [volume["source"] for volume in services["ollama"]["volumes"] if volume["target"] == "/root/.ollama"]
 assert models == ["vacation-test-models"], models
 assert list(services["ollama"]["networks"]) == ["backend"], services["ollama"]["networks"]
-assert not [name for name, service in services.items() if service.get("ports")], "a port is published"
+assert [name for name, service in services.items() if service.get("ports")] == ["nginx"], "a port is published"
 assert float(services["app"]["cpus"]) == 1, services["app"].get("cpus")
 assert int(services["app"]["mem_limit"]) == 1024**3, services["app"].get("mem_limit")
 assert not [name for name, volume in c.get("volumes", {}).items() if volume.get("external")]
-' dc --profile dev
+' dc --profile dev --profile cli
+}
+
+check_config_editor() {
+    ensure_built || return 1
+    config_assert '
+services, networks = c["services"], c["networks"]
+published = {name: service["ports"] for name, service in services.items() if service.get("ports")}
+assert list(published) == ["nginx"], f"ports published by {list(published)}"
+assert [(port["host_ip"], int(port["published"]), port["target"]) for port in published["nginx"]] == [("127.0.0.1", 8080, 8080)], published
+assert list(services["editor"]["networks"]) == ["backend"], services["editor"]["networks"]
+assert sorted(services["nginx"]["networks"]) == ["backend", "frontend"], services["nginx"]["networks"]
+assert networks["backend"].get("internal") is True and not networks["frontend"].get("internal")
+assert not [name for name, service in services.items() if "frontend" in service.get("networks", {}) and name != "nginx"]
+depends = set(services["editor"].get("depends_on", {}))
+assert not depends & {"ollama", "ollama-pull"}, f"editor depends on {depends}"
+assert services["editor"]["healthcheck"]["test"][0] == "CMD"
+assert services["editor"]["command"][0] == "serve"
+assert services["editor"]["image"] == services["app"]["image"], "editor and app must be the same runtime image"
+nginx = services["nginx"]
+assert nginx["read_only"] is True and nginx["cap_drop"] == ["ALL"] and "no-new-privileges:true" in nginx["security_opt"]
+assert [(volume["target"], volume.get("read_only")) for volume in nginx["volumes"]] == [("/etc/nginx/nginx.conf", True)], nginx["volumes"]
+assert nginx["image"].split(":")[1] not in ("latest", ""), nginx["image"]
+' compose_files || return 1
+    # `app` is in the cli profile: a bare `docker compose up` does not start it, `run app` still works.
+    local without_cli with_cli
+    without_cli=$(docker compose --env-file "$TEST_ENV" config --services) || return 1
+    with_cli=$(docker compose --env-file "$TEST_ENV" --profile cli config --services) || return 1
+    grep -qx app <<<"$without_cli" && { echo "a bare docker compose up would start app"; return 1; }
+    grep -qx app <<<"$with_cli" || { echo "app is not in the cli profile"; return 1; }
+    for service in editor nginx; do
+        grep -qx "$service" <<<"$without_cli" || { echo "$service is not started by docker compose up"; return 1; }
+    done
+    dc run --rm -T --no-deps app --version >/dev/null || { echo "docker compose run app no longer works"; return 1; }
 }
 
 # --- checks: services ---
@@ -388,6 +424,88 @@ print("no media folder in dev")
     [[ $(stat -c %u:%g "$created") == "$(id -u):$(id -g)" ]] \
         || { echo "file created in /src belongs to $(stat -c %u:%g "$created"), not to the host user"; return 1; }
     rm -f "$created"
+}
+
+# `ui-dev` (from U4): the interface's checks and tests, in a container with the repository mounted, no network and no media.
+check_config_ui_dev() {
+    config_assert '
+service = c["services"]["ui-dev"]
+assert service.get("profiles") == ["dev"], service.get("profiles")
+assert service.get("network_mode") == "none" and not service.get("networks"), "ui-dev must have no network"
+assert [volume["target"] for volume in service["volumes"]] == ["/src"], service["volumes"]
+assert service["working_dir"] == "/src/frontend"
+assert service["user"].count(":") == 1 and not service["user"].startswith("0"), service["user"]
+assert "ui-dev" not in [name for name, other in c["services"].items() if not other.get("profiles")]
+' compose_files || return 1
+    local without_dev
+    without_dev=$(docker compose --env-file "$TEST_ENV" config --services) || return 1
+    ! grep -qx ui-dev <<<"$without_dev" || { echo "a bare docker compose up would start ui-dev"; return 1; }
+}
+
+# `launcher-build` (UI-SPEC.md, D15): builds the single-file launcher; repository mounted, no network, no media.
+check_config_launcher_build() {
+    config_assert '
+service = c["services"]["launcher-build"]
+assert service.get("profiles") == ["dev"], service.get("profiles")
+assert service.get("network_mode") == "none" and not service.get("networks"), "launcher-build must have no network"
+assert [volume["target"] for volume in service["volumes"]] == ["/src"], service["volumes"]
+assert service["user"].count(":") == 1 and not service["user"].startswith("0"), service["user"]
+assert service["cap_drop"] == ["ALL"], service.get("cap_drop")
+assert not service.get("ports"), service.get("ports")
+' compose_files || return 1
+    local without_dev
+    without_dev=$(docker compose --env-file "$TEST_ENV" config --services) || return 1
+    ! grep -qx launcher-build <<<"$without_dev" || { echo "a bare docker compose up would start launcher-build"; return 1; }
+    # The launcher sets VM_IMAGE to the published image; without it `app` and `editor` keep the local image.
+    config_assert '
+assert c["services"]["editor"]["image"] == "vacation-memories:local", c["services"]["editor"]["image"]
+' compose_files || return 1
+    VM_IMAGE=example/vacation-memories:9.9.9 config_assert '
+assert c["services"]["editor"]["image"] == "example/vacation-memories:9.9.9", c["services"]["editor"]["image"]
+assert c["services"]["app"]["image"] == c["services"]["editor"]["image"]
+' compose_files || return 1
+}
+
+# `e2e` (UI-SPEC.md, D14): the browser tests. It shares the network of nginx (so it is not on `frontend` itself), publishes
+# nothing, mounts only the repository and is not started by a bare `docker compose up`. The tests themselves run on request:
+# they need the editor, a synthetic vacation and a few minutes (`docker compose run --rm -T e2e`).
+check_config_e2e() {
+    config_assert '
+service = c["services"]["e2e"]
+assert service.get("profiles") == ["dev"], service.get("profiles")
+assert service.get("network_mode") == "service:nginx" and not service.get("networks"), "e2e must share the network of nginx"
+assert not service.get("ports"), "e2e must not publish a port"
+assert [volume["target"] for volume in service["volumes"]] == ["/src"], service["volumes"]
+assert service["working_dir"] == "/src/frontend/e2e"
+assert service["user"].count(":") == 1 and not service["user"].startswith("0"), service["user"]
+assert service["cap_drop"] == ["ALL"], service["cap_drop"]
+assert "e2e" not in [name for name, other in c["services"].items() if not other.get("profiles")]
+assert not [name for name, other in c["services"].items() if "frontend" in other.get("networks", {}) and name != "nginx"]
+' compose_files || return 1
+    local without_dev
+    without_dev=$(docker compose --env-file "$TEST_ENV" config --services) || return 1
+    ! grep -qx e2e <<<"$without_dev" || { echo "a bare docker compose up would start e2e"; return 1; }
+}
+
+check_ui_dev_isolation() {
+    ensure_built || return 1
+    local interfaces
+    interfaces=$(dc run --rm -T --no-deps ui-dev ls /sys/class/net) || return 1
+    [[ $interfaces == lo ]] || { echo "ui-dev has network interfaces: $interfaces"; return 1; }
+    dc run --rm -T --no-deps ui-dev sh -c '! grep -q " /media " /proc/mounts && test -z "$(ls -A /media 2>/dev/null)"' \
+        || { echo "MEDIA_DIR is mounted in ui-dev"; return 1; }
+    local created=$SCRATCH/owner-check-ui
+    rm -f "$created"
+    dc run --rm -T --no-deps ui-dev touch "/src/$SCRATCH_REL/owner-check-ui" || return 1
+    [[ $(stat -c %u:%g "$created") == "$(id -u):$(id -g)" ]] || { echo "file created by ui-dev does not belong to the host user"; return 1; }
+    rm -f "$created"
+}
+
+check_ui_dev_checks() {
+    ensure_built || return 1
+    dc run --rm -T --no-deps ui-dev npm run check || return 1
+    dc run --rm -T --no-deps ui-dev npm test || return 1
+    [[ ! -e $ROOT/frontend/node_modules ]] || { echo "node_modules ended up in the repository"; return 1; }
 }
 
 # --- checks: the full job ---
@@ -483,6 +601,230 @@ assert writable("/work/probe"), "cannot write to /work"
 assert getpass.getuser() == "app"
 print("only /work is writable")
 '
+}
+
+# --- checks: the editor (from U3) ---
+
+# Calls to the editor through nginx, from inside the nginx container (the published port is on the host's loopback).
+editor_get() { dc exec -T nginx wget -qO- --header "Host: 127.0.0.1:8080" "http://127.0.0.1:8080$1"; }
+editor_post() { # path json
+    dc exec -T nginx wget -qO- --header "Host: 127.0.0.1:8080" --header "Origin: http://127.0.0.1:8080" \
+        --header "Content-Type: application/json" --post-data "$2" "http://127.0.0.1:8080$1"
+}
+json_value() { dev python -c "import json, sys; data = json.load(sys.stdin); print($1)"; }
+json_check() { dev python -c "import json, sys
+data = json.load(sys.stdin)
+$1"; }
+# PUT, which busybox wget does not do: from `dev`, which reaches the editor on the internal network.
+editor_put() { # path json
+    dev python - "$1" "$2" <<'PY'
+import json, sys, urllib.request
+
+request = urllib.request.Request("http://editor:8000" + sys.argv[1], data=sys.argv[2].encode(), method="PUT", headers={
+    "Host": "127.0.0.1:8080", "Origin": "http://127.0.0.1:8080", "Content-Type": "application/json"})
+print(urllib.request.urlopen(request, timeout=30).read().decode())
+PY
+}
+
+# The editor and nginx up, with Ollama stopped: the editor must not need it.
+ensure_editor() {
+    ensure_media || return 1
+    stamp editor && return 0
+    dc stop ollama >/dev/null 2>&1
+    dc up -d --wait editor nginx || return 1
+    mark editor
+}
+
+wait_for_editor_job() { # project seconds: the state of the job once it is not running any more
+    local deadline=$((SECONDS + $2)) state
+    while ((SECONDS < deadline)); do
+        state=$(editor_get "/api/projects/$1/status" | json_value 'data["job"]["state"] if data["job"] else "none"')
+        case $state in running | stopping | none) sleep 1 ;; *) echo "$state"; return 0 ;; esac
+    done
+    echo timeout
+    return 1
+}
+
+check_editor_serves() {
+    ensure_editor || return 1
+    [[ -z $(dc ps --status running -q ollama) ]] || { echo "Ollama is running: the editor started it"; return 1; }
+    [[ $(editor_get /api/health | json_value 'data["status"]') == ok ]] || { echo "no health through nginx"; return 1; }
+    local page
+    page=$(editor_get /) || return 1
+    grep -qi '<title>' <<<"$page" || { echo "the page is not served"; return 1; }
+    if grep -Eiq '(https?:)?//[a-z0-9.-]+\.[a-z]{2,}' <<<"$page"; then
+        echo "the served page has an external reference"
+        return 1
+    fi
+    [[ $(editor_get /api/folders | json_value 'sorted(f["path"] for f in data["folders"])') == *vacation* ]] \
+        || { echo "the folders of the media root are not listed"; return 1; }
+    if dc exec -T nginx wget -qO- --header "Host: evil.example" http://127.0.0.1:8080/api/folders >/dev/null 2>&1; then
+        echo "a foreign Host was served"
+        return 1
+    fi
+    if dc exec -T nginx wget -qO- --header "Host: 127.0.0.1:8080" --header "Origin: http://evil.example" \
+        --header "Content-Type: application/json" --post-data '{"folder": "vacation"}' \
+        http://127.0.0.1:8080/api/projects >/dev/null 2>&1; then
+        echo "a foreign Origin was served"
+        return 1
+    fi
+}
+
+# The page, its script and stylesheet as nginx serves them: no external reference (UI-SPEC.md, sections 3 and 15).
+check_editor_page_assets() {
+    ensure_editor || return 1
+    local served=$SCRATCH/served page assets url fonts
+    rm -rf "$served" && mkdir -p "$served"
+    page=$(editor_get /) || return 1
+    printf '%s' "$page" >"$served/index.html"
+    assets=$(grep -Eo '/assets/[A-Za-z0-9._-]+\.(js|css)' <<<"$page")
+    [[ $(wc -l <<<"$assets") == 2 && $assets == *.js* && $assets == *.css* ]] \
+        || { echo "the page should load one script and one stylesheet, it loads: $assets"; return 1; }
+    for url in $assets; do
+        editor_get "$url" >"$served/$(basename "$url")" || { echo "cannot fetch $url"; return 1; }
+    done
+    fonts=$(grep -Eo 'url\("?\./[A-Za-z0-9._-]+\.woff2' "$served"/*.css | sed -E 's/.*\.\///')
+    [[ -n $fonts ]] || { echo "the stylesheet bundles no font"; return 1; }
+    for url in $fonts; do
+        dc exec -T nginx wget -q -O /dev/null --header "Host: 127.0.0.1:8080" "http://127.0.0.1:8080/assets/$url" \
+            || { echo "the font $url is not served"; return 1; }
+    done
+    dev python - "$SCRATCH_REL/served" <<'PY' || return 1
+import json, pathlib, re, sys
+
+allowed = json.loads(pathlib.Path("frontend/tools/allowed-urls.json").read_text())["prefixes"]
+pattern = re.compile(r"(?:https?:)?//[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}[^\s\"'`)<>\\]*")
+problems = []
+for path in sorted(pathlib.Path(sys.argv[1]).iterdir()):
+    for url in pattern.findall(path.read_text(encoding="utf-8")):
+        if not url.startswith(tuple(allowed)):
+            problems.append(f"{path.name}: {url}")
+if problems:
+    sys.exit("external references in the served page:\n" + "\n".join(problems))
+print("no external reference in the page, the script and the stylesheet")
+PY
+}
+
+check_editor_network() {
+    ensure_editor || return 1
+    ensure_ollama || return 1
+    local container published
+    for container in $(dc ps -q editor); do
+        [[ -z $(docker port "$container") ]] || { echo "the editor publishes a port"; return 1; }
+    done
+    published=$(docker port "$(dc ps -q nginx)")
+    [[ $published == *"127.0.0.1:8080"* && $(wc -l <<<"$published") == 1 ]] \
+        || { echo "nginx publishes: $published"; return 1; }
+    if dc exec -T editor python -c "import socket; socket.create_connection(('1.1.1.1', 53), timeout=3)" 2>/dev/null; then
+        echo "the editor reaches the Internet"
+        return 1
+    fi
+    dc exec -T editor python -c "import socket; socket.create_connection(('ollama', 11434), timeout=5)" \
+        || { echo "the editor cannot reach Ollama on the internal network"; return 1; }
+}
+
+check_editor_hardening() {
+    ensure_editor || return 1
+    docker inspect "$(dc ps -q editor)" "$(dc ps -q nginx)" | dev python -c '
+import json, os, sys
+
+editor, nginx = json.load(sys.stdin)
+owner = os.stat("/src")
+for name, container in (("editor", editor), ("nginx", nginx)):
+    host = container["HostConfig"]
+    assert host["ReadonlyRootfs"] is True, f"{name}: writable root filesystem"
+    assert host["CapDrop"] == ["ALL"] and not host["CapAdd"], f"{name}: capabilities"
+    assert "no-new-privileges:true" in host["SecurityOpt"], f"{name}: no-new-privileges"
+    assert host["Privileged"] is False, name
+    assert not [m for m in container["Mounts"] if "docker.sock" in m["Source"]], f"{name}: Docker socket"
+assert editor["HostConfig"]["Init"] is True and editor["Config"]["User"] == f"{owner.st_uid}:{owner.st_gid}"
+assert editor["Config"].get("StopTimeout") == 30, editor["Config"].get("StopTimeout")
+mounts = {mount["Destination"]: mount for mount in editor["Mounts"]}
+assert mounts["/media"]["RW"] is False and mounts["/music"]["RW"] is False and mounts["/work"]["RW"] is True
+assert editor["Config"]["Cmd"][0] == "serve"
+assert not editor["HostConfig"]["PortBindings"]
+assert [mount["Destination"] for mount in nginx["Mounts"]] == ["/etc/nginx/nginx.conf"], nginx["Mounts"]
+assert nginx["Mounts"][0]["RW"] is False
+print("editor: read-only rootfs, cap_drop ALL, host user, media and music read-only; nginx: only its configuration")
+'
+}
+
+# The project of the synthetic vacation, analyzed and planned by a job (no AI), once; its id is kept for the checks.
+ensure_editor_plan() {
+    ensure_editor || return 1
+    stamp editor-plan && { cat "$SCRATCH/editor.project"; return 0; }
+    local project state
+    project=$(editor_post /api/projects '{"folder": "vacation"}' | json_value 'data["id"]') || return 1
+    editor_post "/api/projects/$project/jobs" '{"type": "plan", "ai": false}' >/dev/null || return 1
+    state=$(wait_for_editor_job "$project" 300)
+    [[ $state == done ]] || { echo "the plan job ended as $state" >&2; return 1; }
+    echo "$project" >"$SCRATCH/editor.project" && mark editor-plan && echo "$project"
+}
+
+# An analysis and plan job and a preview, through nginx, on the synthetic vacation and without AI.
+check_editor_jobs() {
+    local project state
+    project=$(ensure_editor_plan) || return 1
+    editor_get "/api/projects/$project" | json_check '
+assert data["plan"]["present"] and data["analysis"]["complete"], data
+assert data["job"]["exit"]["key"] == "done", data["job"]
+print("analysis and plan done:", data["analysis"]["files"])' || return 1
+    editor_get "/api/projects/$project/plan" | json_check '
+assert data["plan"]["schema_version"] == 2 and data["limits"]["elements"]
+print("plan with", len(data["plan"]["elements"]), "elements")' || return 1
+    editor_post "/api/projects/$project/jobs" '{"type": "preview"}' >/dev/null || return 1
+    state=$(wait_for_editor_job "$project" 300)
+    [[ $state == done ]] || { echo "the preview job ended as $state"; return 1; }
+    dev python - "$SCRATCH_REL/work/projects/$project" <<'PY'
+import subprocess, sys
+from pathlib import Path
+
+video = Path("/src") / sys.argv[1] / "memories_preview.mp4"
+probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_name,height", "-of", "csv=p=0", str(video)],
+                       capture_output=True, text=True, check=True)
+assert "h264" in probe.stdout and "540" in probe.stdout, probe.stdout
+print("preview", video.name, probe.stdout.split())
+PY
+}
+
+# `docker stop` of the editor while an export renders: exit 143 within 10 s, no orphan FFmpeg, the job is told as
+# interrupted; the same job run again finishes.
+check_editor_stop() {
+    local project state container started elapsed code deadline
+    project=$(ensure_editor_plan) || return 1
+    editor_put "/api/projects/$project/settings" '{"resolution": "720p"}' >/dev/null || return 1
+    editor_post "/api/projects/$project/jobs" '{"type": "export", "name": "stopped"}' >/dev/null || return 1
+    container=$(dc ps -q editor)
+    deadline=$((SECONDS + 240))
+    until docker top "$container" 2>/dev/null | grep -q ffmpeg; do
+        [[ $(editor_get "/api/projects/$project/status" | json_value 'data["job"]["state"]') == running ]] \
+            || { echo "the job ended before the rendering"; return 1; }
+        ((SECONDS < deadline)) || { echo "FFmpeg did not start within 240 s"; return 1; }
+        sleep 0.5
+    done
+    started=$(date +%s.%N)
+    docker stop "$container" >/dev/null || return 1
+    elapsed=$(awk -v start="$started" -v end="$(date +%s.%N)" 'BEGIN { printf "%.1f", end - start }')
+    code=$(docker inspect -f '{{.State.ExitCode}}' "$container")
+    echo "editor stopped during a render: exit $code in $elapsed s"
+    [[ $code == 143 ]] || { echo "expected exit code 143"; return 1; }
+    awk -v elapsed="$elapsed" -v limit="$STOP_SECONDS" 'BEGIN { exit !(elapsed < limit) }' \
+        || { echo "stop took more than $STOP_SECONDS s"; return 1; }
+    dc up -d --wait editor nginx >/dev/null || return 1
+    editor_get "/api/projects/$project/status" | json_check '
+job = data["job"]
+assert job["state"] == "interrupted" and job["exit"]["code"] == 143, job' || return 1
+    [[ ! -e $SCRATCH/work/projects/$project/stopped.mp4 ]] || { echo "a video was left as if finished"; return 1; }
+    editor_post "/api/projects/$project/jobs" '{"type": "export", "name": "stopped"}' >/dev/null || return 1
+    state=$(wait_for_editor_job "$project" 300)
+    [[ $state == done ]] || { echo "the job run again ended as $state"; return 1; }
+}
+
+check_editor_media_unchanged() {
+    ensure_editor || return 1
+    (cd "$SCRATCH/media" && find . -type f -exec sha256sum {} + | sort -k2 | diff - "$SCRATCH/media.sha256") \
+        || { echo "the media changed"; return 1; }
+    [[ -z $(find "$SCRATCH/media" -newer "$SCRATCH/media.sha256" -type f) ]] || { echo "a media file was touched"; return 1; }
 }
 
 # --- checks: evaluation of the edit ---
@@ -630,18 +972,31 @@ run_check "config: clear error without MEDIA_DIR or HOST_UID" check_config_missi
 run_check "config: missing folders fail and are not created" check_config_missing_folders
 run_check "config: GPU override only on ollama" check_config_gpu_override
 run_check "config: OLLAMA_VULKAN only when set" check_config_vulkan
-run_check "config: SELinux override only on app and dev" check_config_selinux
+run_check "config: SELinux override only on app, dev and editor" check_config_selinux
 run_check "config: test override replaces Ollama" check_config_test_override
 run_check "ollama: no published port" check_ollama_not_published
 run_check "app: doctor --require-ai with the simulated Ollama" check_doctor_require_ai
 run_check "app: reaches Ollama, not the Internet" check_app_network
 run_check "dev: no media, no Internet, reaches Ollama, files owned by the host user" check_dev_isolation
+run_check "config: ui-dev in the dev profile, no network, only the repository mounted" check_config_ui_dev
+run_check "config: launcher-build in the dev profile, no network; VM_IMAGE sets the image of app and editor" check_config_launcher_build
+run_check "config: e2e in the dev profile, in the network of nginx, no port, only the repository mounted" check_config_e2e
+run_check "ui-dev: no network, no media, files owned by the host user" check_ui_dev_isolation
+run_check "ui-dev: npm run check (tsc) and npm test pass" check_ui_dev_checks
 run_check "cycle: exit 0 and AI used" check_cycle_exit
 run_check "cycle: video passes the FFprobe checks" check_cycle_video
 run_check "cycle: originals unchanged" check_cycle_media_unchanged
 run_check "cycle: nothing written outside /work" check_cycle_nothing_outside_work
 run_check "cycle: limits of 1 CPU and 1 GiB read by the profile" check_cycle_limits
 run_check "app: hardening" check_app_hardening
+run_check "config: editor and nginx, only 127.0.0.1:8080 published, app in the cli profile" check_config_editor
+run_check "editor: serves the page through nginx with Ollama stopped, checks Host and Origin" check_editor_serves
+run_check "editor: the served page, script and stylesheet have no external reference" check_editor_page_assets
+run_check "editor: only backend, no Internet, reaches Ollama; nginx publishes only 127.0.0.1:8080" check_editor_network
+run_check "editor: hardening, volumes read-only, nginx with only its configuration" check_editor_hardening
+run_check "editor: analysis and plan, then a preview, through nginx" check_editor_jobs
+run_check "editor: stop during a job, exit 143 within 10 s, the same job finishes" check_editor_stop
+run_check "editor: originals unchanged" check_editor_media_unchanged
 run_check "evaluate: prepare with the simulated Ollama, a page without external references" check_eval_prepare
 run_check "evaluate: report with --no-deps, an anonymous summary" check_eval_report
 run_check "stop: SIGTERM during rendering, then resume" check_stop_and_resume

@@ -8,6 +8,7 @@ tests.
 from dataclasses import dataclass
 from fractions import Fraction
 
+from vacation_memories.planning.edit_plan import DIP, FADE_IN, FADE_OUT
 from vacation_memories.planning.video_format import even
 from vacation_memories.rendering.render_config import RenderConfig
 
@@ -143,21 +144,68 @@ def photo_segment_graph(
 
 
 @dataclass(frozen=True)
+class ClipFade:
+    """A fade to or from black inside one clip: `start` and `frames` count frames from the clip's first one."""
+
+    kind: str  # FADE_IN, FADE_OUT or DIP
+    start: int
+    frames: int
+
+
+@dataclass(frozen=True)
 class BlockItem:
-    """One segment inside a block and the effective dissolve into it (0 = hard cut)."""
+    """One segment inside a block, the effective dissolve into it (0 = hard cut) and the fades inside it."""
 
     frames: int
     dissolve_frames: int
+    fades: tuple[ClipFade, ...] = ()
 
 
-def block_graph(items: list[BlockItem], fps: Fraction, fade_in: float = 0.0, fade_out: float = 0.0,
-                total_frames: int | None = None, out_label: str = "vout", output_filters: str = "") -> str:
-    """Join segments: dissolves with `xfade`, hard cuts with `concat`.
+def fade_statements(index: int, fades: tuple[ClipFade, ...]) -> tuple[list[str], str]:
+    """The filters that apply the fades of clip `index` to its input, and the label of the result.
+
+    Fades are counted in frames, so they do not depend on timestamps. A `dip` is a fade out of one copy
+    of the clip and a fade in of another, shown one after the other (`overlay` with an `enable`
+    window, so no `concat` changes the time base that `xfade` needs).
+    """
+    statements: list[str] = []
+    current = f"{index}:v"
+    for number, fade in enumerate(sorted(fades, key=lambda item: item.start)):
+        tag = f"e{index}_{number}"
+        label = f"e{index}" if number == len(fades) - 1 else tag
+        if fade.kind == FADE_IN:
+            statements.append(f"[{current}]fade=t=in:s={fade.start}:n={fade.frames}[{label}]")
+        elif fade.kind == FADE_OUT:
+            statements.append(f"[{current}]fade=t=out:s={fade.start}:n={fade.frames}[{label}]")
+        elif fade.kind == DIP:
+            down = fade.frames // 2
+            bottom = fade.start + down
+            statements += [
+                f"[{current}]split=2[{tag}a][{tag}b]",
+                f"[{tag}a]fade=t=out:s={fade.start}:n={down}[{tag}ao]",
+                f"[{tag}b]fade=t=in:s={bottom}:n={fade.frames - down}[{tag}bo]",
+                f"[{tag}ao][{tag}bo]overlay=enable='gte(n,{bottom})':format=yuv420[{label}]",
+            ]
+        else:
+            raise ValueError(f"unknown fade {fade.kind!r}")
+        current = label
+    return statements, current
+
+
+def block_graph(items: list[BlockItem], fps: Fraction, out_label: str = "vout", output_filters: str = "") -> str:
+    """Join segments: dissolves with `xfade`, hard cuts with `concat`; the fades of a clip come first.
 
     A run of segments joined by dissolves becomes one `xfade` chain; the runs are then joined by a
     single `concat`, so `xfade` never receives the output of `concat` (their time bases differ).
     Offsets are placed a quarter of a frame early so that rounding cannot move the first blended frame.
     """
+    statements: list[str] = []
+    labels = []
+    for index, item in enumerate(items):
+        faded, label = fade_statements(index, item.fades)
+        statements += faded
+        labels.append(label)
+
     runs: list[list[int]] = []
     for index, item in enumerate(items):
         if index and item.dissolve_frames:
@@ -165,17 +213,16 @@ def block_graph(items: list[BlockItem], fps: Fraction, fade_in: float = 0.0, fad
         else:
             runs.append([index])
 
-    statements: list[str] = []
     run_labels = []
     for run_number, run in enumerate(runs):
-        current = f"{run[0]}:v"
+        current = labels[run[0]]
         length = items[run[0]].frames
         for position, index in enumerate(run[1:], start=1):
             dissolve = items[index].dissolve_frames
             offset = (length - dissolve - 0.25) / fps
             label = f"r{run_number}x{position}"
             statements.append(
-                f"[{current}][{index}:v]xfade=transition=fade:duration={seconds_text(float(dissolve / fps))}:"
+                f"[{current}][{labels[index]}]xfade=transition=fade:duration={seconds_text(float(dissolve / fps))}:"
                 f"offset={seconds_text(float(offset))}[{label}]"
             )
             current = label
@@ -192,19 +239,10 @@ def block_graph(items: list[BlockItem], fps: Fraction, fade_in: float = 0.0, fad
     # No `fps` filter here: after `xfade` it drops the last frame, and the inputs are already
     # on the frame grid (the output encoder still enforces a constant rate).
     tail = "format=yuv420p,setsar=1"
-    total_seconds = float((total_frames if total_frames is not None else _timeline_frames(items)) / fps)
-    if fade_in > 0:
-        tail += f",fade=t=in:st=0:d={seconds_text(fade_in)}"
-    if fade_out > 0:
-        tail += f",fade=t=out:st={seconds_text(max(0.0, total_seconds - fade_out))}:d={seconds_text(fade_out)}"
     if output_filters:  # e.g. the upload to the GPU of a hardware encoder
         tail += f",{output_filters}"
     statements.append(f"[{last}]{tail}[{out_label}]")
     return ";".join(statements)
-
-
-def _timeline_frames(items: list[BlockItem]) -> int:
-    return sum(item.frames - item.dissolve_frames for item in items)
 
 
 def audio_graph(
@@ -248,4 +286,70 @@ def audio_graph(
     if fade_out > 0:
         chain += f",afade=t=out:st={seconds_text(duration - fade_out)}:d={seconds_text(fade_out)}"
     statements.append(f"[{current}]{chain}[{out_label}]")
+    return ";".join(statements)
+
+
+@dataclass(frozen=True)
+class MixPart:
+    """A part of a track of the plan, read from FFmpeg input number `input`: seconds of the track, fades of the part."""
+
+    input: int
+    start: float
+    end: float
+    muted: bool
+    fade_in: float
+    fade_out: float
+
+
+def parts_audio_graph(
+    parts: list[MixPart],
+    *,
+    offset: float,
+    duration: float,
+    sample_rate: int,
+    fade_out: float,
+    out_label: str = "aout",
+) -> str:
+    """Audio of the video from the plan's music: the parts one after the other, shifted, fitted to `duration`.
+
+    A positive `offset` puts silence in front, a negative one cuts that much from the start of the
+    music. What is left over at the end is cut off, and a music that is too short is padded with
+    silence; the music ends with a fade out of `fade_out` seconds, the video's last one.
+    """
+    layout = "stereo"
+    statements, labels = [], []
+    for number, part in enumerate(parts):
+        label = f"p{number}"
+        length = part.end - part.start
+        chain = (
+            f"[{part.input}:a]aresample={sample_rate},aformat=sample_fmts=fltp:channel_layouts={layout},"
+            f"atrim=start={seconds_text(part.start)}:end={seconds_text(part.end)},asetpts=PTS-STARTPTS"
+        )
+        if part.muted:
+            chain += ",volume=0"
+        if part.fade_in > 0:
+            chain += f",afade=t=in:st=0:d={seconds_text(part.fade_in)}"
+        if part.fade_out > 0:
+            chain += f",afade=t=out:st={seconds_text(length - part.fade_out)}:d={seconds_text(part.fade_out)}"
+        statements.append(f"{chain}[{label}]")
+        labels.append(label)
+
+    if offset > 0:
+        statements.append(
+            f"anullsrc=channel_layout={layout}:sample_rate={sample_rate},atrim=duration={seconds_text(offset)},"
+            "asetpts=PTS-STARTPTS[lead]"
+        )
+        labels.insert(0, "lead")
+    joined = "".join(f"[{label}]" for label in labels)
+    if offset < 0:
+        statements.append(f"{joined}concat=n={len(labels)}:v=0:a=1[joined]")
+        statements.append(f"[joined]atrim=start={seconds_text(-offset)},asetpts=PTS-STARTPTS[mix]")
+    else:
+        statements.append(f"{joined}concat=n={len(labels)}:v=0:a=1[mix]")
+
+    tail = f"apad=whole_dur={seconds_text(duration)},atrim=duration={seconds_text(duration)},asetpts=PTS-STARTPTS"
+    fade_out = min(fade_out, duration / 2)
+    if fade_out > 0:
+        tail += f",afade=t=out:st={seconds_text(duration - fade_out)}:d={seconds_text(fade_out)}"
+    statements.append(f"[mix]{tail}[{out_label}]")
     return ";".join(statements)

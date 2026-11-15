@@ -1,0 +1,72 @@
+{
+  "analysis": {
+    "ai": {
+      "coverage": null,
+      "used": false
+    },
+    "complete": true,
+    "files": {
+      "analyzed": 18,
+      "new_or_changed": 0,
+      "removed": 0,
+      "total": 18
+    },
+    "generated_at": "2026-11-15T10:06:08+00:00",
+    "present": true
+  },
+  "busy": false,
+  "exports": [
+    {
+      "modified": "2026-11-15T10:07:01+00:00",
+      "name": "memories",
+      "partial": false,
+      "path": "projects/vacation-1b24e0c1/memories.mp4",
+      "size": 6981476
+    }
+  ],
+  "folder": "vacation",
+  "id": "vacation-1b24e0c1",
+  "job": {
+    "exit": {
+      "code": 0,
+      "detail": null,
+      "key": "done",
+      "message": "the job finished"
+    },
+    "finished_at": "2026-11-15T10:07:01+00:00",
+    "id": "405a6c71f1ae",
+    "name": "memories",
+    "plan_revision": "9c8b3fa49692d642",
+    "started_at": "2026-11-15T10:06:15+00:00",
+    "state": "done",
+    "type": "export"
+  },
+  "plan": {
+    "edited": true,
+    "error": null,
+    "present": true,
+    "revision": "9c8b3fa49692d642",
+    "valid": true
+  },
+  "preview": {
+    "modified": "2026-11-15T10:06:14+00:00",
+    "name": "memories_preview",
+    "outdated": false,
+    "present": true
+  },
+  "settings": {
+    "ai": null,
+    "ai_frames": null,
+    "ai_time_budget": 600,
+    "aspect": "16:9",
+    "assume_tz": null,
+    "auto_preview": true,
+    "duration": "0:30",
+    "hwaccel": "none",
+    "jobs": "auto",
+    "music": [],
+    "nice": 0,
+    "resolution": "1080p",
+    "structure": "narrative"
+  }
+}
