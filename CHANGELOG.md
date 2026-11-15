@@ -9,6 +9,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- The interactive editor, a local web page served by the new `serve` subcommand behind an `nginx` proxy
+  (`docker compose up -d editor nginx`, `http://127.0.0.1:8080`). The interface is in Italian, in React and TypeScript
+  (`frontend/`), and the page makes no request outside the editor.
+  - Projects: every folder under `MEDIA_DIR` gets its own working folder, with settings, analysis and plan job with
+    progress and stop, and a resumable job after the editor stops.
+  - Editing: add, reorder and remove clips, photo durations, trims of the moments, hide photos and delete moments (the
+    planner never chooses them again), undo and redo, saving with a revision and a conflict dialog, and regenerating the
+    plan with a copy in `plan_history/`.
+  - Transitions and music: a library of transitions applied by drag or by buttons, several music tracks cut into parts
+    with mute, fades and a shift against the video.
+  - Preview and export: the preview of the whole video after every plan, an "outdated" mark, per-clip previews, and
+    "Export video" with a name, progress, stop, download and error states.
+  - Browser tests with Playwright (`e2e` service) on a synthetic vacation.
+- Edit plan `schema_version: 2`: a stable `id` and an `origin` for every clip, `effects` (`fade_in`, `fade_out`,
+  `dissolve`, `dip`), `excluded` moments and a `music` block. A schema 1 plan is still read and rendered. `--music` and
+  the tracks of the plan are relative to `music_dir`, and `--preview` writes `render_report_preview.json`.
+- `candidates.json`, written after every analysis, with every candidate, its scores and the reason it was left out.
+- A full run or `--dry-run` over a plan with edits made by hand first copies it into `plan_history/` and keeps its
+  excluded moments out of the new plan.
 - Single-file launcher (`dist/vacation-memories`, built with PyInstaller by the `launcher-build` service): a Google Chrome
   `--app` window asks the folders on the first start, pulls the image from Docker Hub, starts the editor and stops the
   containers when the window is closed. `--install-desktop` adds the applications menu entry, `--reconfigure` asks
