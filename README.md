@@ -311,7 +311,20 @@ other web page open in your browser can use it.
   (0.1 s, Shift 1 s) or the Detail slider, and "Riporta la musica all'inizio" brings it back; the part beyond the end of the
   video is dimmed, and the export cuts it there with the final fade-out. Once the plan has a `music` block it replaces the
   `--music` option.
-- **What comes later.** The full preview job and the export (U7).
+- **Preview.** The preview of the whole video is a job (`--render-only --preview`, short side 540 px, 24 fps) that starts by
+  itself after every new plan, unless "Prepara l'anteprima dopo ogni nuovo piano" is off in the settings; "Anteprima
+  completa" in the summary of the Detail panel starts it by hand. It plays in the summary; after any edit it is marked
+  "Anteprima non aggiornata" (top bar and summary) and "Aggiorna l'anteprima" makes it again. It is not real time, and a plan
+  saved while it renders leaves it marked as outdated. The preview of a single clip, in the Detail panel, follows the trim
+  and the duration (a moment after the last change) and has a retry button if FFmpeg could not make it.
+- **Export.** "Esporta video" in the top bar asks for a file name (no extension: `memories` by default, the same as the
+  last export, with a warning if it would replace a file), then shows the progress with a stop button. When it ends the
+  dialog says where the file is (the path from `WORK_DIR`, for example `projects/<name>-<hash>/memories.mp4`) and offers it
+  for download; the summary lists every export with its path and a download link. The editor stays usable while it renders
+  (the render keeps the version of the plan it read when it started, and the page says so); only one job runs at a time, so
+  the button is off with the reason while another one runs, while edits are being saved or when there is no plan. A stopped
+  export starts again from where it was with the same name. If the final check fails (code 3) the message of the CLI is
+  shown and the `<name>.partial.mp4` file is offered for inspection; code 4 and the others show their message too.
 - **Projects.** The editor lists the folders under `MEDIA_DIR`. Every folder has its own working folder,
   `WORK_DIR/projects/<name>-<hash>/`, with the cache, the plan (`edit_plan.json`), `candidates.json` (the catalog the
   analysis leaves for the editor), `project.json` (the settings), the logs and the videos. The CLI can work on the same

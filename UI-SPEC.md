@@ -269,6 +269,12 @@ It changes with the type of the selected element: photo, video, moment, music pa
 
 The playhead follows the actual playback; the mockup's playhead running without video is a simulation.
 
+**Clarifications (U7).**
+- **The preview of the whole video** starts by itself when the analysis job that makes a plan ends well, if the `auto_preview` setting (a project setting in `project.json`, on by default, in "Edit" of the settings, no CLI option) is on and nothing else is running. "Full preview" and "Update preview" in the summary start it by hand. It is marked outdated when the plan on disk is newer than the video or when the plan changed since the revision the preview job started from (the job records `plan_revision`, so a plan saved during the render counts); the mark is in the top bar and in the summary.
+- **The export** is the "Export video" button of the top bar (also in the summary): a dialog asks for the name (the server's rule, mirrored by the page; the name of the last export is offered again, and a name already in use is announced, since the render replaces it), shows the progress with the stop button, and at the end says where the file is (`path`, relative to `WORK_DIR`, in every entry of `exports`) with the download. The button is off, with the reason, while a job runs, while the project is busy, with no valid plan and while the edits are not saved yet (the render reads the plan on disk). A render keeps the plan it read when it started: while it runs, a saved change is flagged in the summary and in the dialog, and a finished export tells when the plan changed after it.
+- **Failures**: code 3 shows the CLI's message and offers `<name>.partial.mp4`; the other codes show their message and the log line; a stopped job (143) is not shown as a failure and starts again with the same name.
+- **The preview of a clip** is asked for again a moment after the last change of the clip (trim, duration), so a slider makes one request, not one per step; if FFmpeg fails the player offers a retry.
+
 ## 14. States and edge cases
 
 - **Empty or in progress**: the editor opens on an empty or populated plan; with no plan yet it shows the analysis progress.
