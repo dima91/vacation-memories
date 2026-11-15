@@ -1,6 +1,6 @@
 // The editor's JSON API (section 9). Same origin: the browser sends the `Origin` and the `Host` the server checks.
 import type {
-  AiStatus, ApiErrorBody, Catalog, FoldersResponse, OpenedProject, Plan, PlanDocument, ProjectState, Settings,
+  AiStatus, ApiErrorBody, Catalog, FoldersResponse, JobInfo, OpenedProject, Plan, PlanDocument, ProjectState, Settings,
   SettingsSaved, StatusResponse, Waveform,
 } from "./types";
 
@@ -67,6 +67,9 @@ export const api = {
   catalog: (id: string) => request<Catalog>("GET", `${project(id)}/catalog`),
   waveform: (id: string, track: string) => request<Waveform>("GET", `${project(id)}/waveform/${track}`),
   startPlan: (id: string, ai?: boolean) => request<unknown>("POST", `${project(id)}/jobs`, ai === undefined ? { type: "plan" } : { type: "plan", ai }),
+  /** A preview of the whole video, or the export with its name (without extension). */
+  startRender: (id: string, type: "preview" | "export", name?: string) =>
+    request<JobInfo>("POST", `${project(id)}/jobs`, name === undefined ? { type } : { type, name }),
   status: (id: string) => request<StatusResponse>("GET", `${project(id)}/status`),
   cancel: (id: string) => request<{ stopping: boolean }>("POST", `${project(id)}/jobs/cancel`),
 };
@@ -77,4 +80,6 @@ export const urls = {
     `/api${project(id)}/thumb/${media}${seconds === undefined ? "" : `?t=${seconds}`}`,
   clip: (id: string, element: string) => `/api${project(id)}/clip/${element}`,
   video: (id: string, name: string) => `/api${project(id)}/video/${encodeURIComponent(name)}`,
+  /** The same file as a download (`Content-Disposition: attachment`): the browser saves it instead of playing it. */
+  download: (id: string, name: string) => `/api${project(id)}/video/${encodeURIComponent(name)}?download=1`,
 };

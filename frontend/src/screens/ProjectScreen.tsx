@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import type { ProjectState } from "../api/types";
 import { ErrorNotice, Spinner } from "../components/ui";
 import { useI18n } from "../i18n";
+import { autoPreviewDue } from "../lib/render";
 import { EditorScreen } from "./EditorScreen";
 import { ProgressScreen } from "./ProgressScreen";
 import { SettingsScreen } from "./SettingsScreen";
@@ -35,6 +36,18 @@ export function ProjectScreen({ projectId, onLeave }: { projectId: string; onLea
     }
   }, [projectId]);
 
+  /** A new plan is there: the preview of the whole video starts by itself, unless the setting is off (section 6). */
+  const previewOfNewPlan = useCallback(async () => {
+    const next = await load(false);
+    if (!next || !autoPreviewDue(next)) return;
+    try {
+      await api.startRender(projectId, "preview");
+    } catch {
+      return; // the editor offers the button, with the reason if it fails again
+    }
+    await load(false);
+  }, [load, projectId]);
+
   useEffect(() => {
     setProject(null);
     setView(null);
@@ -48,7 +61,7 @@ export function ProjectScreen({ projectId, onLeave }: { projectId: string; onLea
 
   if (view === "progress") {
     return <ProgressScreen projectId={projectId} onBack={() => { void load(false); setView("settings"); }}
-      onDone={() => { void load(true); }} />;
+      onPlanReady={() => { void previewOfNewPlan(); }} onDone={() => { void load(true); }} />;
   }
   if (view === "settings") {
     return <SettingsScreen project={project} mode={project.plan.present ? "edit" : "analyze"}

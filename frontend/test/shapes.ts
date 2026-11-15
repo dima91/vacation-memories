@@ -113,21 +113,21 @@ export const waveform = obj<Waveform & { signature: unknown }>({ duration: num, 
 
 const settings = obj<Settings>({
   ai: nullable(bool), ai_time_budget: nullable(num), ai_frames: nullable(num), assume_tz: nullable(str), duration: str,
-  structure: oneOf("narrative", "chronological"), aspect: str, resolution: str, music: arr(str), jobs: any, hwaccel: str, nice: num,
+  structure: oneOf("narrative", "chronological"), aspect: str, resolution: str, music: arr(str), jobs: any, hwaccel: str, nice: num, auto_preview: bool,
 });
 const analysis = obj<AnalysisInfo>({
   present: bool, complete: bool, files: obj({ total: num, analyzed: num, new_or_changed: nullable(num), removed: num }),
   ai: nullable(aiUsage), generated_at: nullable(str),
 });
 const planInfo = obj<PlanInfo>({ present: bool, edited: bool, valid: bool, revision: nullable(str), error: nullable(str) });
-const preview = obj<PreviewInfo>({ present: bool, name: nullable(str), outdated: bool });
+const preview = obj<PreviewInfo>({ present: bool, name: nullable(str), modified: nullable(str), outdated: bool });
 const exit = obj<ExitInfo>({ code: num, key: str, message: str, detail: nullable(str) });
 const job = obj<JobInfo>({
   id: str, type: oneOf("plan", "preview", "export"), name: nullable(str), state: oneOf("running", "stopping", "done", "failed", "interrupted"),
-  started_at: str, finished_at: nullable(str), exit: nullable(exit),
+  started_at: str, finished_at: nullable(str), exit: nullable(exit), plan_revision: nullable(str),
 });
 export const projectState = obj<ProjectState>({
-  id: str, folder: str, settings, analysis, plan: planInfo, preview, exports: arr(obj({ name: str, size: num, modified: str, partial: bool })),
+  id: str, folder: str, settings, analysis, plan: planInfo, preview, exports: arr(obj({ name: str, path: str, size: num, modified: str, partial: bool })),
   job: nullable(job), busy: bool,
 });
 const progress = obj<Progress>({ state: str, phase: nullable(str), done: nullable(num), total: nullable(num), eta_seconds: nullable(num), started_at: nullable(str), updated_at: nullable(str) });

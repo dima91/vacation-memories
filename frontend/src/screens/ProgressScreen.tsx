@@ -47,14 +47,19 @@ interface Props {
   projectId: string;
   onDone: () => void;
   onBack: () => void;
+  /** The job ended well, the plan is ready: the moment the preview starts by itself (section 6). */
+  onPlanReady?: () => void;
 }
 
-export function ProgressScreen({ projectId, onDone, onBack }: Props) {
+export function ProgressScreen({ projectId, onDone, onBack, onPlanReady }: Props) {
   const i18n = useI18n();
   const { t, format } = i18n;
   const [stopError, setStopError] = useState<unknown>(null);
   const [outcome, setOutcome] = useState<StatusResponse | null>(null);
-  const { status, error } = useJobStatus(projectId, outcome === null, setOutcome);
+  const { status, error } = useJobStatus(projectId, outcome === null, (finished) => {
+    setOutcome(finished);
+    if (finished.job?.type === "plan" && finished.job.state === "done") onPlanReady?.();
+  });
   const job = (outcome ?? status)?.job ?? null;
   const progress = (outcome ?? status)?.progress ?? null;
   const running = job?.state === "running" || job?.state === "stopping";

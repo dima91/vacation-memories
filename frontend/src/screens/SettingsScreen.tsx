@@ -23,6 +23,7 @@ interface Form {
   jobs: string;
   hwaccel: string;
   nice: string;
+  autoPreview: boolean;
 }
 
 export function formFrom(settings: Settings): Form {
@@ -39,6 +40,7 @@ export function formFrom(settings: Settings): Form {
     jobs: String(settings.jobs),
     hwaccel: settings.hwaccel,
     nice: String(settings.nice),
+    autoPreview: settings.auto_preview,
   };
 }
 
@@ -59,6 +61,7 @@ export function settingsFrom(form: Form): Settings {
     jobs,
     hwaccel: form.hwaccel.trim(),
     nice: Number(form.nice),
+    auto_preview: form.autoPreview,
   };
 }
 
@@ -212,6 +215,14 @@ export function SettingsForm({ project, mode, onSaved, onStarted, onBack, ai, tr
             </div>
           )}
           {fieldError("music") ? <p className="field__error">{fieldError("music")}</p> : null}
+        </div>
+        <div className="field">
+          <label className="check">
+            <input type="checkbox" checked={form.autoPreview} id="s-auto-preview" aria-describedby="s-auto-preview-hint"
+              onChange={(event) => set("autoPreview", event.target.checked)} />
+            <span>{t("settings.autoPreview")}</span>
+          </label>
+          <p className="field__hint" id="s-auto-preview-hint">{t("settings.autoPreview.hint")}</p>
         </div>
       </fieldset>
 

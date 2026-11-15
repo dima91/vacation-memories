@@ -16,13 +16,13 @@ test("the flow: settings without a plan, progress while the analysis runs, the e
   assert.equal(chooseView(projectNew), "settings");
   assert.equal(chooseView(projectPlanned), "editor");
   const running = clone(projectNew);
-  running.job = { id: "j", type: "plan", name: null, state: "running", started_at: "now", finished_at: null, exit: null };
+  running.job = { id: "j", type: "plan", name: null, state: "running", started_at: "now", finished_at: null, exit: null, plan_revision: null };
   assert.equal(chooseView(running), "progress");
   const stopping = clone(running);
   stopping.job!.state = "stopping";
   assert.equal(chooseView(stopping), "progress");
   const preview = clone(projectPlanned);
-  preview.job = { ...running.job, type: "preview" };
+  preview.job = { ...running.job!, type: "preview" };
   assert.equal(chooseView(preview), "editor", "a preview or an export does not take the editor away");
   const finished = clone(running);
   finished.job!.state = "failed";

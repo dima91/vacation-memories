@@ -1,6 +1,6 @@
 // The bar of the editor: project, state of the analysis and of the jobs, requested duration, settings.
-// Undo, redo and the state of the saving come with the editing (U5); "Export video" comes with U7.
-import type { Catalog, ProjectState } from "../api/types";
+// Undo, redo and the state of the saving come with the editing (U5); "Export video" and the state of the preview with U7.
+import type { Catalog, JobType, ProjectState } from "../api/types";
 import { useI18n, type MessageKey } from "../i18n";
 import { clock } from "../lib/format";
 import type { SaveState } from "../lib/session";
@@ -15,17 +15,27 @@ export interface EditBar {
   readOnly: boolean;
 }
 
+/** The export button (section 10): off, with the reason, while a job runs, with no plan or while the project is busy. */
+export interface ExportButton {
+  reason: MessageKey | null;
+  onExport: () => void;
+}
+
 interface Props {
   project: ProjectState;
   catalog: Catalog | null;
   requested: number | null;
   working: boolean;
+  /** The type of the job that runs, to say which one it is. */
+  jobType?: JobType | null;
+  previewOutdated?: boolean;
   edit?: EditBar;
+  exporting?: ExportButton;
   onChangeFolder: () => void;
   onSettings: () => void;
 }
 
-export function TopBar({ project, catalog, requested, working, edit, onChangeFolder, onSettings }: Props) {
+export function TopBar({ project, catalog, requested, working, jobType, previewOutdated, edit, exporting, onChangeFolder, onSettings }: Props) {
   const { t } = useI18n();
   const analysis = project.analysis;
   const complete = analysis.present && analysis.complete;
@@ -44,7 +54,7 @@ export function TopBar({ project, catalog, requested, working, edit, onChangeFol
           {complete
             ? t("top.analysis.complete", { photos: catalog?.photos.length ?? 0, videos: catalog?.videos.length ?? 0 })
             : t("top.analysis.incomplete")}
-          {working ? ` · ${t("top.job.running")}` : ""}
+          {working ? ` · ${t(jobType ? `top.job.${jobType}` as MessageKey : "top.job.running")}` : ""}
           {project.busy ? ` · ${t("top.busy")}` : ""}
         </span>
       </p>
@@ -56,8 +66,13 @@ export function TopBar({ project, catalog, requested, working, edit, onChangeFol
           <button type="button" className="btn btn--icon" aria-label={t("edit.redoTitle")} title={t("edit.redoTitle")} disabled={!edit.canRedo || edit.readOnly} onClick={edit.onRedo}><RedoIcon /></button>
         </div>
       ) : null}
+      {previewOutdated ? <span className="chip chip--warn">{t("top.previewOutdated")}</span> : null}
       {requested ? <span className="chip" aria-label={t("top.duration")}>{t("top.duration")} <span className="num">{clock(requested)}</span></span> : null}
       <button type="button" className="btn" onClick={onSettings}><GearIcon />{t("top.settings")}</button>
+      {exporting ? (
+        <button type="button" className="btn btn--primary" disabled={exporting.reason !== null}
+          title={exporting.reason ? t(exporting.reason) : undefined} onClick={exporting.onExport}>{t("top.export")}</button>
+      ) : null}
     </header>
   );
 }

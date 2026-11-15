@@ -31,6 +31,7 @@ export interface Settings {
   jobs: string | number;
   hwaccel: string;
   nice: number;
+  auto_preview: boolean; // the preview job starts by itself after every new plan
 }
 
 export type Requirement = "analysis" | "plan" | "render" | "music";
@@ -80,11 +81,13 @@ export interface PlanInfo {
 export interface PreviewInfo {
   present: boolean;
   name: string | null;
+  modified: string | null;
   outdated: boolean;
 }
 
 export interface ExportEntry {
   name: string;
+  path: string; // relative to the work folder: where the file is
   size: number;
   modified: string;
   partial: boolean;
@@ -108,6 +111,7 @@ export interface JobInfo {
   started_at: string;
   finished_at: string | null;
   exit: ExitInfo | null;
+  plan_revision: string | null; // the version of the plan a preview or an export started from
 }
 
 export interface ProjectState {

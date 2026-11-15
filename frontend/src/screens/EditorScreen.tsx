@@ -6,11 +6,13 @@ import { ApiFailure, api } from "../api/client";
 import type { Catalog, CatalogItem, Plan, PlanDocument, ProjectState, Waveform } from "../api/types";
 import { DetailPanel } from "../components/DetailPanel";
 import type { EditActions } from "../components/editing";
+import { ExportDialog } from "../components/ExportDialog";
+import type { RenderControls } from "../components/JobProgress";
 import { MediaPanel, type MediaTab } from "../components/MediaPanel";
 import { Timeline } from "../components/Timeline";
 import { TopBar } from "../components/TopBar";
 import { ErrorNotice, Spinner, Toast } from "../components/ui";
-import { errorText, useI18n } from "../i18n";
+import { errorText, useI18n, type MessageKey } from "../i18n";
 import { withPlan } from "../lib/catalog";
 import type { DragPayload } from "../lib/dnd";
 import { freeStretches, momentAround } from "../lib/drag";
@@ -26,6 +28,7 @@ import {
   addElements, excludeCandidate, excludeElement, lostEffects, moveElement, newMoment, removeElement, restoreCandidate, restoreMoments,
   selectAddable, setMomentEdge, setPhotoDuration,
 } from "../lib/planEdit";
+import { canRender, isRunning } from "../lib/render";
 import { NO_SELECTION, type Selection } from "../lib/selection";
 import {
   canRedoSession, canSave, canUndoSession, isDirty, saveState, sessionReducer, shown, startSession, type Session,
@@ -145,10 +148,12 @@ export function Workspace({ project, initial, catalog, incomplete, onSaved, onJo
   const [collapsed, setCollapsed] = useState(false);
   const [waveforms, setWaveforms] = useState<ReadonlyMap<string, Waveform | null>>(() => new Map());
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [renderError, setRenderError] = useState<unknown>(null);
   const requested = useRef(new Set<string>());
   const playerRef = useRef<HTMLVideoElement | null>(null);
 
-  const jobRunning = project.job?.state === "running" || project.job?.state === "stopping";
+  const jobRunning = isRunning(project.job);
   const readOnly = project.busy || (jobRunning && project.job?.type === "plan");
   const { status } = useJobStatus(project.id, jobRunning, () => onJobDone());
 
@@ -504,6 +509,27 @@ export function Workspace({ project, initial, catalog, incomplete, onSaved, onJo
     return () => window.removeEventListener("keydown", onKey);
   }, [selection, actions, readOnly]);
 
+  // --- preview and export (sections 6, 13 and 14) ---
+
+  const exportReason: MessageKey | null = project.busy ? "top.export.busy"
+    : !project.plan.present || !project.plan.valid ? "top.export.noPlan"
+      : jobRunning ? "top.export.running"
+        : dirty ? "top.export.unsaved" : null;
+
+  const render = useMemo<RenderControls>(() => ({
+    canStart: canRender(project) && !dirty,
+    error: renderError,
+    onPreview: () => {
+      setRenderError(null);
+      api.startRender(project.id, "preview").then(() => onJobDone(), setRenderError);
+    },
+    onExport: () => setExporting(true),
+    onStop: () => {
+      setRenderError(null);
+      api.cancel(project.id).then(() => onJobDone(), setRenderError);
+    },
+  }), [project, dirty, renderError, onJobDone]);
+
   const missing = doc.warnings.filter((warning) => warning.code === "media_missing").length;
   const failure = session.failure;
   const state = saveState(session);
@@ -511,6 +537,8 @@ export function Workspace({ project, initial, catalog, incomplete, onSaved, onJo
   return (
     <div className="editor">
       <TopBar project={project} catalog={view} requested={doc.plan.requested_duration} working={jobRunning}
+        jobType={jobRunning ? project.job?.type : null} previewOutdated={project.preview.present && project.preview.outdated}
+        exporting={{ reason: exportReason, onExport: () => setExporting(true) }}
         edit={{ canUndo: canUndoSession(session), canRedo: canRedoSession(session), onUndo: () => dispatch({ type: "undo" }), onRedo: () => dispatch({ type: "redo" }), save: state, readOnly }}
         onChangeFolder={onChangeFolder} onSettings={onSettings} />
       <main className="editor__main" id="content">
@@ -546,11 +574,14 @@ export function Workspace({ project, initial, catalog, incomplete, onSaved, onJo
             tab={tab} actions={actions} onTab={setTab} onSelect={select} />
           <DetailPanel projectId={project.id} project={project} document={doc} catalog={view} waveforms={waveforms}
             selection={selection} playhead={playhead} seekVersion={seekVersion} job={status} collapsed={collapsed} actions={actions}
-            playerRef={playerRef} onTime={setPlayhead} onSelect={select} onToggle={() => setCollapsed((value) => !value)} />
+            render={render} playerRef={playerRef} onTime={setPlayhead} onSelect={select} onToggle={() => setCollapsed((value) => !value)} />
         </div>
       </main>
       <Timeline projectId={project.id} document={doc} waveforms={waveforms} selection={selection}
         playhead={playhead} actions={actions} onSelect={select} onSeek={seek} />
+      {exporting ? (
+        <ExportDialog project={project} status={status} output={doc.plan.output} onClose={() => setExporting(false)} onChanged={onJobDone} />
+      ) : null}
       {visibleNotice ? (
         <Toast text={visibleNotice.text} undo={visibleNotice.undoable ? t("notice.undo") : undefined}
           onUndo={() => { dispatch({ type: "undo" }); setNotice(null); }} closeLabel={t("notice.close")} onClose={() => setNotice(null)} />

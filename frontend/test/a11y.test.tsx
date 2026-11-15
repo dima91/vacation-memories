@@ -8,15 +8,17 @@ import { DetailPanel, type DetailProps } from "../src/components/DetailPanel";
 import { MediaPanel, type MediaTab } from "../src/components/MediaPanel";
 import { Timeline } from "../src/components/Timeline";
 import { TopBar, type EditBar } from "../src/components/TopBar";
+import { ExportDialog } from "../src/components/ExportDialog";
 import { Toast } from "../src/components/ui";
 import { FolderList } from "../src/screens/FoldersScreen";
 import { RegenerateDialog, SettingsForm } from "../src/screens/SettingsScreen";
 import { Workspace } from "../src/screens/EditorScreen";
 import { ProgressScreen } from "../src/screens/ProgressScreen";
+import type { JobInfo, ProjectState, StatusResponse } from "../src/api/types";
 import { NO_SELECTION, type Selection } from "../src/lib/selection";
-import { editable, readOnly } from "./actions";
+import { editable, readOnly, rendering } from "./actions";
 import { accessibleName, all, parseHtml, type HtmlNode } from "./dom";
-import { aiAvailable, catalog, clone, folders, planDocument, projectNew, projectPlanned, waveform } from "./fixtures";
+import { aiAvailable, catalog, clone, folders, planDocument, projectNew, projectPlanned, projectRendered, waveform } from "./fixtures";
 
 const waveforms = new Map([["brano.wav", waveform]]);
 const noop = () => undefined;
@@ -53,7 +55,7 @@ const render = (element: ReactElement): string => renderToStaticMarkup(element);
 
 const detail = (selection: Selection, overrides: Partial<DetailProps> = {}): ReactElement => (
   <DetailPanel projectId={projectPlanned.id} project={projectPlanned} document={planDocument} catalog={catalog} waveforms={waveforms}
-    selection={selection} playhead={3} seekVersion={0} job={null} collapsed={false} actions={editable} playerRef={createRef<HTMLVideoElement>()}
+    selection={selection} playhead={3} seekVersion={0} job={null} collapsed={false} actions={editable} render={rendering} playerRef={createRef<HTMLVideoElement>()}
     onTime={noop} onSelect={noop} onToggle={noop} {...overrides} />
 );
 
@@ -150,7 +152,7 @@ test("the whole-timeline summary shows duration against the request, the counts 
   assert.match(html, /Foto/);
   assert.match(html, /Non c&#x27;è ancora un&#x27;anteprima/);
   const withPreview = clone(projectPlanned);
-  withPreview.preview = { present: true, name: "memories_preview", outdated: true };
+  withPreview.preview = { present: true, name: "memories_preview", modified: "2026-11-15T10:06:14+00:00", outdated: true };
   const preview = render(detail(NO_SELECTION, { project: withPreview }));
   auditHtml(preview, "detail with preview");
   assert.match(preview, /\/api\/projects\/vacation-1b24e0c1\/video\/memories_preview/);
@@ -517,4 +519,195 @@ test("the Detail panel of a track offers to add it, to take it out and to bring 
   const trimmed = clone(planDocument);
   trimmed.plan.music!.tracks[0]!.parts = [{ start: 0, end: 12, muted: false, fade_in: 1, fade_out: 0 }];
   assert.ok(buttonNames(parseHtml(render(detail({ kind: "track", file: "brano.wav" }, { document: trimmed })))).includes("Ripristina le parti eliminate"));
+});
+
+// --- preview and export (U7) ---
+
+const runningJob = (type: JobInfo["type"], changes: Partial<JobInfo> = {}): JobInfo => ({
+  id: "job-1", type, name: type === "export" ? "memories" : null, state: "running", started_at: "2026-11-16T10:00:00+00:00", finished_at: null,
+  exit: null, plan_revision: projectPlanned.plan.revision, ...changes,
+});
+const failedJob = (type: JobInfo["type"], key: string, code: number, detail: string | null = null): JobInfo =>
+  runningJob(type, { state: "failed", finished_at: "2026-11-16T10:05:00+00:00", exit: { code, key, message: key, detail } });
+const progressOf = (job: JobInfo, done = 3, total = 10): StatusResponse => ({
+  job, busy: false, progress: { state: "running", phase: "normalizing segments", done, total, eta_seconds: 42, started_at: job.started_at, updated_at: job.started_at },
+});
+const withJob = (job: JobInfo | null, base: ProjectState = projectPlanned): ProjectState => ({ ...clone(base), job });
+const dialog = (project: ProjectState, status: StatusResponse | null = null) => render(
+  <ExportDialog project={project} status={status} output={{ width: 1920, height: 1080 }} onClose={noop} onChanged={noop} />);
+const controlNames = (root: HtmlNode) => all(root, (node) => node.tag === "button" || node.tag === "a").map((node) => accessibleName(node, root));
+
+test("the top bar has the export button: filled, named, and off with the reason when it cannot start", () => {
+  const bar = (reason: "top.export.running" | null) => render(<TopBar project={projectPlanned} catalog={catalog} requested={30} working={false}
+    exporting={{ reason, onExport: noop }} onChangeFolder={noop} onSettings={noop} />);
+  const ready = auditHtml(bar(null), "top bar with export");
+  const button = all(ready, (node) => node.tag === "button" && /Esporta video/.test(accessibleName(node, ready)))[0]!;
+  assert.match(button.attrs.class ?? "", /btn--primary/);
+  assert.ok(!("disabled" in button.attrs));
+  const blocked = auditHtml(bar("top.export.running"), "top bar with export off");
+  const off = all(blocked, (node) => node.tag === "button" && /Esporta video/.test(accessibleName(node, blocked)))[0]!;
+  assert.ok("disabled" in off.attrs);
+  assert.match(off.attrs.title ?? "", /Un altro lavoro è in corso/);
+});
+
+test("the top bar says which job runs and marks an outdated preview", () => {
+  const html = render(<TopBar project={projectPlanned} catalog={catalog} requested={30} working jobType="export" previewOutdated
+    onChangeFolder={noop} onSettings={noop} />);
+  auditHtml(html, "top bar with a job");
+  assert.match(html, /Esportazione in corso/);
+  assert.match(html, /Anteprima non aggiornata/);
+});
+
+test("the export dialog asks for a name and warns before replacing a file", () => {
+  const html = dialog(projectRendered);
+  const root = auditHtml(html, "export form");
+  assert.equal(all(root, (node) => node.tag === "dialog")[0]?.attrs["aria-labelledby"] !== undefined, true);
+  const field = all(root, (node) => node.tag === "input")[0]!;
+  assert.equal(accessibleName(field, root), "Nome del file");
+  assert.equal(field.attrs.value, "memories", "the name of the last export is offered again");
+  assert.match(html, /memories\.mp4/);
+  assert.match(html, /1920×1080/);
+  assert.match(html, /Esiste già un video con questo nome/);
+  assert.ok(controlNames(root).includes("Avvia l'esportazione") && controlNames(root).includes("Annulla"));
+  const fresh = dialog(projectPlanned);
+  assert.doesNotMatch(fresh, /Esiste già/);
+  assert.match(fresh, /value="memories"/);
+});
+
+test("the export dialog shows the progress with a stop button while the job runs", () => {
+  const job = runningJob("export", { name: "trip" });
+  const html = dialog(withJob(job), progressOf(job));
+  const root = auditHtml(html, "export running");
+  assert.match(html, /Esportazione di «trip\.mp4»/);
+  const bar = all(root, (node) => node.attrs.role === "progressbar")[0]!;
+  assert.deepEqual([bar.attrs["aria-valuenow"], bar.attrs["aria-valuemax"]], ["3", "10"]);
+  assert.match(html, /preparazione delle clip/);
+  assert.match(html, /Tempo rimasto: circa 0:42/);
+  assert.ok(controlNames(root).includes("Ferma"));
+  assert.match(html, /Puoi continuare a modificare/);
+  const stopping = runningJob("export", { name: "trip", state: "stopping" });
+  const stoppingRoot = auditHtml(dialog(withJob(stopping), progressOf(stopping)), "export stopping");
+  assert.ok(!controlNames(stoppingRoot).includes("Ferma"), "already stopping");
+});
+
+test("a save after the export started is flagged while it runs", () => {
+  const job = runningJob("export", { plan_revision: "an-older-version" });
+  assert.match(dialog(withJob(job), progressOf(job)), /usa la versione di prima/);
+});
+
+test("a dialog opened after an export finished shows the form, not the old result", () => {
+  const old = runningJob("export", { name: "memories", state: "done", plan_revision: projectRendered.plan.revision });
+  const html = dialog(withJob(old, projectRendered), { job: old, progress: null, busy: false });
+  assert.doesNotMatch(html, /Il video è pronto/);
+  assert.match(html, /Avvia l&#x27;esportazione/);
+});
+
+test("the result of an export started in the dialog: path relative to the work folder, size and download", () => {
+  // The dialog that started the job keeps its id; here the job shown is the one it started.
+  const done = runningJob("export", { name: "memories", state: "done", plan_revision: projectRendered.plan.revision });
+  const html = renderStarted(done, withJob(done, projectRendered));
+  const root = auditHtml(html, "export done");
+  assert.match(html, /Il video è pronto/);
+  assert.match(html, /projects\/vacation-1b24e0c1\/memories\.mp4, nella cartella di lavoro/);
+  assert.match(html, /Dimensione: \d/);
+  const download = all(root, (node) => node.tag === "a" && /Scarica il video/.test(accessibleName(node, root)))[0]!;
+  assert.equal(download.attrs.href, "/api/projects/vacation-1b24e0c1/video/memories?download=1");
+  assert.ok("download" in download.attrs);
+  const changed = withJob({ ...done, plan_revision: "an-older-version" }, projectRendered);
+  assert.match(renderStarted({ ...done, plan_revision: "an-older-version" }, changed), /il video non lo contiene/);
+});
+
+test("a failed final check offers the partial file; other failures give the message and a way to try again", () => {
+  const partialProject = (job: JobInfo): ProjectState => ({
+    ...withJob(job, projectRendered),
+    exports: [...projectRendered.exports, { name: "memories.partial", path: "projects/vacation-1b24e0c1/memories.partial.mp4", size: 1000, modified: "2026-11-16T10:04:00+00:00", partial: true }],
+  });
+  const checkFailed = failedJob("export", "check_failed", 3, "the duration does not match");
+  const html = renderStarted(checkFailed, partialProject(checkFailed));
+  const root = auditHtml(html, "export check failed");
+  assert.match(html, /controllo finale del video è fallito/);
+  assert.match(html, /the duration does not match/);
+  const partial = all(root, (node) => node.tag === "a" && /Scarica il file parziale/.test(accessibleName(node, root)))[0]!;
+  assert.equal(partial.attrs.href, "/api/projects/vacation-1b24e0c1/video/memories.partial?download=1");
+  assert.ok(controlNames(root).includes("Esporta di nuovo"));
+
+  const missing = failedJob("export", "missing_requirements", 4);
+  const missingHtml = renderStarted(missing, withJob(missing, projectRendered));
+  auditHtml(missingHtml, "export missing requirements");
+  assert.match(missingHtml, /Manca qualcosa di necessario/);
+  assert.doesNotMatch(missingHtml, /Scarica il file parziale/);
+
+  const stopped = runningJob("export", { state: "interrupted", exit: { code: 143, key: "interrupted", message: "stopped", detail: null } });
+  assert.match(renderStarted(stopped, withJob(stopped, projectRendered)), /Rilancialo per continuare/);
+  const invalid = failedJob("export", "invalid_input", 2, "the plan has no elements");
+  const invalidHtml = renderStarted(invalid, withJob(invalid, projectRendered));
+  assert.match(invalidHtml, /le impostazioni o il piano non sono validi/i);
+  assert.match(invalidHtml, /the plan has no elements/);
+});
+
+/** The dialog after it started `job`: the same component in the state it holds right then (its own id remembered). */
+function renderStarted(job: JobInfo, project: ProjectState): string {
+  return renderToStaticMarkup(<ExportDialog project={project} status={{ job, progress: null, busy: false }} output={{ width: 1920, height: 1080 }}
+    onClose={noop} onChanged={noop} startedJob={job.id} />);
+}
+
+test("the summary offers the full preview when there is none and the update when it is outdated, and starts nothing while a job runs", () => {
+  const none = auditHtml(render(detail(NO_SELECTION)), "summary without preview");
+  assert.ok(controlNames(none).includes("Anteprima completa") && controlNames(none).includes("Esporta video"));
+  const outdated = clone(projectPlanned);
+  outdated.preview = { present: true, name: "memories_preview", modified: "2026-11-16T10:00:00+00:00", outdated: true };
+  const html = render(detail(NO_SELECTION, { project: outdated }));
+  const root = auditHtml(html, "summary outdated");
+  assert.ok(controlNames(root).includes("Aggiorna l'anteprima"));
+  assert.match(html, /non è aggiornata/);
+  assert.match(html, /Non è in tempo reale/);
+  const off = render(detail(NO_SELECTION, { project: outdated, render: { ...rendering, canStart: false } }));
+  const offRoot = parseHtml(off);
+  const update = all(offRoot, (node) => node.tag === "button" && accessibleName(node, offRoot) === "Aggiorna l'anteprima")[0]!;
+  assert.ok("disabled" in update.attrs);
+  const current = clone(outdated);
+  current.preview.outdated = false;
+  assert.match(render(detail(NO_SELECTION, { project: current })), /Anteprima aggiornata/);
+});
+
+test("the summary shows a running preview with its stop button, and the render warns about a save made after it started", () => {
+  const job = runningJob("preview");
+  const project = withJob(job);
+  const html = render(detail(NO_SELECTION, { project, job: progressOf(job) }));
+  const root = auditHtml(html, "summary with a preview running");
+  assert.ok(controlNames(root).includes("Ferma"));
+  assert.ok(!controlNames(root).includes("Anteprima completa"), "no second render while one runs");
+  assert.match(html, /Anteprima in corso/);
+  const stale = withJob(runningJob("preview", { plan_revision: "an-older-version" }));
+  assert.match(render(detail(NO_SELECTION, { project: stale })), /usa la versione di prima/);
+});
+
+test("the summary lists the exports with their path and a download link, and tells why the last render failed", () => {
+  const html = render(detail(NO_SELECTION, { project: projectRendered }));
+  const root = auditHtml(html, "summary with exports");
+  assert.match(html, /memories\.mp4 · /);
+  assert.match(html, /Percorso: projects\/vacation-1b24e0c1\/memories\.mp4/);
+  const link = all(root, (node) => node.tag === "a" && /Scarica memories\.mp4/.test(accessibleName(node, root)))[0]!;
+  assert.equal(link.attrs.href, "/api/projects/vacation-1b24e0c1/video/memories?download=1");
+  const failed = withJob(failedJob("preview", "missing_requirements", 4, "ffmpeg is missing"), projectRendered);
+  const failedHtml = render(detail(NO_SELECTION, { project: failed }));
+  auditHtml(failedHtml, "summary with a failed preview");
+  assert.match(failedHtml, /L&#x27;ultima anteprima non è riuscita/);
+  assert.match(failedHtml, /Manca qualcosa di necessario/);
+  assert.match(failedHtml, /ffmpeg is missing/);
+  const stopped = withJob(runningJob("preview", { state: "interrupted", exit: { code: 143, key: "interrupted", message: "stopped", detail: null } }), projectRendered);
+  assert.doesNotMatch(render(detail(NO_SELECTION, { project: stopped })), /non è riuscita/, "a preview the user stopped is not a failure");
+});
+
+test("the settings form has the automatic preview option with its hint", () => {
+  const html = render(<SettingsForm project={projectPlanned} mode="edit" onSaved={noop} onStarted={noop} ai={aiAvailable} tracks={[]} />);
+  const root = auditHtml(html, "settings with the automatic preview");
+  const box = all(root, (node) => node.tag === "input" && node.attrs.id === "s-auto-preview")[0]!;
+  assert.equal(accessibleName(box, root), "Prepara l'anteprima dopo ogni nuovo piano");
+  assert.ok("checked" in box.attrs, "on by default");
+  assert.equal(box.attrs["aria-describedby"], "s-auto-preview-hint");
+  const off = clone(projectPlanned);
+  off.settings.auto_preview = false;
+  const offRoot = parseHtml(render(<SettingsForm project={off} mode="edit" onSaved={noop} onStarted={noop} ai={aiAvailable} tracks={[]} />));
+  assert.ok(!("checked" in all(offRoot, (node) => node.attrs.id === "s-auto-preview")[0]!.attrs));
 });

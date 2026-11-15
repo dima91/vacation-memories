@@ -352,3 +352,20 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent);
 .library__row { display: flex; align-items: center; gap: 6px; }
 .library__row .library__item { flex: 1; min-width: 0; }
 .library__swatch--cut, .swatch--cut { background: linear-gradient(90deg, var(--blue) 50%, var(--accent) 50%); }
+
+/* --- preview and export (U7) --- */
+
+.chip--warn { border-color: var(--accent); color: var(--accent); }
+.player__state--error { pointer-events: auto; }
+.player__state .link { color: var(--text); }
+.jobprogress .btn { margin-top: 4px; }
+.exports { display: grid; gap: 12px; }
+.exports li { display: grid; gap: 2px; }
+.exports__path { color: var(--muted); font-family: var(--font-mono); overflow-wrap: anywhere; }
+.dialog { width: min(520px, calc(100vw - 32px)); padding: 24px; background: var(--panel); color: var(--text); border: 1px solid var(--ctl); border-radius: 8px; }
+.dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+.dialog h2 { font-family: var(--font-title); font-size: 20px; margin-bottom: 12px; }
+.dialog p + p, .dialog .notice { margin-top: 12px; }
+.dialog .field { margin-top: 16px; margin-bottom: 0; }
+.dialog .field__error:empty { display: none; }
+a.btn { display: inline-flex; align-items: center; text-decoration: none; }

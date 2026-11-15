@@ -3,20 +3,23 @@
 // transition, a library transition, a track or a part of the music (U6). Without a selection it summarizes the whole video.
 import { useEffect, useId, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { urls } from "../api/client";
-import type { Catalog, CatalogItem, CatalogVideo, PlanDocument, PlanElement, ProjectState, Score, StatusResponse, Waveform } from "../api/types";
-import { useI18n, type MessageKey, type Translator } from "../i18n";
+import type { Catalog, CatalogItem, CatalogVideo, JobInfo, PlanDocument, PlanElement, Progress, ProjectState, Score, StatusResponse, Waveform } from "../api/types";
+import { exitText, useI18n, type MessageKey, type Translator } from "../i18n";
 import { discardKey, similarTo } from "../lib/catalog";
 import { PLACEMENTS, boundsOf, placeEffect, defaultsOf, type LibraryKind, type Placement } from "../lib/effectEdit";
 import { clock } from "../lib/format";
+import { useSettled } from "../lib/useSettled";
 import { durationRange, effectBounds, largestWindow, trimRange } from "../lib/limits";
 import { countDeleted, fadeRoom, offsetBounds } from "../lib/musicEdit";
 import { durationDeviation, findElement, planStats, positionOf } from "../lib/plan";
 import type { Selection } from "../lib/selection";
+import { isRunning, latestJob, outcomeOf, partialOf, renderUsesOlderPlan } from "../lib/render";
 import { clamp, clipAt, clipStart } from "../lib/timeline";
 import type { EditActions } from "./editing";
 import { ChevronLeftIcon, ChevronRightIcon, CloseIcon } from "./icons";
 import { fileName } from "./MediaPanel";
-import { ProgressBar } from "./ui";
+import { JobProgress, type RenderControls } from "./JobProgress";
+import { ErrorNotice } from "./ui";
 import { WaveformBars } from "./Timeline";
 
 export interface DetailProps {
@@ -31,6 +34,7 @@ export interface DetailProps {
   job: StatusResponse | null;
   collapsed: boolean;
   actions: EditActions;
+  render: RenderControls;
   playerRef: MutableRefObject<HTMLVideoElement | null>;
   onTime: (time: number) => void;
   onSelect: (selection: Selection) => void;
@@ -55,6 +59,10 @@ export function Player({ src, poster, time, seekVersion, offset, label, playerRe
   const element = useRef<HTMLVideoElement | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
 
+  const retry = () => {
+    setState("loading");
+    element.current?.load();
+  };
   useEffect(() => { setState("loading"); }, [src]);
   useEffect(() => {
     const video = element.current;
@@ -68,7 +76,12 @@ export function Player({ src, poster, time, seekVersion, offset, label, playerRe
         aria-label={label} onLoadedData={() => setState("ready")} onError={() => setState("failed")}
         onTimeUpdate={(event) => onTime(offset + event.currentTarget.currentTime)} />
       {state === "loading" ? <p className="player__state" role="status">{t("detail.previewLoading")}</p> : null}
-      {state === "failed" ? <p className="player__state player__state--error" role="alert">{t("detail.previewFailed")}</p> : null}
+      {state === "failed" ? (
+        <p className="player__state player__state--error" role="alert">
+          {t("detail.previewFailed")}{" "}
+          <button type="button" className="link" onClick={retry}>{t("detail.previewRetry")}</button>
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -146,9 +159,13 @@ function Buttons({ children }: { children: ReactNode }) {
 
 // --- one detail per kind of selection ---
 
+/** How long an edit rests before the preview of the clip is asked for again (every request makes a short FFmpeg run). */
+const CLIP_SETTLE_MS = 600;
+
 function ElementDetail({ props, element }: { props: DetailProps; element: PlanElement }) {
   const i18n = useI18n();
   const { t, format } = i18n;
+  const clipVersion = useSettled(`${element.start ?? ""}:${element.end ?? ""}:${element.duration}`, CLIP_SETTLE_MS);
   const { document: doc, projectId, catalog } = props;
   if (!doc) return null;
   const limits = doc.limits.elements[element.id];
@@ -162,7 +179,7 @@ function ElementDetail({ props, element }: { props: DetailProps; element: PlanEl
     <>
       <Head kind={t(isVideo ? "detail.kind.moment" : "detail.kind.photo")} title={fileName(element.source)}
         subtitle={`${t("detail.field.position", { n: positionOf(doc, element.id) })} · ${format.seconds(element.duration)}`} />
-      {refs ? <Player src={urls.clip(projectId, refs.clip)} poster={urls.thumb(projectId, refs.media, isVideo ? element.start : undefined)}
+      {refs ? <Player key={clipVersion} src={urls.clip(projectId, refs.clip)} poster={urls.thumb(projectId, refs.media, isVideo ? element.start : undefined)}
         time={clamp(props.playhead - begin, 0, element.duration)} seekVersion={props.seekVersion} offset={begin} label={t("detail.preview")}
         playerRef={props.playerRef} onTime={props.onTime} /> : null}
       <Scores score={element.score ?? item?.score} />
@@ -573,23 +590,54 @@ function PartDetail({ props, track, part }: { props: DetailProps; track: number;
 function SummaryDetail({ props }: { props: DetailProps }) {
   const i18n = useI18n();
   const { t, format, plural } = i18n;
-  const { document: doc, project, job } = props;
+  const { document: doc, project, job, render } = props;
   const analysis = props.catalog.analysis ?? project.analysis;
   const coverage = analysis?.ai?.coverage ?? null;
-  const running = job?.job && (job.job.state === "running" || job.job.state === "stopping") ? job : null;
+  const current = latestJob(job?.job, project.job);
+  const running: { job: JobInfo; progress: Progress | null } | null =
+    current && isRunning(current) ? { job: current, progress: job?.job?.id === current.id ? job.progress : null } : null;
   const stats = doc ? planStats(doc) : null;
   const begin = doc ? clipAt(doc.plan.elements, props.playhead) : null;
   const preview = project.preview;
+  const last = running ? null : project.job;
+  const lastFailed = last && (last.type === "preview" || last.type === "export") && ["failed", "check_failed"].includes(outcomeOf(last)) ? last : null;
+  const partial = lastFailed?.type === "export" ? partialOf(project.exports, lastFailed.name) : undefined;
   return (
     <>
       <Head kind={t("detail.kind.timeline")} title={t("summary.title")} />
       {preview.present && preview.name ? (
         <>
-          <Player src={urls.video(props.projectId, preview.name)} time={props.playhead} seekVersion={props.seekVersion} offset={0}
-            label={t("summary.preview")} playerRef={props.playerRef} onTime={props.onTime} />
+          <Player key={preview.modified ?? preview.name} src={urls.video(props.projectId, preview.name)} time={props.playhead}
+            seekVersion={props.seekVersion} offset={0} label={t("summary.preview")} playerRef={props.playerRef} onTime={props.onTime} />
           <p className={`note${preview.outdated ? " note--warn" : ""}`}>{preview.outdated ? t("summary.previewOutdated") : t("summary.previewCurrent")}</p>
         </>
       ) : <p className="note">{t("summary.previewNone")}</p>}
+      {!running ? (
+        <div className="buttons">
+          <button type="button" className={`btn${preview.outdated || !preview.present ? " btn--primary" : ""}`} disabled={!render.canStart} onClick={render.onPreview}>
+            {t(preview.present ? "summary.updatePreview" : "summary.makePreview")}
+          </button>
+          <button type="button" className="btn" disabled={!render.canStart} onClick={render.onExport}>{t("top.export")}</button>
+        </div>
+      ) : null}
+      <p className="help">{t("summary.previewSlow")}</p>
+      <ErrorNotice error={render.error} />
+      {running ? (
+        <Section title={t(`summary.job.${running.job.type}` as MessageKey)}>
+          <JobProgress job={running.job} progress={running.progress} onStop={render.onStop} />
+          {renderUsesOlderPlan(running.job, project.plan.revision) ? <p className="note note--warn" role="status">{t("summary.renderOlder")}</p> : null}
+        </Section>
+      ) : null}
+      {lastFailed ? (
+        <div className="notice notice--error" role="alert">
+          <div>
+            <p><strong>{t(`summary.lastFailed.${lastFailed.type === "export" ? "export" : "preview"}` as MessageKey)}</strong></p>
+            <p>{lastFailed.exit ? exitText(i18n, lastFailed.exit.key, lastFailed.exit.message) : t("app.unknownError")}</p>
+            {lastFailed.exit?.detail ? <p className="notice__detail">{t("summary.lastFailed.detail", { detail: lastFailed.exit.detail })}</p> : null}
+            {partial ? <a className="link" href={urls.download(props.projectId, partial.name)} download>{t("summary.downloadPartial", { name: `${partial.name}.mp4` })}</a> : null}
+          </div>
+        </div>
+      ) : null}
       {stats ? (
         <Section title={t("detail.info")}>
           <Facts rows={[
@@ -604,11 +652,6 @@ function SummaryDetail({ props }: { props: DetailProps }) {
         </Section>
       ) : null}
       {stats && (durationDeviation(stats.total, stats.requested) ?? 0) > 0.05 ? <p className="note note--warn" role="status">{t("summary.durationOff")}</p> : null}
-      {running ? (
-        <Section title={t("summary.job")}>
-          <ProgressBar value={running.progress?.done ?? 0} max={running.progress?.total ?? 0} label={t("progress.bar")} />
-        </Section>
-      ) : null}
       {doc && doc.warnings.length > 0 ? (
         <Section title={t("summary.warnings")}>
           <ul className="warnings">
@@ -626,7 +669,15 @@ function SummaryDetail({ props }: { props: DetailProps }) {
       </Section>
       {project.exports.length > 0 ? (
         <Section title={t("summary.exports")}>
-          <ul className="links">{project.exports.map((entry) => <li key={entry.name}>{entry.name}.mp4 · {format.bytes(entry.size)}{entry.partial ? ` (${t("summary.partial")})` : ""}</li>)}</ul>
+          <ul className="exports">
+            {project.exports.map((entry) => (
+              <li key={entry.name}>
+                <span>{entry.name}.mp4 · {format.bytes(entry.size)}{entry.partial ? ` (${t("summary.partial")})` : ""}</span>
+                <span className="exports__path">{t("summary.exportPath", { path: entry.path })}</span>
+                <a className="link" href={urls.download(props.projectId, entry.name)} download>{t("summary.download", { name: `${entry.name}.mp4` })}</a>
+              </li>
+            ))}
+          </ul>
         </Section>
       ) : null}
       {stats && stats.tracks > 0 ? <Help text={t("detail.help.music")} /> : null}
