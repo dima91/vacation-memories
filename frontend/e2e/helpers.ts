@@ -18,9 +18,23 @@ export interface Element {
   effects: { id: string; type: string; offset: number; duration: number; origin: string }[];
 }
 
+export interface MusicPart {
+  start: number;
+  end: number;
+  muted: boolean;
+  fade_in: number;
+  fade_out: number;
+}
+
+export interface Music {
+  tracks: { file: string; parts: MusicPart[] }[];
+  offset: number;
+}
+
 export interface Plan {
   elements: Element[];
   excluded: { source: string; start: number | null; end: number | null; reason: string }[];
+  music?: Music;
   [key: string]: unknown;
 }
 
@@ -87,4 +101,22 @@ export async function dragTo(page: Page, source: Locator, x: number, y: number):
 export async function expandPhotos(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Espandi tutto" }).click();
   await expect(page.locator("li.thumbcell[draggable='true']").first()).toBeVisible();
+}
+
+/** The transitions on the clips of the timeline (the buttons that select them). */
+export const effectButtons = (page: Page): Locator => page.locator(".clip .clip__fx");
+
+/** The parts of the music on the music lane. */
+export const musicParts = (page: Page): Locator => page.getByRole("list", { name: "Parti musicali" }).getByRole("listitem");
+
+/** The tone the music root of the tests has, as the plan names it (`make_media.py`). */
+export const TRACK_A = "tone-a.wav";
+export const TRACK_B = "tone-b.wav";
+
+/** Opens the Music tab and adds a track to the video with the button of its row (the button waits for the waveform that gives its length). */
+export async function addTrack(page: Page, file: string): Promise<void> {
+  await page.getByRole("tab", { name: /^Musica/ }).click();
+  const button = page.getByRole("button", { name: `Aggiungi al video: ${file}` });
+  await expect(button).toBeEnabled();
+  await button.click();
 }
