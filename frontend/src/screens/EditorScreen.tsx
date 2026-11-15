@@ -1,6 +1,6 @@
 // The editor (section 10): Media, Detail and the timeline on the project's real data, with the preview playing, and
-// (U5) the basic editing: the plan on screen changes with the user's edits, the history undoes them and every confirmed
-// change is saved with the revision that was read (sections 4, 12 and 14).
+// the editing (U5, U6): the plan on screen changes with the user's edits (clips, transitions, music), the history undoes them
+// and every confirmed change is saved with the revision that was read (sections 4, 12 and 14).
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ApiFailure, api } from "../api/client";
 import type { Catalog, CatalogItem, Plan, PlanDocument, ProjectState, Waveform } from "../api/types";
@@ -14,7 +14,14 @@ import { errorText, useI18n } from "../i18n";
 import { withPlan } from "../lib/catalog";
 import type { DragPayload } from "../lib/dnd";
 import { freeStretches, momentAround } from "../lib/drag";
+import {
+  addEffect, applyToVideo, defaultsOf, hardCutNear, hostFor, locate, moveEffect, nextEffectId, placeEffect, removeEffect, setEffectDuration,
+  setEffectEdge, setEffectStart,
+} from "../lib/effectEdit";
 import { durationRange, trimRange } from "../lib/limits";
+import {
+  MIN_PART_SECONDS, addTrack, cutAt, moveTrack, offsetBounds, removePart, removeTrack, restoreDeleted, setOffset, setPartFade, setPartMuted,
+} from "../lib/musicEdit";
 import {
   addElements, excludeCandidate, excludeElement, lostEffects, moveElement, newMoment, removeElement, restoreCandidate, restoreMoments,
   selectAddable, setMomentEdge, setPhotoDuration,
@@ -159,6 +166,12 @@ export function Workspace({ project, initial, catalog, incomplete, onSaved, onJo
   sessionRef.current = session;
   const readOnlyRef = useRef(readOnly);
   readOnlyRef.current = readOnly;
+  const waveformsRef = useRef(waveforms);
+  waveformsRef.current = waveforms;
+  const playheadRef = useRef(playhead);
+  playheadRef.current = playhead;
+  const durationRef = useRef(doc.duration);
+  durationRef.current = doc.duration;
   const notices = useRef(0);
 
   // --- saving ---
@@ -203,10 +216,11 @@ export function Workspace({ project, initial, catalog, incomplete, onSaved, onJo
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  // --- waveforms of the tracks the plan uses, and of the one selected in the Media panel ---
+  // --- waveforms of the tracks the plan uses, the one selected in the Media panel and, in the Music tab, all of them ---
 
   const wanted = new Set<string>(doc.plan.music?.tracks.map((track) => track.file) ?? []);
   if (selection.kind === "track") wanted.add(selection.file);
+  if (tab === "music") for (const track of catalog.music.tracks) wanted.add(track.file); // the list shows every length
   const wantedKey = [...wanted].sort().join("\n");
   useEffect(() => {
     for (const file of wantedKey ? wantedKey.split("\n") : []) {
@@ -253,16 +267,52 @@ export function Workspace({ project, initial, catalog, incomplete, onSaved, onJo
     const minimum = () => limits.current.min_effect_seconds;
 
     /** Applies an edit to the plan on screen; the history and the saving follow from the session. */
-    const apply = (build: (plan: Plan) => Plan, group?: string): Plan | null => {
+    const apply = (build: (plan: Plan) => Plan, group?: string, quiet = false): Plan | null => {
       if (readOnlyRef.current) return null;
       const before = latest.current;
       const next = build(before);
       if (next === before) return null;
       latest.current = next;
       dispatch({ type: "edit", plan: next, group });
-      const lost = lostEffects(before, next);
+      const lost = quiet ? 0 : lostEffects(before, next);
       if (lost > 0) notify(plural("notice.effects", lost), true);
       return next;
+    };
+    const defaults = () => defaultsOf(catalogRef.current.transitions);
+    const minimumPart = () => limits.current.music?.min_part ?? MIN_PART_SECONDS;
+    const lengths = (): Map<string, number | undefined> => new Map([...waveformsRef.current].map(([file, waveform]) => [file, waveform?.duration]));
+    const forgetPart = () => setSelection((current) => (current.kind === "part" ? NO_SELECTION : current));
+
+    /** The length of a track of the music root: from its waveform, which is asked for when it is not there yet. */
+    const trackLength = async (file: string): Promise<number | null> => {
+      const known = waveformsRef.current.get(file);
+      if (known) return known.duration;
+      const track = catalogRef.current.music.tracks.find((entry) => entry.file === file);
+      if (!track) return null;
+      try {
+        const waveform = await api.waveform(project.id, track.id);
+        setWaveforms((current) => new Map(current).set(file, waveform));
+        return waveform.duration;
+      } catch {
+        return null;
+      }
+    };
+    const addTracks = async (files: readonly string[], slot: number | null) => {
+      const found: { file: string; length: number }[] = [];
+      for (const file of files) {
+        const length = await trackLength(file);
+        if (length === null || length < minimumPart()) notify(t("notice.trackFailed", { name: file.split("/").pop() ?? file }), false);
+        else found.push({ file, length });
+      }
+      if (found.length === 0) return;
+      const next = apply((plan) => found.reduce((current, entry, index) =>
+        addTrack(current, entry.file, entry.length, slot === null ? null : slot + index, durationRef.current), plan), undefined, true);
+      if (next) forgetPart();
+    };
+    /** After an edit of the transitions: the new effect is selected, so its handles and sliders are at hand. */
+    const showEffect = (next: Plan | null, id: string) => {
+      const found = next ? locate(next, id) : null;
+      if (found) setSelection({ kind: "effect", element: found.element.id, id });
     };
     const itemById = (id: string): CatalogItem | undefined =>
       [...catalogRef.current.photos, ...catalogRef.current.videos.flatMap((video) => video.moments)].find((item) => item.id === id);
@@ -324,7 +374,87 @@ export function Workspace({ project, initial, catalog, incomplete, onSaved, onJo
         }, `${edge}:${id}`);
       },
       seal: () => dispatch({ type: "seal" }),
+
+      placeTransition: (elementId, placement) => {
+        const plan = latest.current;
+        const start = clipStart(plan.elements, elementId);
+        const at = start === null ? undefined : playheadRef.current - start;
+        const clip = plan.elements.find((element) => element.id === elementId);
+        const inside = at !== undefined && clip !== undefined && at >= 0 && at <= clip.duration ? at : undefined;
+        const next = placeEffect(plan, elementId, placement, defaults(), inside, minimum());
+        if (!next) { notify(t("notice.noRoomEffect"), false); return; }
+        const id = nextEffectId(plan);
+        showEffect(apply(() => next, undefined, true), id);
+      },
+      dropTransition: (payload, elementId, at) => {
+        const plan = latest.current;
+        if (payload.kind === "effect") {
+          const next = moveEffect(plan, payload.id, elementId, at, minimum());
+          if (!next) { notify(t("notice.noRoomEffect"), false); return; }
+          showEffect(apply(() => next, undefined, true) ?? plan, payload.id);
+          return;
+        }
+        if (payload.type === "cut") { apply((current) => hardCutNear(current, elementId, at, minimum()), undefined, true); return; }
+        const type = payload.type;
+        const host = hostFor(plan, type, elementId, at);
+        const wanted = defaults()[type];
+        const next = host ? addEffect(plan, host, type, { duration: wanted, offset: at - wanted / 2, minimum: minimum() }) : null;
+        if (!next) { notify(t("notice.noRoomEffect"), false); return; }
+        const id = nextEffectId(plan);
+        showEffect(apply(() => next, undefined, true), id);
+      },
+      applyTransition: (kind) => {
+        const result = applyToVideo(latest.current, kind, defaults(), minimum());
+        if (result.applied === 0 && result.skipped === 0) { notify(t("notice.nothingToApply"), false); return; }
+        if (result.skipped > 0 && result.applied === 0) { notify(t("notice.noRoomEffect"), false); return; }
+        if (apply(() => result.plan, undefined, true)) {
+          notify(`${plural("notice.applied", result.applied)}${result.skipped > 0 ? ` ${plural("notice.appliedSkipped", result.skipped)}` : ""}`, true);
+        }
+      },
+      removeEffect: (id) => {
+        if (apply((plan) => removeEffect(plan, id, minimum()), undefined, true)) {
+          setSelection((current) => (current.kind === "effect" && current.id === id ? NO_SELECTION : current));
+          notify(t("notice.effectRemoved"), true);
+        }
+      },
+      setEffectEdge: (id, edge, value) => { apply((plan) => setEffectEdge(plan, id, edge, value, minimum()), `${edge}:${id}`, true); },
+      setEffectStart: (id, value) => { apply((plan) => setEffectStart(plan, id, value, minimum()), `offset:${id}`, true); },
+      setEffectDuration: (id, value) => { apply((plan) => setEffectDuration(plan, id, value, minimum()), `length:${id}`, true); },
+
+      addTrack: (file, slot = null) => { void addTracks([file], slot); },
+      addAllTracks: () => {
+        const used = new Set(latest.current.music?.tracks.map((track) => track.file));
+        const files = catalogRef.current.music.tracks.map((track) => track.file).filter((file) => !used.has(file));
+        if (files.length === 0) notify(t("notice.allTracksUsed"), false); else void addTracks(files, null);
+      },
+      moveTrack: (index, slot) => { if (apply((plan) => moveTrack(plan, index, slot), undefined, true)) forgetPart(); },
+      removeTrack: (index) => {
+        if (apply((plan) => removeTrack(plan, index, durationRef.current), undefined, true)) { forgetPart(); notify(t("notice.trackRemoved"), true); }
+      },
+      removePart: (track, part) => {
+        if (apply((plan) => removePart(plan, track, part, durationRef.current), undefined, true)) { forgetPart(); notify(t("notice.partRemoved"), true); }
+      },
+      cutMusic: (time) => {
+        const cut = cutAt(latest.current, time, minimumPart());
+        if (!cut) { notify(t("notice.noCut"), false); return; }
+        if (apply(() => cut.plan, undefined, true)) setSelection({ kind: "part", track: cut.track, part: cut.part });
+      },
+      setPartMuted: (track, part, muted) => { apply((plan) => setPartMuted(plan, track, part, muted), undefined, true); },
+      setPartFade: (track, part, which, seconds) => { apply((plan) => setPartFade(plan, track, part, which, seconds), `fade-${which}:${track}:${part}`, true); },
+      setShift: (seconds) => {
+        apply((plan) => setOffset(plan, seconds, offsetBounds(plan.music ?? { tracks: [], offset: 0 }, durationRef.current)), "shift", true);
+      },
+      restoreMusic: () => {
+        if (apply((plan) => restoreDeleted(plan, lengths(), minimumPart(), durationRef.current), undefined, true)) forgetPart();
+        else notify(t("notice.nothingDeleted"), false);
+      },
+      dropMusic: (payload, slot) => {
+        if (payload.kind === "track") void addTracks([payload.file], slot);
+        else if (apply((plan) => moveTrack(plan, payload.index, slot), undefined, true)) forgetPart();
+      },
+
       drop: (payload: DragPayload, slot: number) => {
+        if (payload.kind === "transition" || payload.kind === "effect" || payload.kind === "track" || payload.kind === "musicTrack") return; // dropped on a clip or on the music lane
         if (payload.kind === "clip") { apply((plan) => moveElement(plan, payload.id, slot, minimum())); return; }
         if (payload.kind === "video") {
           const video = catalogRef.current.videos.find((entry) => entry.media === payload.media);
@@ -335,7 +465,7 @@ export function Workspace({ project, initial, catalog, incomplete, onSaved, onJo
         if (item && (item.status === "available" || item.status === "discarded")) addCandidates([item], slot);
       },
     };
-  }, [readOnly, notify, plural, t]);
+  }, [readOnly, notify, plural, t, project.id]);
 
   // --- keyboard (section 12) ---
 
@@ -359,6 +489,8 @@ export function Workspace({ project, initial, catalog, incomplete, onSaved, onJo
         case "redo": event.preventDefault(); if (!readOnly) dispatch({ type: "redo" }); break;
         case "remove":
           if (selection.kind === "element" && element >= 0) { event.preventDefault(); actions.remove(selection.id); }
+          else if (selection.kind === "effect") { event.preventDefault(); actions.removeEffect(selection.id); }
+          else if (selection.kind === "part") { event.preventDefault(); actions.removePart(selection.track, selection.part); }
           break;
         case "earlier":
           if (selection.kind === "element" && element > 0) { event.preventDefault(); actions.move(selection.id, element - 1); }

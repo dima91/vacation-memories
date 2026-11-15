@@ -282,14 +282,15 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent);
 .clip--video .clip__band { background: var(--accent); }
 .clip__label { position: absolute; left: 3px; bottom: 3px; padding: 0 4px; border-radius: 3px; background: rgba(19, 20, 21, 0.85); font-size: var(--fs-small); white-space: nowrap; }
 .clip.is-missing .clip__body { background: repeating-linear-gradient(45deg, var(--panel2), var(--panel2) 6px, var(--line) 6px, var(--line) 12px); }
-.clip__fx { position: absolute; top: 8px; height: 22px; min-width: 6px; padding: 0 4px; overflow: hidden; background: rgba(236, 234, 229, 0.92); border: 1px solid transparent; border-radius: 3px; color: var(--onaccent); font-size: var(--fs-small); line-height: 20px; text-align: left; cursor: pointer; white-space: nowrap; }
+.clip__fxwrap { position: absolute; top: 8px; height: 22px; z-index: 3; } /* above the duration handles of the clip, which stay grabbable below */
+.clip__fx { display: block; width: 100%; height: 100%; min-width: 6px; padding: 0 4px; overflow: hidden; background: rgba(236, 234, 229, 0.92); border: 1px solid transparent; border-radius: 3px; color: var(--onaccent); font-size: var(--fs-small); line-height: 20px; text-align: left; cursor: pointer; white-space: nowrap; }
 .clip__fx--fade_in { background: linear-gradient(90deg, #333, rgba(236, 234, 229, 0.92)); }
 .clip__fx--fade_out { background: linear-gradient(90deg, rgba(236, 234, 229, 0.92), #333); }
 .clip__fx.is-selected { border-color: #fff; outline: 2px solid var(--accent); }
-.part { position: absolute; top: 4px; height: 44px; padding: 0; overflow: hidden; background: #2b2518; border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; }
+.part { position: absolute; top: 4px; height: 44px; padding: 0; overflow: hidden; background: #2b2518; border: 1px solid var(--accent); border-radius: 4px; cursor: ew-resize; touch-action: none; user-select: none; }
 .part.is-selected { border-color: #fff; border-width: 2px; }
 .part.is-muted { opacity: 0.55; background: repeating-linear-gradient(45deg, #2b2518, #2b2518 6px, var(--line) 6px, var(--line) 12px); }
-.part__name { position: absolute; left: 6px; top: 2px; padding: 0 4px; background: rgba(19, 20, 21, 0.85); border-radius: 3px; font-family: var(--font-mono); font-size: var(--fs-small); }
+.track__tab { position: absolute; top: 6px; z-index: 2; max-width: 200px; padding: 0 6px; overflow: hidden; background: rgba(19, 20, 21, 0.85); border-radius: 3px; font-family: var(--font-mono); font-size: var(--fs-small); line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
 .part__muted { position: absolute; right: 6px; bottom: 2px; padding: 0 4px; background: rgba(19, 20, 21, 0.85); border-radius: 3px; font-size: var(--fs-small); }
 .wave { position: absolute; inset: 4px 0; width: 100%; height: calc(100% - 8px); fill: none; stroke: var(--accent); stroke-width: 0.7; }
 .detail__wave .wave { position: static; width: 100%; height: 100%; }
@@ -339,3 +340,15 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent);
 .toast { position: fixed; left: 50%; bottom: 24px; z-index: 40; display: flex; align-items: center; gap: 16px; max-width: min(720px, calc(100vw - 48px)); padding: 6px 8px 6px 16px; background: var(--panel2); border: 1px solid var(--ctl); border-radius: 8px; transform: translateX(-50%); }
 .toast__undo { min-height: var(--control); padding: 0 12px; background: none; border: 0; color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .toast__close { width: var(--control); height: var(--control); background: none; border: 0; color: var(--muted); font-size: 20px; cursor: pointer; }
+
+/* --- transitions and music (U6) --- */
+
+.clip.is-target .clip__body { border-color: var(--accent); outline: 2px dashed var(--accent); outline-offset: 1px; }
+.handle--fx { z-index: 4; }
+/* The handles of a transition sit outside it, so that a narrow one can still be grabbed (and dragged to another clip) by its body. */
+.handle--fx-start { margin-left: -14px; }
+.handle--fx-end { margin-left: 0; }
+.handle[aria-disabled="true"] { cursor: default; opacity: 0.4; pointer-events: none; }
+.library__row { display: flex; align-items: center; gap: 6px; }
+.library__row .library__item { flex: 1; min-width: 0; }
+.library__swatch--cut, .swatch--cut { background: linear-gradient(90deg, var(--blue) 50%, var(--accent) 50%); }

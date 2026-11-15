@@ -181,7 +181,7 @@ test("an empty timeline says so", () => {
   const html = render(<Timeline projectId="p" document={empty} waveforms={new Map()} selection={NO_SELECTION} playhead={0} actions={editable} onSelect={noop} onSeek={noop} />);
   auditHtml(html, "empty timeline");
   assert.match(html, /La timeline è vuota/);
-  assert.match(html, /Il piano non ha musica/);
+  assert.match(html, /Nessuna musica\. Trascina qui un brano/);
 });
 
 test("the top bar names the project and the state of the analysis", () => {
@@ -225,7 +225,7 @@ test("a moment, nothing selected or a read-only plan have no duration handles", 
 });
 
 test("the clips can be dragged to be reordered, unless the plan is read-only", () => {
-  const draggable = (html: string) => all(parseHtml(html), (node) => node.attrs.draggable === "true").length;
+  const draggable = (html: string) => all(parseHtml(html), (node) => node.attrs.draggable === "true" && /clip__grab/.test(node.attrs.class ?? "")).length;
   assert.equal(draggable(timelineWith(NO_SELECTION)), planDocument.plan.elements.length);
   assert.equal(draggable(timelineWith(NO_SELECTION, readOnly)), 0);
 });
@@ -369,4 +369,152 @@ test("the editor renders its panels on the plan of the server, saved, with its t
   const busy = clone(projectPlanned);
   busy.busy = true;
   assert.match(render(<Workspace project={busy} initial={planDocument} catalog={catalog} incomplete={false} onSaved={noop} onJobDone={noop} onReload={noop} onChangeFolder={noop} onSettings={noop} />), /Sola lettura/);
+});
+
+
+// --- transitions and music (U6) ---
+
+const allEffects = planDocument.plan.elements.flatMap((element) => element.effects.map((effect) => ({ element, effect })));
+const dip = allEffects.find(({ effect }) => effect.type === "dip")!;
+const dissolve = allEffects.find(({ effect }) => effect.type === "dissolve")!;
+const fadeIn = allEffects.find(({ effect }) => effect.type === "fade_in")!;
+const fadeOut = allEffects.find(({ effect }) => effect.type === "fade_out")!;
+const effectSelection = ({ element, effect }: (typeof allEffects)[number]): Selection => ({ kind: "effect", element: element.id, id: effect.id });
+const buttonNames = (root: HtmlNode) => all(root, (node) => node.tag === "button").map((node) => accessibleName(node, root));
+
+test("the transitions on the clips can be dragged, and so can the track names of the music lane, unless the plan is read-only", () => {
+  const draggable = (html: string, pattern: RegExp) => all(parseHtml(html), (node) => node.attrs.draggable === "true" && pattern.test(node.attrs.class ?? "")).length;
+  const tracks = planDocument.plan.music?.tracks.length ?? 0;
+  assert.equal(draggable(timelineWith(NO_SELECTION), /clip__fxwrap/), allEffects.length);
+  assert.equal(draggable(timelineWith(NO_SELECTION), /track__tab/), tracks);
+  assert.equal(draggable(timelineWith(NO_SELECTION, readOnly), /clip__fxwrap|track__tab/), 0);
+});
+
+test("a selected dip shows two handles that announce their time and keep to the free space; a fade-in keeps its start on the edge of the clip", () => {
+  const dipRoot = auditHtml(timelineWith(effectSelection(dip)), "timeline with a dip selected");
+  const handles = all(dipRoot, (node) => node.attrs.role === "separator");
+  assert.deepEqual(handles.map((node) => node.attrs["aria-label"]), ["Transizione: inizio", "Transizione: fine"]);
+  assert.ok(handles.every((node) => !("aria-disabled" in node.attrs) && node.attrs.tabindex === "0"));
+  const [start, end] = handles;
+  assert.equal(start?.attrs["aria-valuenow"], String(dip.effect.offset));
+  assert.equal(end?.attrs["aria-valuenow"], String(dip.effect.offset + dip.effect.duration));
+  assert.ok(Number(start?.attrs["aria-valuemin"]) <= dip.effect.offset && Number(end?.attrs["aria-valuemax"]) <= dip.element.duration);
+
+  const fadeRoot = auditHtml(timelineWith(effectSelection(fadeIn)), "timeline with a fade-in selected");
+  const [fixed, free] = all(fadeRoot, (node) => node.attrs.role === "separator");
+  assert.ok("aria-disabled" in (fixed?.attrs ?? {}) && fixed?.attrs.tabindex === "-1", "the start of a fade-in is the start of the clip");
+  assert.ok(!("aria-disabled" in (free?.attrs ?? {})));
+  const [, closing] = all(auditHtml(timelineWith(effectSelection(fadeOut)), "fade-out selected"), (node) => node.attrs.role === "separator");
+  assert.ok("aria-disabled" in (closing?.attrs ?? {}), "the end of a fade-out is the end of the clip");
+  assert.equal(all(parseHtml(timelineWith(effectSelection(dip), readOnly)), (node) => node.attrs.role === "separator").length, 0);
+});
+
+test("a part of the music is a named button; the plan without music has no part and no track name", () => {
+  const root = auditHtml(timelineWith(NO_SELECTION), "music lane");
+  assert.equal(all(root, (node) => node.tag === "button" && /^Parte \d+ di brano\.wav/.test(node.attrs["aria-label"] ?? "")).length, 2);
+  assert.ok(buttonNames(root).some((name) => /silenziata/i.test(name)), "the muted part says so");
+  assert.match(timelineWith(NO_SELECTION), /Taglia la musica qui/);
+  const bare = clone(planDocument);
+  bare.plan.music = undefined;
+  const html = render(<Timeline projectId="p" document={bare} waveforms={new Map()} selection={NO_SELECTION} playhead={0} actions={editable} onSelect={noop} onSeek={noop} />);
+  auditHtml(html, "music lane without music");
+  assert.doesNotMatch(html, /Taglia la musica qui|track__tab/);
+});
+
+test("the cut of the music is off where the playhead is not on a part, and in a read-only plan", () => {
+  const cutButton = (html: string) => {
+    const root = parseHtml(html);
+    return all(root, (node) => node.tag === "button" && accessibleName(node, root) === "Taglia la musica qui")[0];
+  };
+  const at = (time: number, actions = editable) => render(<Timeline projectId="p" document={planDocument} waveforms={waveforms} selection={NO_SELECTION} playhead={time} actions={actions} onSelect={noop} onSeek={noop} />);
+  assert.ok(!("disabled" in (cutButton(at(5))?.attrs ?? { disabled: "" })));
+  assert.ok("disabled" in (cutButton(at(25))?.attrs ?? {}), "the music ends at 20 s");
+  assert.ok("disabled" in (cutButton(at(5, readOnly))?.attrs ?? {}));
+});
+
+test("a clip offers the transitions without a drag, and the one that has no room is off", () => {
+  const root = auditHtml(render(detail({ kind: "element", id: planDocument.plan.elements[0]!.id })), "detail first clip");
+  const names = ["Da nero all'inizio", "Dissolvenza all'inizio", "Dissolvenza alla fine", "A nero alla fine", "Passaggio per il nero qui"];
+  for (const name of names) assert.ok(buttonNames(root).includes(name), name);
+  const state = (name: string) => "disabled" in all(root, (node) => node.tag === "button" && accessibleName(node, root) === name)[0]!.attrs;
+  assert.ok(state("Dissolvenza all'inizio"), "the first clip has no clip before it");
+  assert.ok(!state("A nero alla fine") && !state("Passaggio per il nero qui"));
+  const readOnlyHtml = render(detail({ kind: "element", id: planDocument.plan.elements[0]!.id }, { actions: readOnly }));
+  for (const name of names) assert.ok(!readOnlyHtml.includes(name), `${name} in a read-only plan`);
+});
+
+test("the Detail panel of a transition has its duration and start sliders, a remove button and the keys", () => {
+  const root = auditHtml(render(detail(effectSelection(dip))), "detail dip");
+  const sliders = all(root, (node) => node.tag === "input" && node.attrs.type === "range");
+  assert.deepEqual(sliders.map((node) => accessibleName(node, root)), ["Durata", "Inizia a"]);
+  assert.ok(sliders.every((node) => !("disabled" in node.attrs)));
+  assert.ok(buttonNames(root).includes("Rimuovi la transizione"));
+  assert.match(render(detail(effectSelection(dip))), /frecce ±0,1 s per spostarla/);
+  const fixed = auditHtml(render(detail(effectSelection(dissolve))), "detail dissolve");
+  const [, start] = all(fixed, (node) => node.tag === "input" && node.attrs.type === "range");
+  assert.ok("disabled" in (start?.attrs ?? {}), "a dissolve begins at the start of its clip");
+  assert.match(render(detail(effectSelection(dissolve))), /per cambiarne la durata/);
+  assert.equal(all(parseHtml(render(detail(effectSelection(dip), { actions: readOnly }))), (node) => node.tag === "input").length, 0);
+});
+
+test("a transition of the library can be applied to the whole video; the hard cut is one of them, the dip has no place", () => {
+  for (const type of ["cut", "dissolve", "fade_in", "fade_out"] as const) {
+    const root = auditHtml(render(detail({ kind: "library", type })), `library ${type}`);
+    const apply = all(root, (node) => node.tag === "button" && accessibleName(node, root) === "Applica a tutto il video")[0]!;
+    assert.ok(!("disabled" in apply.attrs), type);
+  }
+  const dipRoot = auditHtml(render(detail({ kind: "library", type: "dip" })), "library dip");
+  assert.ok("disabled" in all(dipRoot, (node) => node.tag === "button" && accessibleName(node, dipRoot) === "Applica a tutto il video")[0]!.attrs);
+  assert.match(render(detail({ kind: "library", type: "cut" })), /Taglio netto/);
+  assert.doesNotMatch(render(detail({ kind: "library", type: "cut" }, { actions: readOnly })), /Applica a tutto il video/);
+});
+
+test("the Media panel lists the transitions in the order of the spec, the hard cut first, and every transition of the library can be dragged", () => {
+  const html = mediaTab("transitions");
+  const root = auditHtml(html, "transitions tab");
+  const items = all(root, (node) => node.tag === "button" && /library__item/.test(node.attrs.class ?? ""));
+  assert.deepEqual(items.map((node) => accessibleName(node, root)).map((name) => name.split(/\s{2,}|Durata|toglie/)[0]?.trim()), ["Taglio netto", "Dissolvenza", "Da nero", "A nero", "Passaggio per il nero"]);
+  assert.equal(all(root, (node) => node.attrs.draggable === "true").length, 5);
+  assert.equal(all(parseHtml(mediaTab("transitions", readOnly)), (node) => node.attrs.draggable === "true").length, 0);
+});
+
+test("the Music tab adds a track with a named button, all of them, and restores what was deleted; the tracks can be dragged", () => {
+  const root = auditHtml(mediaTab("music"), "music tab");
+  assert.ok(buttonNames(root).includes("Aggiungi al video: brano.wav"));
+  assert.equal(all(root, (node) => node.attrs.draggable === "true").length, catalog.music.tracks.length);
+  const toolbar = all(root, (node) => node.tag === "button" && ["Aggiungi i brani", "Ripristina le parti eliminate"].includes(accessibleName(node, root)));
+  assert.equal(toolbar.length, 2);
+  assert.ok(toolbar.every((node) => "disabled" in node.attrs), "the track is in the video and nothing is deleted (it is whole: 20 s of 20 s)");
+  const trimmed = clone(planDocument);
+  trimmed.plan.music!.tracks[0]!.parts = [{ start: 0, end: 12, muted: false, fade_in: 1, fade_out: 0 }];
+  const withGap = render(<MediaPanel projectId="p" catalog={catalog} document={trimmed} waveforms={waveforms} selection={NO_SELECTION} tab="music" actions={editable} onTab={noop} onSelect={noop} />);
+  const rootGap = auditHtml(withGap, "music tab with a deleted stretch");
+  assert.ok(!("disabled" in all(rootGap, (node) => node.tag === "button" && accessibleName(node, rootGap) === "Ripristina le parti eliminate")[0]!.attrs));
+  const locked = all(parseHtml(mediaTab("music", readOnly)), (node) => node.tag === "button" && ["Aggiungi i brani", "Ripristina le parti eliminate", "Aggiungi al video: brano.wav"].includes(node.attrs["aria-label"] ?? "") || node.attrs.draggable === "true");
+  assert.ok(locked.filter((node) => node.attrs.draggable === "true").length === 0);
+});
+
+test("the Detail panel of a part of the music has mute, both fades and the shift, inside the bounds, and the buttons that replace the drags", () => {
+  const root = auditHtml(render(detail({ kind: "part", track: 0, part: 0 })), "detail part");
+  const sliders = all(root, (node) => node.tag === "input" && node.attrs.type === "range");
+  assert.deepEqual(sliders.map((node) => accessibleName(node, root)), ["Dissolvenza in entrata", "Dissolvenza in uscita", "Spostamento della musica"]);
+  const shift = sliders[2]!;
+  assert.deepEqual([shift.attrs.min, shift.attrs.step], [String(planDocument.limits.music!.offset.min), "0.1"]);
+  assert.ok(Math.abs(Number(shift.attrs.max) - planDocument.limits.music!.offset.max) < 1e-9, "the shift stops where the server says");
+  for (const name of ["Silenzia la parte", "Taglia la musica qui", "Elimina la parte", "Brano prima", "Brano dopo", "Togli il brano dal video", "Riporta la musica all'inizio"]) {
+    assert.ok(buttonNames(root).includes(name), name);
+  }
+  const state = (name: string) => "disabled" in all(root, (node) => node.tag === "button" && accessibleName(node, root) === name)[0]!.attrs;
+  assert.ok(state("Brano prima") && state("Brano dopo") && state("Riporta la musica all'inizio"), "one track, not shifted");
+  assert.ok(buttonNames(parseHtml(render(detail({ kind: "part", track: 0, part: 1 })))).includes("Riattiva l'audio della parte"), "the second part is muted");
+  assert.equal(all(parseHtml(render(detail({ kind: "part", track: 0, part: 0 }, { actions: readOnly }))), (node) => node.tag === "input").length, 0);
+});
+
+test("the Detail panel of a track offers to add it, to take it out and to bring back what was deleted", () => {
+  const root = auditHtml(render(detail({ kind: "track", file: "brano.wav" })), "detail track");
+  for (const name of ["Aggiungi al video", "Togli il brano dal video"]) assert.ok(buttonNames(root).includes(name), name);
+  assert.ok(!buttonNames(root).includes("Ripristina le parti eliminate"), "nothing deleted");
+  const trimmed = clone(planDocument);
+  trimmed.plan.music!.tracks[0]!.parts = [{ start: 0, end: 12, muted: false, fade_in: 1, fade_out: 0 }];
+  assert.ok(buttonNames(parseHtml(render(detail({ kind: "track", file: "brano.wav" }, { document: trimmed })))).includes("Ripristina le parti eliminate"));
 });

@@ -87,12 +87,22 @@ export interface ClipRect {
   width: number;
 }
 
+/**
+ * Where a clip starts when the server has not said (an edit dropped its `timestamp`): where the previous one ends, less the dissolve
+ * that overlaps them (`layout_timeline`).
+ */
+function startAfter(element: PlanElement, cursor: number): number {
+  if (element.timestamp !== undefined) return element.timestamp;
+  const dissolve = element.effects.find((effect) => effect.type === "dissolve")?.duration ?? 0;
+  return Math.max(0, cursor - dissolve);
+}
+
 /** Where every clip sits on the time axis: the server's `timestamp`, or the end of the previous clip. */
 export function clipRects(elements: readonly PlanElement[], view: View): ClipRect[] {
   const rects: ClipRect[] = [];
   let cursor = 0;
   elements.forEach((element, index) => {
-    const start = element.timestamp ?? cursor;
+    const start = startAfter(element, cursor);
     rects.push({ id: element.id, index, start, duration: element.duration, x: timeToX(start, view),
       width: element.duration * pixelsPerSecond(view) });
     cursor = start + element.duration;
@@ -105,7 +115,7 @@ export function clipAt(elements: readonly PlanElement[], time: number): PlanElem
   let found: PlanElement | null = null;
   let cursor = 0;
   for (const element of elements) {
-    const start = element.timestamp ?? cursor;
+    const start = startAfter(element, cursor);
     if (time >= start && time < start + element.duration) found = element;
     cursor = start + element.duration;
   }
@@ -115,7 +125,7 @@ export function clipAt(elements: readonly PlanElement[], time: number): PlanElem
 export function clipStart(elements: readonly PlanElement[], id: string): number | null {
   let cursor = 0;
   for (const element of elements) {
-    const start = element.timestamp ?? cursor;
+    const start = startAfter(element, cursor);
     if (element.id === id) return start;
     cursor = start + element.duration;
   }

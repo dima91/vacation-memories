@@ -1,13 +1,15 @@
 // The Detail panel (section 13): it changes with the selection and shows the preview, the scores, the information,
-// the limits the server computed and a help text, and (U5) the controls that edit a photo, a moment or a candidate.
-// Without a selection it summarizes the whole video.
+// the limits the server computed and a help text, and the controls that edit a photo, a moment or a candidate (U5), a
+// transition, a library transition, a track or a part of the music (U6). Without a selection it summarizes the whole video.
 import { useEffect, useId, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { urls } from "../api/client";
-import type { Catalog, CatalogItem, CatalogVideo, EffectType, PlanDocument, PlanElement, ProjectState, Score, StatusResponse, Waveform } from "../api/types";
+import type { Catalog, CatalogItem, CatalogVideo, PlanDocument, PlanElement, ProjectState, Score, StatusResponse, Waveform } from "../api/types";
 import { useI18n, type MessageKey, type Translator } from "../i18n";
 import { discardKey, similarTo } from "../lib/catalog";
+import { PLACEMENTS, boundsOf, placeEffect, defaultsOf, type LibraryKind, type Placement } from "../lib/effectEdit";
 import { clock } from "../lib/format";
 import { durationRange, effectBounds, largestWindow, trimRange } from "../lib/limits";
+import { countDeleted, fadeRoom, offsetBounds } from "../lib/musicEdit";
 import { durationDeviation, findElement, planStats, positionOf } from "../lib/plan";
 import type { Selection } from "../lib/selection";
 import { clamp, clipAt, clipStart } from "../lib/timeline";
@@ -178,6 +180,7 @@ function ElementDetail({ props, element }: { props: DetailProps; element: PlanEl
         ]} />
       </Section>
       <EditSection props={props} element={element} />
+      <TransitionSection props={props} element={element} />
       {duration || trim ? (
         <Section title={t("detail.limits")}>
           <Facts rows={[
@@ -243,6 +246,34 @@ function EditSection({ props, element }: { props: DetailProps; element: PlanElem
         <button type="button" className="btn" onClick={() => actions.hide(element.id)}>{t(isVideo ? "edit.delete" : "edit.hide")}</button>
       </Buttons>
       <p className="help">{t("edit.help.reorder")} {t("edit.help.remove")} {t("edit.help.hide")}</p>
+    </Section>
+  );
+}
+
+const PLACEMENT_KEY: Record<Placement, MessageKey> = {
+  fade_in_start: "placement.fade_in_start", dissolve_start: "placement.dissolve_start", dissolve_end: "placement.dissolve_end",
+  fade_out_end: "placement.fade_out_end", dip_here: "placement.dip_here",
+};
+
+/** The click alternatives to dragging a transition onto a clip (section 11): each button is off where there is no room for it. */
+function TransitionSection({ props, element }: { props: DetailProps; element: PlanElement }) {
+  const { t } = useI18n();
+  const { document: doc, actions } = props;
+  if (!doc || actions.readOnly) return null;
+  const defaults = defaultsOf(props.catalog.transitions);
+  const minimum = doc.limits.min_effect_seconds;
+  const begin = clipStart(doc.plan.elements, element.id);
+  const at = begin === null ? undefined : props.playhead - begin;
+  const inside = at !== undefined && at >= 0 && at <= element.duration ? at : undefined;
+  return (
+    <Section title={t("transitions.title")}>
+      <Buttons>
+        {PLACEMENTS.map((placement) => (
+          <button key={placement} type="button" className="btn" disabled={placeEffect(doc.plan, element.id, placement, defaults, inside, minimum) === null}
+            onClick={() => actions.placeTransition(element.id, placement)}>{t(PLACEMENT_KEY[placement])}</button>
+        ))}
+      </Buttons>
+      <p className="help">{t("transitions.help.click")}</p>
     </Section>
   );
 }
@@ -369,20 +400,29 @@ function VideoActions({ props, video }: { props: DetailProps; video: CatalogVide
   );
 }
 
-function LibraryDetail({ props, type }: { props: DetailProps; type: EffectType }) {
+function LibraryDetail({ props, type }: { props: DetailProps; type: LibraryKind }) {
   const { t, format } = useI18n();
-  const item = props.catalog.transitions.find((entry) => entry.type === type);
+  const item = type === "cut" ? undefined : props.catalog.transitions.find((entry) => entry.type === type);
+  const { actions } = props;
   return (
     <>
       <Head kind={t("detail.kind.transition")} title={t(`transition.${type}` as MessageKey)} subtitle={t("detail.library")} />
       <div className={`swatch swatch--${type}`} aria-hidden="true" />
       <Section title={t("detail.info")}>
-        <Facts rows={[
+        <Facts rows={type === "cut" ? [[t("detail.field.where"), t("transitions.where.cut")]] : [
           [t("detail.field.defaultDuration"), item ? format.seconds(item.default_seconds) : null],
           [t("detail.field.minDuration"), item ? format.seconds(item.min_seconds) : null],
           [t("detail.field.where"), item ? t(`transitions.where.${item.position}` as MessageKey) : null],
         ]} />
       </Section>
+      {actions.readOnly ? <Section title={t("transitions.apply.title")}><p className="note">{t("edit.readOnly")}</p></Section> : (
+        <Section title={t("transitions.apply.title")}>
+          <Buttons>
+            <button type="button" className="btn btn--primary" disabled={type === "dip"} onClick={() => actions.applyTransition(type)}>{t("transitions.apply")}</button>
+          </Buttons>
+          <p className="help">{t(`transitions.apply.help.${type}` as MessageKey)}</p>
+        </Section>
+      )}
       <Help text={t(`transition.help.${type}` as MessageKey)} />
     </>
   );
@@ -394,8 +434,13 @@ function EffectDetail({ props, elementId, id }: { props: DetailProps; elementId:
   const element = doc ? findElement(doc, elementId) : undefined;
   const effect = element?.effects.find((entry) => entry.id === id);
   if (!doc || !element || !effect) return null;
+  const { actions } = props;
   const room = doc.limits.elements[element.id]?.effects[effect.id];
   const bounds = effectBounds(room, effect);
+  const minimum = doc.limits.min_effect_seconds;
+  const window = boundsOf(doc.plan, effect.id, minimum);
+  const isDip = effect.type === "dip";
+  const longest = window ? (effect.type === "fade_out" ? element.duration - window.start : window.end - effect.offset) : effect.duration;
   return (
     <>
       <Head kind={t("detail.kind.transition")} title={t(`transition.${effect.type}` as MessageKey)}
@@ -407,10 +452,24 @@ function EffectDetail({ props, elementId, id }: { props: DetailProps; elementId:
           [t("detail.field.startsAt"), t("detail.field.startsAtValue", { time: format.seconds(effect.offset) })],
           [t("detail.field.duration"), format.seconds(effect.duration)],
           [t("detail.field.available"), bounds ? format.seconds(bounds.max - bounds.min) : format.seconds(largestWindow(room))],
-          [t("detail.field.minDuration"), format.seconds(doc.limits.min_effect_seconds)],
+          [t("detail.field.minDuration"), format.seconds(minimum)],
           [t("detail.field.origin"), t(`detail.origin.${effect.origin}` as MessageKey)],
         ]} />
       </Section>
+      {actions.readOnly ? <Section title={t("edit.title")}><p className="note">{t("edit.readOnly")}</p></Section> : (
+        <Section title={t("edit.title")}>
+          <Slider label={t("effect.durationSlider")} value={effect.duration} min={minimum} max={Math.max(minimum, longest)} text={format.seconds(effect.duration)}
+            disabled={!window} onChange={(value) => actions.setEffectDuration(effect.id, value)} onCommit={actions.seal} />
+          <Slider label={t("effect.startSlider")} value={effect.offset} min={window?.start ?? effect.offset} max={window ? Math.max(window.start, window.end - effect.duration) : effect.offset}
+            text={format.seconds(effect.offset)} disabled={!isDip || !window} onChange={(value) => actions.setEffectStart(effect.id, value)} onCommit={actions.seal} />
+          {!isDip ? <p className="help">{t("effect.fixedStart")}</p> : null}
+          <p className="help">{t(isDip ? "effect.keys.dip" : "effect.keys.edge")}</p>
+          <Buttons>
+            <button type="button" className="btn" onClick={() => actions.removeEffect(effect.id)}>{t("effect.remove")}</button>
+          </Buttons>
+          <p className="help">{t("effect.help.remove")}</p>
+        </Section>
+      )}
       <Help text={t(`transition.help.${effect.type}` as MessageKey)} />
     </>
   );
@@ -418,8 +477,13 @@ function EffectDetail({ props, elementId, id }: { props: DetailProps; elementId:
 
 function TrackDetail({ props, file }: { props: DetailProps; file: string }) {
   const { t, format } = useI18n();
+  const { actions } = props;
   const waveform = props.waveforms.get(file);
-  const parts = props.document?.plan.music?.tracks.filter((track) => track.file === file).reduce((sum, track) => sum + track.parts.length, 0) ?? 0;
+  const music = props.document?.plan.music;
+  const indexes = (music?.tracks ?? []).flatMap((track, index) => (track.file === file ? [index] : []));
+  const parts = indexes.reduce((sum, index) => sum + (music?.tracks[index]?.parts.length ?? 0), 0);
+  const lengths = new Map([...props.waveforms].map(([name, entry]) => [name, entry?.duration] as const));
+  const deleted = countDeleted(music && { ...music, tracks: music.tracks.filter((track) => track.file === file) }, lengths);
   return (
     <>
       <Head kind={t("detail.kind.track")} title={fileName(file)} />
@@ -429,9 +493,19 @@ function TrackDetail({ props, file }: { props: DetailProps; file: string }) {
           [t("detail.field.file"), file],
           [t("detail.field.duration"), waveform ? clock(waveform.duration) : null],
           [t("detail.field.inVideo"), parts > 0 ? t("music.inVideo", { n: parts }) : t("music.notInVideo")],
-          [t("detail.field.shift"), parts > 0 && props.document?.plan.music ? format.seconds(props.document.plan.music.offset) : null],
+          [t("detail.field.shift"), parts > 0 && music ? format.seconds(music.offset) : null],
         ]} />
       </Section>
+      {actions.readOnly ? <Section title={t("edit.title")}><p className="note">{t("edit.readOnly")}</p></Section> : (
+        <Section title={t("edit.title")}>
+          <Buttons>
+            <button type="button" className="btn btn--primary" disabled={!waveform} onClick={() => actions.addTrack(file)}>{t("music.add")}</button>
+            {indexes.length > 0 ? <button type="button" className="btn" onClick={() => actions.removeTrack(indexes[indexes.length - 1] ?? 0)}>{t("music.removeTrack")}</button> : null}
+            {deleted > 0 ? <button type="button" className="btn" onClick={actions.restoreMusic}>{t("music.restore")}</button> : null}
+          </Buttons>
+          <p className="help">{t("music.help.add")}</p>
+        </Section>
+      )}
       <Help text={t("detail.help.track")} />
     </>
   );
@@ -443,9 +517,11 @@ function PartDetail({ props, track, part }: { props: DetailProps; track: number;
   const music = doc?.plan.music;
   const data = music?.tracks[track]?.parts[part];
   if (!doc || !music || !data) return null;
+  const { actions } = props;
   const file = music.tracks[track]?.file ?? "";
   const waveform = props.waveforms.get(file);
-  const range = doc.limits.music?.offset;
+  const shift = offsetBounds(music, doc.duration);
+  const last = music.tracks.length - 1;
   return (
     <>
       <Head kind={t("detail.kind.part")} title={fileName(file)} subtitle={t("timeline.musicPart", { part: part + 1, file: fileName(file) })} />
@@ -458,9 +534,37 @@ function PartDetail({ props, track, part }: { props: DetailProps; track: number;
           [t("detail.field.fadeIn"), data.fade_in > 0 ? format.seconds(data.fade_in) : null],
           [t("detail.field.fadeOut"), data.fade_out > 0 ? format.seconds(data.fade_out) : null],
           [t("detail.field.shift"), format.seconds(music.offset)],
-          [t("detail.field.shiftRange"), range ? `${format.seconds(range.min)} … ${format.seconds(range.max)}` : null],
+          [t("detail.field.shiftRange"), `${format.seconds(shift.min)} … ${format.seconds(shift.max)}`],
         ]} />
       </Section>
+      {actions.readOnly ? <Section title={t("edit.title")}><p className="note">{t("edit.readOnly")}</p></Section> : (
+        <Section title={t("edit.title")}>
+          <Buttons>
+            <button type="button" className="btn" aria-pressed={data.muted} onClick={() => actions.setPartMuted(track, part, !data.muted)}>
+              {data.muted ? t("music.unmute") : t("music.mute")}
+            </button>
+          </Buttons>
+          <Slider label={t("music.fadeInSlider")} value={data.fade_in} min={0} max={fadeRoom(data, "in")} text={format.seconds(data.fade_in)}
+            disabled={fadeRoom(data, "in") <= 0} onChange={(value) => actions.setPartFade(track, part, "in", value)} onCommit={actions.seal} />
+          <Slider label={t("music.fadeOutSlider")} value={data.fade_out} min={0} max={fadeRoom(data, "out")} text={format.seconds(data.fade_out)}
+            disabled={fadeRoom(data, "out") <= 0} onChange={(value) => actions.setPartFade(track, part, "out", value)} onCommit={actions.seal} />
+          <Slider label={t("music.shiftSlider")} value={music.offset} min={shift.min} max={shift.max} text={format.seconds(music.offset)}
+            disabled={shift.max <= shift.min} onChange={(value) => actions.setShift(value)} onCommit={actions.seal} />
+          <p className="help">{t("music.keys")}</p>
+          <Buttons>
+            <button type="button" className="btn" disabled={music.offset === 0} onClick={() => { actions.setShift(0); actions.seal(); }}>{t("music.toStart")}</button>
+            <button type="button" className="btn" onClick={() => actions.cutMusic(props.playhead)}>{t("timeline.cutMusic")}</button>
+            <button type="button" className="btn" onClick={() => actions.removePart(track, part)}>{t("music.deletePart")}</button>
+          </Buttons>
+          <p className="help">{t("music.help.part")}</p>
+          <Buttons>
+            <button type="button" className="btn" disabled={track <= 0} onClick={() => actions.moveTrack(track, track - 1)}>{t("music.trackEarlier")}</button>
+            <button type="button" className="btn" disabled={track >= last} onClick={() => actions.moveTrack(track, track + 2)}>{t("music.trackLater")}</button>
+            <button type="button" className="btn" onClick={() => actions.removeTrack(track)}>{t("music.removeTrack")}</button>
+          </Buttons>
+          <p className="help">{t("music.help.order")}</p>
+        </Section>
+      )}
       <Help text={`${t("detail.help.part")} ${t("detail.help.shift")}`} />
     </>
   );

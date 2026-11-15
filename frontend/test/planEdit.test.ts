@@ -8,6 +8,7 @@ import {
   newMoment, nextUserId, removeElement, restoreCandidate, restoreMoments, restoreWhere, setMomentEdge, setPhotoDuration, settle,
 } from "../src/lib/planEdit";
 import { catalog, clone, planDocument } from "./fixtures";
+import { violations } from "./rules";
 
 const base = planDocument.plan;
 const ids = (plan: Plan) => plan.elements.map((element) => element.id);
@@ -15,38 +16,6 @@ const find = (plan: Plan, id: string): PlanElement => plan.elements.find((elemen
 const TOL = 1e-3;
 /** A photo of the catalog that the plan does not use (the analysis discarded it, and the user can still add it). */
 const spare = catalog.photos.find((item) => item.id.endsWith("IMG_0014.jpg"))!;
-
-/** The rules of `plan_rules.check_plan` that an edit can break, written again here only to check the edits against them. */
-function violations(plan: Plan, minimum = 0.2): string[] {
-  const found: string[] = [];
-  plan.elements.forEach((element, index) => {
-    const spans: [number, number, string][] = [];
-    if (element.type === "photo" && element.duration_origin === "user" && (element.duration < 1 - TOL || element.duration > 30 + TOL)) found.push(`${element.id}: photo duration`);
-    if (element.type === "video" && element.duration < 1 - TOL) found.push(`${element.id}: moment shorter than a second`);
-    for (const effect of element.effects) {
-      const end = effect.offset + effect.duration;
-      if (effect.offset < -TOL || end > element.duration + TOL) found.push(`${effect.id}: outside the clip`);
-      if ((effect.type === "fade_in" || effect.type === "dissolve") && Math.abs(effect.offset) > TOL) found.push(`${effect.id}: not at the start`);
-      if (effect.type === "fade_out" && Math.abs(end - element.duration) > TOL) found.push(`${effect.id}: not at the end`);
-      if (effect.origin === "user" && effect.duration < minimum - TOL) found.push(`${effect.id}: shorter than the minimum`);
-      if (effect.type === "dissolve") {
-        const before = plan.elements[index - 1];
-        if (!before) found.push(`${effect.id}: dissolve on the first clip`);
-        else if (effect.duration > before.duration + TOL) found.push(`${effect.id}: longer than the previous clip`);
-        else if (effect.origin === "planner" && effect.duration > 0.25 * Math.min(before.duration, element.duration) + TOL) found.push(`${effect.id}: over 25%`);
-      }
-      spans.push([effect.offset, end, effect.id]);
-    }
-    const next = plan.elements[index + 1]?.effects.find((effect) => effect.type === "dissolve");
-    if (next) spans.push([Math.max(0, element.duration - next.duration), element.duration, `dissolve into ${plan.elements[index + 1]!.id}`]);
-    for (let a = 0; a < spans.length; a += 1) {
-      for (let b = a + 1; b < spans.length; b += 1) {
-        if (spans[a]![0] < spans[b]![1] - TOL && spans[b]![0] < spans[a]![1] - TOL) found.push(`${spans[a]![2]} overlaps ${spans[b]![2]}`);
-      }
-    }
-  });
-  return found;
-}
 
 test("the fixture plan is valid by the rules the checks use", () => {
   assert.deepEqual(violations(base), []);

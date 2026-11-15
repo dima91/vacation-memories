@@ -23,6 +23,12 @@ def edited_plans() -> list[dict]:
     return json.loads((FIXTURES / "edited_plans.json").read_text(encoding="utf-8"))
 
 
+def track_durations() -> dict[str, float]:
+    waveform = json.loads((FIXTURES / "waveform.json").read_text(encoding="utf-8"))
+    music = json.loads((FIXTURES / "plan_document.json").read_text(encoding="utf-8"))["plan"]["music"]
+    return {track["file"]: waveform["duration"] for track in music["tracks"]}
+
+
 def media_durations() -> dict[str, float]:
     catalog = json.loads((FIXTURES / "catalog.json").read_text(encoding="utf-8"))
     return {video["source"]: video["duration"] for video in catalog["videos"] if video["duration"]}
@@ -31,7 +37,7 @@ def media_durations() -> dict[str, float]:
 @pytest.mark.parametrize("scenario", edited_plans(), ids=lambda scenario: scenario["name"])
 def test_the_plan_after_the_edits_respects_the_rules(scenario):
     plan = plan_from_dict(scenario["plan"])
-    assert check_plan(plan, RULES, media_durations=media_durations()) == []
+    assert check_plan(plan, RULES, media_durations=media_durations(), track_durations=track_durations()) == []
     finished, _layout = finalize_timeline(plan, RULES)
     assert [element.id for element in finished.elements] == [element["id"] for element in scenario["plan"]["elements"]]
     assert plan_duration(finished, RULES) == finished.planned_duration
@@ -41,7 +47,7 @@ def test_the_plan_after_the_edits_respects_the_rules(scenario):
 
 def test_the_scenarios_cover_every_kind_of_edit():
     plans = edited_plans()
-    assert len(plans) >= 15
+    assert len(plans) >= 50
     base = json.loads((FIXTURES / "plan_document.json").read_text(encoding="utf-8"))["plan"]
     base_ids = [element["id"] for element in base["elements"]]
     kinds = set()
@@ -56,6 +62,11 @@ def test_the_scenarios_cover_every_kind_of_edit():
             kinds.add("reorder")
         if len(plan["excluded"]) != len(base["excluded"]):
             kinds.add("exclusion")
+        kept = {element["id"]: element["effects"] for element in plan["elements"]}
+        if any(kept[element["id"]] != element["effects"] for element in base["elements"] if element["id"] in kept):
+            kinds.add("transition")
+        if plan.get("music") != base.get("music"):
+            kinds.add("music")
         for element in plan["elements"]:
             if element["type"] == PHOTO and element.get("duration_origin") == "user":
                 kinds.add("duration")
@@ -63,4 +74,4 @@ def test_the_scenarios_cover_every_kind_of_edit():
                 before = next(entry for entry in base["elements"] if entry["id"] == element["id"])
                 if (before["start"], before["end"]) != (element["start"], element["end"]):
                     kinds.add("trim")
-    assert kinds >= {"removal", "addition", "reorder", "exclusion", "duration", "trim"}
+    assert kinds >= {"removal", "addition", "reorder", "exclusion", "duration", "trim", "transition", "music"}

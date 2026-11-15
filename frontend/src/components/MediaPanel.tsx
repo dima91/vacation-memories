@@ -1,15 +1,17 @@
 // The Media panel (section 11): every candidate, selected, not selected and discarded, in four tabs. Photos and moments
 // are added to the timeline by dragging them or with the buttons, hidden or deleted and restored; the bar of a video adds
-// a moment with a click on a free point and trims the moments that are in the timeline (U5). The transitions and the
-// music are read here: they are edited with step U6.
+// a moment with a click on a free point and trims the moments that are in the timeline (U5). The transitions of the
+// library are dragged onto the clips and the tracks onto the music lane, or put with the buttons (U6).
 import { useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { urls } from "../api/client";
-import type { Catalog, CatalogItem, CatalogVideo, LibraryTransition, PlanDocument, Waveform } from "../api/types";
+import type { Catalog, CatalogItem, CatalogVideo, PlanDocument, Waveform } from "../api/types";
 import { useI18n, type MessageKey } from "../i18n";
 import { discardKey, groupPhotos, hiddenMoments, isBelowThreshold, type PhotoGroupId } from "../lib/catalog";
 import { DRAG_TYPE, beginDrag, encodePayload, endDrag, type DragPayload } from "../lib/dnd";
+import type { LibraryKind } from "../lib/effectEdit";
 import { clock } from "../lib/format";
 import { trimRange } from "../lib/limits";
+import { countDeleted } from "../lib/musicEdit";
 import type { Selection } from "../lib/selection";
 import { sameSelection } from "../lib/selection";
 import type { EditActions } from "./editing";
@@ -80,8 +82,8 @@ export function MediaPanel({ projectId, catalog, document: doc, waveforms, selec
       <div className="media__body" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
         {tab === "photos" ? <PhotosTab projectId={projectId} photos={catalog.photos} selection={selection} actions={actions} onSelect={onSelect} /> : null}
         {tab === "videos" ? <VideosTab projectId={projectId} videos={catalog.videos} hidden={hiddenMoments(catalog).length} document={doc} selection={selection} actions={actions} onSelect={onSelect} /> : null}
-        {tab === "transitions" ? <TransitionsTab library={catalog.transitions} selection={selection} onSelect={onSelect} /> : null}
-        {tab === "music" ? <MusicTab catalog={catalog} document={doc} waveforms={waveforms} selection={selection} onSelect={onSelect} /> : null}
+        {tab === "transitions" ? <TransitionsTab library={catalog.transitions} selection={selection} actions={actions} onSelect={onSelect} /> : null}
+        {tab === "music" ? <MusicTab catalog={catalog} document={doc} waveforms={waveforms} selection={selection} actions={actions} onSelect={onSelect} /> : null}
       </div>
     </section>
   );
@@ -299,41 +301,70 @@ function MomentBar({ video, document: doc, selection, actions, onSelect }: { vid
 
 // --- transitions and music ---
 
-function TransitionsTab({ library, selection, onSelect }: { library: LibraryTransition[]; selection: Selection; onSelect: (s: Selection) => void }) {
+interface LibraryEntry {
+  type: LibraryKind;
+  meta: string;
+}
+
+/** The order of section 11: the hard cut, the dissolve, from black, to black, and the dip. */
+const LIBRARY_ORDER: readonly LibraryKind[] = ["cut", "dissolve", "fade_in", "fade_out", "dip"];
+
+function TransitionsTab({ library, selection, actions, onSelect }: { library: Catalog["transitions"]; selection: Selection; actions: EditActions; onSelect: (s: Selection) => void }) {
   const { t, format } = useI18n();
+  const entries = ([
+    { type: "cut", meta: t("transitions.where.cut") },
+    ...library.map((item): LibraryEntry => ({
+      type: item.type,
+      meta: `${t("transitions.defaultDuration", { time: format.seconds(item.default_seconds) })} · ${t(`transitions.where.${item.position}` as MessageKey)}`,
+    })),
+  ] satisfies LibraryEntry[]).sort((a, b) => LIBRARY_ORDER.indexOf(a.type) - LIBRARY_ORDER.indexOf(b.type));
   return (
     <>
       <p className="toolbar__text">{t("transitions.intro")}</p>
+      <p className="help">{t("transitions.help.drag")}</p>
       <ul className="library">
-        {library.map((item) => (
-          <li key={item.type}>
-            <button type="button" className={`library__item${sameSelection(selection, { kind: "library", type: item.type }) ? " is-selected" : ""}`}
-              aria-pressed={sameSelection(selection, { kind: "library", type: item.type })} onClick={() => onSelect({ kind: "library", type: item.type })}>
-              <span className={`library__swatch library__swatch--${item.type}`} aria-hidden="true" />
-              <span className="library__name">{t(`transition.${item.type}` as MessageKey)}</span>
-              <span className="library__meta">{t("transitions.defaultDuration", { time: format.seconds(item.default_seconds) })} · {t(`transitions.where.${item.position}` as MessageKey)}</span>
-            </button>
-          </li>
-        ))}
+        {entries.map((item) => {
+          const picked = sameSelection(selection, { kind: "library", type: item.type });
+          return (
+            <li key={item.type} {...dragProps({ kind: "transition", type: item.type }, actions.readOnly)}>
+              <button type="button" className={`library__item${picked ? " is-selected" : ""}`} aria-pressed={picked}
+                onClick={() => onSelect({ kind: "library", type: item.type })}>
+                <span className={`library__swatch library__swatch--${item.type}`} aria-hidden="true" />
+                <span className="library__name">{t(`transition.${item.type}` as MessageKey)}</span>
+                <span className="library__meta">{item.meta}</span>
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </>
   );
 }
 
-function MusicTab({ catalog, document: doc, waveforms, selection, onSelect }: { catalog: Catalog; document: PlanDocument | null; waveforms: ReadonlyMap<string, Waveform | null>; selection: Selection; onSelect: (s: Selection) => void }) {
+function MusicTab({ catalog, document: doc, waveforms, selection, actions, onSelect }: {
+  catalog: Catalog; document: PlanDocument | null; waveforms: ReadonlyMap<string, Waveform | null>; selection: Selection; actions: EditActions; onSelect: (s: Selection) => void;
+}) {
   const { t } = useI18n();
   const tracks = catalog.music.tracks;
   if (tracks.length === 0) return <p className="empty">{t("music.none")}</p>;
+  const lengths = new Map([...waveforms].map(([file, waveform]) => [file, waveform?.duration] as const));
+  const deleted = countDeleted(doc?.plan.music, lengths);
+  const unused = tracks.filter((track) => !doc?.plan.music?.tracks.some((entry) => entry.file === track.file)).length;
   return (
     <>
       <p className="toolbar__text">{t("music.intro")}</p>
+      <div className="toolbar">
+        <button type="button" className="btn" disabled={actions.readOnly || unused === 0} onClick={actions.addAllTracks}>{t("music.addAll")}</button>
+        <button type="button" className="btn" disabled={actions.readOnly || deleted === 0} onClick={actions.restoreMusic}>{t("music.restore")}</button>
+      </div>
+      <p className="help">{t("music.help.drag")}</p>
       <ul className="library">
         {tracks.map((track) => {
           const used = doc?.plan.music?.tracks.filter((entry) => entry.file === track.file).reduce((sum, entry) => sum + entry.parts.length, 0) ?? 0;
           const waveform = waveforms.get(track.file);
           const picked = sameSelection(selection, { kind: "track", file: track.file });
           return (
-            <li key={track.id}>
+            <li key={track.id} className="library__row" {...dragProps({ kind: "track", file: track.file }, actions.readOnly)}>
               <button type="button" className={`library__item${picked ? " is-selected" : ""}`} aria-pressed={picked} aria-label={`${t("music.track", { name: fileName(track.file) })}, ${used > 0 ? t("music.inVideo", { n: used }) : t("music.notInVideo")}`}
                 onClick={() => onSelect({ kind: "track", file: track.file })}>
                 <MusicIcon />
@@ -342,6 +373,8 @@ function MusicTab({ catalog, document: doc, waveforms, selection, onSelect }: { 
                   {waveform ? `${t("music.length", { time: clock(waveform.duration) })} · ` : ""}{used > 0 ? t("music.inVideo", { n: used }) : t("music.notInVideo")}
                 </span>
               </button>
+              <button type="button" className="btn btn--icon" disabled={actions.readOnly || !waveform} aria-label={t("music.addTrack", { name: fileName(track.file) })}
+                title={t("music.addTrack", { name: fileName(track.file) })} onClick={() => actions.addTrack(track.file)}><PlusIcon /></button>
             </li>
           );
         })}

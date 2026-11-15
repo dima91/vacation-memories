@@ -81,7 +81,11 @@ test("clips are laid out where the server put them, in sequence otherwise", () =
   assert.equal(rects[0]?.x, 0);
   assert.ok(rects.every((rect, index) => index === 0 || rect.start >= (rects[index - 1]?.start ?? 0)));
   const bare = clipRects(elements.map((element) => ({ ...element, timestamp: undefined })), view());
-  assert.equal(bare[1]?.start, bare[0]?.duration, "without timestamps the clips follow each other");
+  const overlap = elements[1]?.effects.find((effect) => effect.type === "dissolve")?.duration ?? 0;
+  assert.ok(overlap > 0, "the fixture dissolves into its second clip");
+  assert.equal(bare[1]?.start, (bare[0]?.duration ?? 0) - overlap, "without timestamps the clips follow each other, overlapping by the dissolve");
+  const hard = clipRects(elements.map((element) => ({ ...element, timestamp: undefined, effects: [] })), view());
+  assert.equal(hard[1]?.start, hard[0]?.duration, "a hard cut leaves no overlap");
   assert.equal(clipStart(elements, elements[2]?.id ?? ""), elements[2]?.timestamp);
   assert.equal(clipStart(elements, "nothing"), null);
 });

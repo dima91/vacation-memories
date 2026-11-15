@@ -16,7 +16,7 @@ const TOLERANCE = 1e-3;
 /** A moment that shares more than this with a deleted one is left out (the planner's rule, `EXCLUSION_OVERLAP_SECONDS`). */
 const OVERLAP_SECONDS = 1e-3;
 
-const round6 = (value: number): number => Math.round(value * 1e6) / 1e6;
+export const round6 = (value: number): number => Math.round(value * 1e6) / 1e6;
 
 // --- exclusions ---------------------------------------------------------------------------------------------
 
@@ -224,7 +224,7 @@ export function lostEffects(before: Plan, after: Plan): number {
 }
 
 /** The end of every edit: the transitions settled, and the destination times (the server's) dropped until it computes them again. */
-function conclude(plan: Plan, previous: Plan, minimum: number): Plan {
+export function conclude(plan: Plan, previous: Plan, minimum: number): Plan {
   const settled = settle(plan, previous, minimum);
   return { ...settled, elements: settled.elements.map(({ timestamp: _server, ...element }) => element) };
 }

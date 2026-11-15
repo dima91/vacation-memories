@@ -292,7 +292,26 @@ other web page open in your browser can use it.
   your edits a copy goes into `plan_history/`, and the hidden photos and deleted moments are not chosen again. A
   reordering or a removal from the timeline is not, by itself, recognized as an edit: for what must not come back use
   "Nascondi" or "Elimina".
-- **What comes later.** Editing the music and the transitions (U6), and the full preview job and the export (U7).
+- **Editing the transitions.** A transition of the library (Transizioni tab: "Taglio netto", "Da nero", "A nero",
+  "Dissolvenza", "Passaggio per il nero") is dragged onto a clip of the timeline; without a drag, the buttons of a selected
+  clip put it at its start or end ("Da nero all'inizio", "Dissolvenza all'inizio", "Dissolvenza alla fine", "A nero alla
+  fine", "Passaggio per il nero qui", the last one at the playhead), and "Applica a tutto il video" of a library
+  transition puts it wherever it makes sense (a dissolve between all the clips, "from black" on the first, "to black" on
+  the last, the hard cut takes every dissolve away). A transition moves by dragging, also onto another clip, snapping to the
+  nearest place it is allowed; it is resized with the two handles that appear when it is selected, the Detail sliders or
+  the arrow keys (0.1 s, Shift 1 s); Delete, "Rimuovi la transizione" or the hard cut dragged onto it remove it. A transition
+  never leaves its clip nor overlaps another, lasts at least 0.2 s, and a dissolve fits in both clips it joins; a boundary
+  has one transition, so a new one replaces the one it finds there.
+- **Editing the music.** Tracks of the music root (Musica tab) go onto the music lane by dragging them or with the "+"
+  button of their row; the tracks lie one after another, and are reordered by dragging their names on the lane or with the
+  "Brano prima" and "Brano dopo" buttons. "Taglia la musica qui" cuts the part under the playhead in two (each piece at
+  least a second); a part can be muted, has its own fade-in and fade-out, and "Elimina la parte" makes the following ones
+  shift (a track left without parts leaves the video; "Ripristina le parti eliminate" puts back what the tracks in the video
+  leave uncovered). The whole music is shifted against the video by dragging the body of a part, the arrow keys on it
+  (0.1 s, Shift 1 s) or the Detail slider, and "Riporta la musica all'inizio" brings it back; the part beyond the end of the
+  video is dimmed, and the export cuts it there with the final fade-out. Once the plan has a `music` block it replaces the
+  `--music` option.
+- **What comes later.** The full preview job and the export (U7).
 - **Projects.** The editor lists the folders under `MEDIA_DIR`. Every folder has its own working folder,
   `WORK_DIR/projects/<name>-<hash>/`, with the cache, the plan (`edit_plan.json`), `candidates.json` (the catalog the
   analysis leaves for the editor), `project.json` (the settings), the logs and the videos. The CLI can work on the same
@@ -326,11 +345,14 @@ docker compose build editor                       # after a change of the interf
 The browser tests (Playwright, in `frontend/e2e/`) drive the editor in a real Chromium, on a synthetic vacation:
 
 ```sh
-docker compose run --rm -T dev python frontend/e2e/make_media.py   # once: dev-media/e2e-vacation
+docker compose run --rm -T dev python frontend/e2e/make_media.py   # once: dev-media/e2e-vacation and dev-media/e2e-music
 docker compose build editor                                         # the page under test is the one in the image
-docker compose run --rm -T e2e npm test                             # starts editor and nginx; a few minutes
+MUSIC_DIR=./dev-media/e2e-music docker compose run --rm -T e2e npm test   # starts editor and nginx; a few minutes
 docker compose stop editor nginx
 ```
+
+`MUSIC_DIR=./dev-media/e2e-music` gives the editor the two synthetic tracks the music tests use, instead of your own music
+folder (the editor started that way keeps them until it is started again without the variable).
 
 The `e2e` service shares the network of `nginx`, so the page is `http://localhost:8080` as in your browser. The tests
 make their plan with the real analysis job (no AI), put it back before each test, and check both the page and the plan the
