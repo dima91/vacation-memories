@@ -275,8 +275,24 @@ other web page open in your browser can use it.
   their moments, transitions, music), the Detail panel (preview, scores, limits, the summary of the whole video) and the
   timeline with zoom, scrolling, the playhead, the transitions on the clips and the music. The settings stay reachable
   from the top bar. The address holds the project (`#/p/<id>`), so a reload comes back to it.
-- **What comes later.** Adding, moving, trimming and removing clips, the music and transition editing, undo/redo, the
-  full preview job and the export are the next steps (U5 to U7): until then the page reads and plays.
+- **Editing the clips.** Photos and moments go into the timeline by dragging them from the Media panel (or with "Aggiungi
+  alla timeline", "Aggiungi tutte" for a group and "Aggiungi i momenti" for a video); a clip is reordered by dragging it
+  (or with the "Sposta prima" and "Sposta dopo" buttons, or Alt and the arrows). A photo lasts 1 to 30 seconds: drag the
+  two handles of the selected photo, use the slider of the Detail panel or the arrow keys (0.1 s, Shift 1 s). A moment is
+  trimmed from the two handles on its bar in the Videos tab or from the sliders of the Detail panel, and a click on a free
+  point of the bar adds a moment of about six seconds. "Nascondi" (a photo) and "Elimina" (a moment) take an item out of
+  the timeline and tell the planner not to choose it again; "Ripristina" brings it back. Every limit comes from the
+  server, which checks the plan again on every save.
+- **Undo and saving.** Undo and redo (the top bar, Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y) cover the last 60 changes; a drag or a
+  slider is one step. The plan is saved after every change, with the revision that was read: if it changed elsewhere (for
+  example by a command-line run) the editor offers to reload the version on disk or to overwrite it, keeping the
+  overwritten one in `plan_history/`. Delete removes the selected clip, Space plays and stops the preview, Escape clears
+  the selection. While another process uses the project, or the analysis runs, the plan is read-only.
+- **A new plan.** "Rigenera il piano…" in the settings builds the plan again, after a confirmation. If the current plan has
+  your edits a copy goes into `plan_history/`, and the hidden photos and deleted moments are not chosen again. A
+  reordering or a removal from the timeline is not, by itself, recognized as an edit: for what must not come back use
+  "Nascondi" or "Elimina".
+- **What comes later.** Editing the music and the transitions (U6), and the full preview job and the export (U7).
 - **Projects.** The editor lists the folders under `MEDIA_DIR`. Every folder has its own working folder,
   `WORK_DIR/projects/<name>-<hash>/`, with the cache, the plan (`edit_plan.json`), `candidates.json` (the catalog the
   analysis leaves for the editor), `project.json` (the settings), the logs and the videos. The CLI can work on the same
@@ -306,6 +322,20 @@ docker compose build editor                       # after a change of the interf
 `ui-dev` has the repository mounted, no network and no media; its dependencies are in the image, so a change to
 `frontend/package.json` needs `docker compose --profile dev build ui-dev`. Node is only in the build stage and in
 `ui-dev`, never in the image that runs. The bundle (`frontend/dist/`) is not committed.
+
+The browser tests (Playwright, in `frontend/e2e/`) drive the editor in a real Chromium, on a synthetic vacation:
+
+```sh
+docker compose run --rm -T dev python frontend/e2e/make_media.py   # once: dev-media/e2e-vacation
+docker compose build editor                                         # the page under test is the one in the image
+docker compose run --rm -T e2e npm test                             # starts editor and nginx; a few minutes
+docker compose stop editor nginx
+```
+
+The `e2e` service shares the network of `nginx`, so the page is `http://localhost:8080` as in your browser. The tests
+make their plan with the real analysis job (no AI), put it back before each test, and check both the page and the plan the
+server saved; the screenshots of a failure are in `frontend/e2e/results/`. A change to `frontend/e2e/package.json` needs
+`docker compose --profile dev build e2e`.
 
 ## Long jobs on a server
 

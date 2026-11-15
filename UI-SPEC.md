@@ -344,6 +344,8 @@ All approved as proposed, except D7 (React and TypeScript instead of Preact + ht
 
 **D13 — `app` service in the `cli` profile.** With `app` outside any profile, a bare `docker compose up` would start it with no arguments, that is a full job on `MEDIA_DIR`. Decided: `app` in the `cli` profile (`docker compose run --rm app …` keeps working, because a service named explicitly enables its profile); README and launcher always name the services.
 
+**D14 — Browser tests with Playwright.** Added at the user's request, after U5 (the first step with drag and drop, handles and focus that the static checks cannot exercise). Decided: a `e2e` service in the `dev` profile, built from the pinned Playwright image (Chromium only there, Node 24 stays out of `runtime`), with `@playwright/test` pinned in `frontend/e2e/package.json` and its lockfile (Apache-2.0). It shares the network of `nginx` (`network_mode: service:nginx`), so the page is `http://localhost:8080` and the checks of `Host` and `Origin` are the real ones; it publishes no port, mounts only the repository and has no `MEDIA_DIR`. The tests work on a synthetic vacation (`dev-media/e2e-vacation`, made by `frontend/e2e/make_media.py`), prepare their plan with the real analysis job (no AI) and look at the page and at the plan the server saved. They run on request (`docker compose run --rm -T e2e npm test`), not in `scripts/test-docker.sh`, which only checks the service's configuration. Each later editor step adds its own specs.
+
 ## 17. Changes to SPEC.md and CLAUDE.md
 
 Items 1–9 were applied to `SPEC.md` on 2026-11-14; item 10 (`CLAUDE.md`) is applied at the start of U3 and U4.
