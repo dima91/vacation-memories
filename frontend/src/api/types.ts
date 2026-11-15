@@ -262,7 +262,7 @@ export interface ElementLimits {
 export interface PlanLimits {
   min_effect_seconds: number;
   elements: Record<string, ElementLimits>;
-  music: { offset: Limits } | null;
+  music: { offset: Limits; min_part: number } | null;
 }
 
 export interface PlanWarning {

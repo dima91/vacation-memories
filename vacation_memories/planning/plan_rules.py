@@ -18,7 +18,7 @@ Limits, with the decisions of section 16:
   the clip (the dissolve into the next clip counts, it covers the end of this one), and an effect of
   the user lasts at least `rules.min_seconds` (0.2 s by default); a dissolve must fit in the free space
   of both clips it joins. The dissolves of the planner keep the 25% limit of the specification (D3);
-- the music shift leaves at least a second of music in the video.
+- the music shift leaves at least a second of music in the video, and a part of a track lasts at least a second.
 """
 
 from collections.abc import Mapping, Sequence
@@ -46,6 +46,7 @@ PHOTO_MAX_SECONDS = 30.0
 TIME_STEP_SECONDS = 0.1  # the precision of the user's edits
 MOMENT_MIN_SECONDS = 1.0
 MUSIC_MIN_AUDIBLE_SECONDS = 1.0
+MUSIC_MIN_PART_SECONDS = 1.0
 TOLERANCE = 1e-3  # seconds: what the values of a saved plan may differ from the exact geometry
 
 Window = tuple[float, float]
@@ -138,12 +139,14 @@ class PlanLimits:
     elements: dict[str, ElementLimits]
     min_effect_seconds: float
     music_offset: Limits | None
+    min_part_seconds: float = MUSIC_MIN_PART_SECONDS
 
     def to_dict(self) -> dict:
         return {
             "min_effect_seconds": self.min_effect_seconds,
             "elements": {identifier: limits.to_dict() for identifier, limits in self.elements.items()},
-            "music": None if self.music_offset is None else {"offset": self.music_offset.to_dict()},
+            "music": None if self.music_offset is None
+            else {"offset": self.music_offset.to_dict(), "min_part": self.min_part_seconds},
         }
 
 
@@ -434,6 +437,8 @@ def _check_music(
             previous_end = max(previous_end, part.end)
             if known is not None and part.end > known + TOLERANCE:
                 violations.append(Violation(f"{here}.end", f"the part ends after the track, which lasts {known:g} s"))
+            if part.length < MUSIC_MIN_PART_SECONDS - TOLERANCE:
+                violations.append(Violation(here, f"a part of the music lasts at least {MUSIC_MIN_PART_SECONDS:g} s"))
             if part.fade_in + part.fade_out > part.length + TOLERANCE:
                 violations.append(Violation(here, "the fade-in and the fade-out do not fit in the part"))
     limits = music_offset_limits(music, plan_duration(plan, rules))

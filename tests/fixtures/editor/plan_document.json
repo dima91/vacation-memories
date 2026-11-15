@@ -667,6 +667,7 @@
     },
     "min_effect_seconds": 0.2,
     "music": {
+      "min_part": 1.0,
       "offset": {
         "max": 30.3,
         "min": -19.0,

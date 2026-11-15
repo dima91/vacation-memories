@@ -20,6 +20,7 @@ from vacation_memories.planning.edit_plan import (
 from vacation_memories.planning.plan_rules import (
     MOMENT_MIN_SECONDS,
     MUSIC_MIN_AUDIBLE_SECONDS,
+    MUSIC_MIN_PART_SECONDS,
     PHOTO_MAX_SECONDS,
     PHOTO_MIN_SECONDS,
     check_plan,
@@ -388,6 +389,13 @@ class TestMusic:
             "music.tracks[0].parts[0].end: the part ends after the track, which lasts 30 s"]
         assert problems(plan) == []
 
+    @pytest.mark.parametrize("end, ok", [(0.9, False), (1.0, True), (1.5, True)])
+    def test_a_part_lasts_at_least_a_second(self, end, ok):
+        plan = plan_of(photo(50.0), music=MusicPlan((track("a.mp3", (0, 10), (10, 10 + end)),)))
+        assert (problems(plan) == []) is ok
+        if not ok:
+            assert problems(plan) == ["music.tracks[0].parts[1]: a part of the music lasts at least 1 s"]
+
     def test_the_fades_of_a_part_fit_in_it(self):
         plan = plan_of(photo(50.0), music=MusicPlan((track("a.mp3", (0, 4, False, 2.5, 2.5)),)))
         assert problems(plan) == ["music.tracks[0].parts[0]: the fade-in and the fade-out do not fit in the part"]
@@ -441,6 +449,7 @@ class TestPlanLimits:
         assert data["elements"]["p.jpg"]["effects"]["fi"] == {"type": "fade_in", "windows": [[0.0, 3.2]]}
         assert set(data["elements"]["p.jpg"]["available"]) == {"fade_in", "fade_out", "dissolve", "dip"}
         assert data["music"]["offset"]["min"] == -29.0
+        assert data["music"]["min_part"] == MUSIC_MIN_PART_SECONDS == 1.0
 
     def test_the_limits_are_not_written_into_the_plan(self):
         keys = set(self.plan().to_dict())

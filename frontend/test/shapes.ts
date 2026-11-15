@@ -89,7 +89,7 @@ const elementLimits = obj<ElementLimits>({
   kind: oneOf("photo", "video"), duration: nullable(limits), trim: nullable(trim), effects: rec(effectRoom),
   available: obj({ fade_in: effectRoom, fade_out: effectRoom, dissolve: effectRoom, dip: effectRoom }),
 });
-const planLimits = obj<PlanLimits>({ min_effect_seconds: num, elements: rec(elementLimits), music: nullable(obj({ offset: limits })) });
+const planLimits = obj<PlanLimits>({ min_effect_seconds: num, elements: rec(elementLimits), music: nullable(obj({ offset: limits, min_part: num })) });
 const warning = obj<PlanWarning>({ code: str, message: str, element: opt(str) });
 const refs = obj<ElementRefs>({ clip: str, media: str });
 export const planDocument = obj<PlanDocument>({
