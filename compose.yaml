@@ -97,6 +97,36 @@ services:
       - /tmp
     network_mode: none
 
+  # The browser tests of the editor (UI-SPEC.md, D14): Chromium in the nginx container's network, so the page is
+  # `http://localhost:8080` as in the user's browser (the editor checks `Host` and `Origin`). It has no network of its
+  # own, no port and no media; `docker compose run --rm -T e2e` starts the editor and nginx it depends on.
+  e2e:
+    profiles: [dev]
+    build:
+      context: .
+      target: e2e
+    image: vacation-memories-e2e:local
+    user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
+    working_dir: /src/frontend/e2e
+    environment:
+      HOME: /tmp
+    network_mode: "service:nginx"
+    depends_on:
+      nginx:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 1gb
+    volumes:
+      - type: bind
+        source: .
+        target: /src
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp
+
   app:
     <<: *runtime
     profiles: [cli]  # a bare `docker compose up` must not start a full job; `docker compose run app …` still works

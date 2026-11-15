@@ -12,5 +12,6 @@ __pycache__/
 .test-docker/
 **/ui-mockup/
 frontend/node_modules/
+frontend/e2e/results/
 frontend/dist/
 vacation_memories/editor/static/

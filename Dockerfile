@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm
 ARG NODE_IMAGE=node:24.20.0-bookworm-slim
+ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.65.1-noble
 
 FROM ${PYTHON_IMAGE} AS base
 ENV PYTHONUNBUFFERED=1 \
@@ -54,6 +55,14 @@ RUN cd /deps && npm ci --ignore-scripts --no-audit --no-fund && mv node_modules 
 ENV HOME=/tmp
 USER node
 WORKDIR /src/frontend
+
+# `e2e` (UI-SPEC.md, D14): the browser tests. The Playwright image brings Chromium; the version of `@playwright/test` in
+# `frontend/e2e/package.json` must be the image's. Same layout as `ui-dev`: the dependencies sit in /node_modules.
+FROM ${PLAYWRIGHT_IMAGE} AS e2e
+COPY frontend/e2e/package.json frontend/e2e/package-lock.json /deps/
+RUN cd /deps && npm ci --ignore-scripts --no-audit --no-fund && mv node_modules /node_modules && cd / && rm -rf /deps
+ENV HOME=/tmp
+WORKDIR /src/frontend/e2e
 
 FROM base AS runtime
 ARG APP_VERSION=dev

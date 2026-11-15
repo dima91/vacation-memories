@@ -16,6 +16,9 @@ CLAUDE.md
 tests/
 docker/
 frontend/node_modules/
+frontend/e2e/*
+!frontend/e2e/package.json
+!frontend/e2e/package-lock.json
 frontend/dist/
 compose*.yaml
 Dockerfile

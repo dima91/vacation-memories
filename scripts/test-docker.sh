@@ -442,6 +442,27 @@ assert "ui-dev" not in [name for name, other in c["services"].items() if not oth
     ! grep -qx ui-dev <<<"$without_dev" || { echo "a bare docker compose up would start ui-dev"; return 1; }
 }
 
+# `e2e` (UI-SPEC.md, D14): the browser tests. It shares the network of nginx (so it is not on `frontend` itself), publishes
+# nothing, mounts only the repository and is not started by a bare `docker compose up`. The tests themselves run on request:
+# they need the editor, a synthetic vacation and a few minutes (`docker compose run --rm -T e2e`).
+check_config_e2e() {
+    config_assert '
+service = c["services"]["e2e"]
+assert service.get("profiles") == ["dev"], service.get("profiles")
+assert service.get("network_mode") == "service:nginx" and not service.get("networks"), "e2e must share the network of nginx"
+assert not service.get("ports"), "e2e must not publish a port"
+assert [volume["target"] for volume in service["volumes"]] == ["/src"], service["volumes"]
+assert service["working_dir"] == "/src/frontend/e2e"
+assert service["user"].count(":") == 1 and not service["user"].startswith("0"), service["user"]
+assert service["cap_drop"] == ["ALL"], service["cap_drop"]
+assert "e2e" not in [name for name, other in c["services"].items() if not other.get("profiles")]
+assert not [name for name, other in c["services"].items() if "frontend" in other.get("networks", {}) and name != "nginx"]
+' compose_files || return 1
+    local without_dev
+    without_dev=$(docker compose --env-file "$TEST_ENV" config --services) || return 1
+    ! grep -qx e2e <<<"$without_dev" || { echo "a bare docker compose up would start e2e"; return 1; }
+}
+
 check_ui_dev_isolation() {
     ensure_built || return 1
     local interfaces
@@ -934,6 +955,7 @@ run_check "app: doctor --require-ai with the simulated Ollama" check_doctor_requ
 run_check "app: reaches Ollama, not the Internet" check_app_network
 run_check "dev: no media, no Internet, reaches Ollama, files owned by the host user" check_dev_isolation
 run_check "config: ui-dev in the dev profile, no network, only the repository mounted" check_config_ui_dev
+run_check "config: e2e in the dev profile, in the network of nginx, no port, only the repository mounted" check_config_e2e
 run_check "ui-dev: no network, no media, files owned by the host user" check_ui_dev_isolation
 run_check "ui-dev: npm run check (tsc) and npm test pass" check_ui_dev_checks
 run_check "cycle: exit 0 and AI used" check_cycle_exit
