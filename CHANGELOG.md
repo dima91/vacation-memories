@@ -7,21 +7,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-15
+
 ### Added
 
 - The interactive editor, a local web page served by the new `serve` subcommand behind an `nginx` proxy
   (`docker compose up -d editor nginx`, `http://127.0.0.1:8080`). The interface is in Italian, in React and TypeScript
   (`frontend/`), and the page makes no request outside the editor.
-  - Projects: every folder under `MEDIA_DIR` gets its own working folder, with settings, analysis and plan job with
+    - Projects: every folder under `MEDIA_DIR` gets its own working folder, with settings, analysis and plan job with
     progress and stop, and a resumable job after the editor stops.
-  - Editing: add, reorder and remove clips, photo durations, trims of the moments, hide photos and delete moments (the
+    - Editing: add, reorder and remove clips, photo durations, trims of the moments, hide photos and delete moments (the
     planner never chooses them again), undo and redo, saving with a revision and a conflict dialog, and regenerating the
     plan with a copy in `plan_history/`.
-  - Transitions and music: a library of transitions applied by drag or by buttons, several music tracks cut into parts
+    - Transitions and music: a library of transitions applied by drag or by buttons, several music tracks cut into parts
     with mute, fades and a shift against the video.
-  - Preview and export: the preview of the whole video after every plan, an "outdated" mark, per-clip previews, and
+    - Preview and export: the preview of the whole video after every plan, an "outdated" mark, per-clip previews, and
     "Export video" with a name, progress, stop, download and error states.
-  - Browser tests with Playwright (`e2e` service) on a synthetic vacation.
+    - Browser tests with Playwright (`e2e` service) on a synthetic vacation.
 - Edit plan `schema_version: 2`: a stable `id` and an `origin` for every clip, `effects` (`fade_in`, `fade_out`,
   `dissolve`, `dip`), `excluded` moments and a `music` block. A schema 1 plan is still read and rendered. `--music` and
   the tracks of the plan are relative to `music_dir`, and `--preview` writes `render_report_preview.json`.
@@ -69,7 +71,7 @@ First release.
 
 ### Known limits
 
-See "Known limits" in the README: duplicates are perceptual only, places are not known, and the scores are tuned on
-synthetic media only.
+See "Known limits" in the README: duplicates are perceptual only, places are not known, and the scores are tuned on synthetic media only.
 
-[0.1.0]: https://github.com/dima91/vacation-memories/releases/tag/v0.1.0
+- [0.1.0]: https://github.com/dima91/vacation-memories/releases/tag/v0.1.0
+- [0.2.0]: https://github.com/dima91/vacation-memories/releases/tag/v0.2.0
