@@ -5,12 +5,41 @@ blurred, dark and repeated shots, picks the best moments, orders them into a sto
 chronological body and a calm closing, and adds background music. Everything runs locally, in Docker containers:
 the originals are only read, never changed, and nothing leaves the machine.
 
+There are three ways to use it, all on the same project files, so you can start with one and continue with another:
+
+- the **command line** (`app`): analysis, plan and rendering in one command, also on a server without a display;
+- the **editor**, a local web page where you look at the plan, change it (clips, transitions, music) and export the
+  video;
+- the **launcher**, a single file that starts the editor with a double click, for a PC.
+
+**Contents:**
+[Requirements](#requirements) ·
+[Installation](#installation) ·
+[Usage](#usage) ·
+[Editor](#editor) ·
+[Launcher](#launcher-one-file-double-click) ·
+[Long jobs on a server](#long-jobs-on-a-server) ·
+[Copying the results](#copying-the-results) ·
+[Privacy](#privacy) ·
+[Known limits](#known-limits) ·
+[Evaluation](#evaluation) ·
+[Docker](#docker) ·
+[Development](#development) ·
+[Troubleshooting](#troubleshooting) ·
+[Documentation](#documentation) ·
+[License](#license)
+
+If you only want the editor on your own PC, go straight to "Launcher": it needs no repository and no `.env`.
+
 ## Requirements
 
 - Linux with Docker Engine and the Docker Compose plugin. Nothing else is installed on the host: Python, FFmpeg
   and the libraries are in the images.
 - Optional: an Intel GPU (`/dev/dri`) for the vision model. Without it the model runs on the CPU, more slowly.
   The program also works without any AI (`--no-ai`).
+- Optional, for the launcher only: Google Chrome. Without it the editor opens in your default browser.
+- Disk: about 3.3 GB for the vision model, the images, and a working folder with room for the segments (about twice the
+  size of the final video).
 
 ## Installation
 
@@ -63,6 +92,40 @@ On the development PC, `./dev-media` can be filled with a synthetic vacation:
 docker compose --profile dev build
 docker compose run --rm -T dev python -m vacation_memories.evaluate.synthetic_media dev-media/vacation --vacation
 ```
+
+### Environment variables
+
+All of them go in `.env` (the template is `.env.example`) or in the shell, which wins over `.env`. Only the first five rows
+are needed; the rest has a default.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `MEDIA_DIR` | `./dev-media` | photos and clips, mounted read-only |
+| `MUSIC_DIR` | `./music` | background music, mounted read-only |
+| `WORK_DIR` | `./work` | cache, plans, logs, videos |
+| `HOST_UID`, `HOST_GID` | `1000` | the user the containers run as: use `id -u` and `id -g` |
+| `COMPOSE_FILE` | `compose.yaml:compose.intel-gpu.yaml` | the compose files in use (see "Docker") |
+| `OLLAMA_MODEL` | `qwen3-vl:4b-instruct-q4_K_M` | vision model |
+| `OLLAMA_VULKAN` | unset | `0` turns the Vulkan backend of Ollama off (see "Troubleshooting") |
+| `ASSUME_TZ` | unset | time zone of the files without a date in their metadata |
+| `EDITOR_ALLOWED_HOSTS` | `127.0.0.1:8080,localhost:8080` | `Host` values the editor accepts (SSH tunnel on another port) |
+| `APP_VERSION` | `dev` | version written in the image label |
+| `VM_IMAGE` | `vacation-memories:local` | image of `app` and `editor`; the launcher sets it to the one on Docker Hub |
+| `IMAGE_REPO` | unset | Docker Hub repository written into the launcher; read only by `launcher-build` |
+
+### Updating
+
+After a change of the code (a `git pull`, or your own), rebuild the image, which holds a copy of it:
+
+```sh
+docker compose build app          # `editor` is the same image
+docker compose run --rm -T app doctor
+```
+
+The cache in the working folder is keyed by the relative path, the size and the modification time of each file (and by
+the analysis parameters), so an update does not make you analyze everything again; a file that changed is analyzed
+again, and a cache from an incompatible version is rebuilt by itself. Copying the media with a tool that resets the
+modification times (without `rsync -t` or `cp -p`) empties the cache.
 
 ## Usage
 
@@ -138,6 +201,19 @@ docker compose run --rm -T app --dry-run --duration 3m  # immediate: look at the
 docker compose run --rm -T app --duration 3m --preview  # quick trial video
 docker compose run --rm -T app --duration 3m --music /music/track.mp3
 ```
+
+### Other commands
+
+| Command | What it does |
+| --- | --- |
+| `doctor` | checks the installation and exits with 0 unless a check fails: Python, the image version, FFmpeg with the encoders and filters it needs, the Python libraries, the HEIC decoder (a warning if missing), that the working folder is writable and has free space, the container limits, and Ollama with the model (not with `--no-ai`) |
+| `bench vision` | seconds per frame of the vision model on this machine; `--images <folder>` uses your own photos, `--count N` how many (default 5) |
+| `serve` | the editor's web server (see "Editor"); `--host` (default `127.0.0.1`), `--port` (default 8000) and `--allowed-host HOST:PORT`, repeatable. Compose already runs it behind `nginx` |
+| `evaluate synthetic`, `prepare`, `report` | the measurement of the edit (see "Evaluation") |
+
+Every command also takes the options that are not about the video itself: `--config`, `--input`, `--workdir`, the log
+options, `--assume-tz`, `--jobs`, `--hwaccel`, `--nice` and the AI ones. `docker compose run --rm -T app <command> --help`
+lists the options of each command.
 
 ### How the video is built
 
@@ -249,7 +325,8 @@ The names and default values are in `vacation_memories/planning/selection_config
 
 The editor is a local web server on top of the CLI: the analysis, the plan and the rendering stay the CLI, run as
 child processes on the same files, so a project can be continued from either. The interface is in Italian, in React and
-TypeScript (`frontend/`); at this stage it shows and plays what the project holds, and does not change the plan yet.
+TypeScript (`frontend/`). It shows the analysis and the plan, and lets you edit the clips, the transitions and the music,
+preview the result and export the video.
 
 ```sh
 docker compose build editor           # after every change of the code
@@ -316,7 +393,9 @@ other web page open in your browser can use it.
   completa" in the summary of the Detail panel starts it by hand. It plays in the summary; after any edit it is marked
   "Anteprima non aggiornata" (top bar and summary) and "Aggiorna l'anteprima" makes it again. It is not real time, and a plan
   saved while it renders leaves it marked as outdated. The preview of a single clip, in the Detail panel, follows the trim
-  and the duration (a moment after the last change) and has a retry button if FFmpeg could not make it.
+  and the duration (a moment after the last change) and has a retry button if FFmpeg could not make it. A moment that is
+  not in the timeline, and a whole video of the Media panel, play in the same way (the first request for a long video waits
+  for FFmpeg); playing them does not move the playhead. A photo outside the timeline shows its thumbnail.
 - **Export.** "Esporta video" in the top bar asks for a file name (no extension: `memories` by default, the same as the
   last export, with a warning if it would replace a file), then shows the progress with a stop button. When it ends the
   dialog says where the file is (the path from `WORK_DIR`, for example `projects/<name>-<hash>/memories.mp4`) and offers it
@@ -381,9 +460,9 @@ Google Chrome the page opens in your default browser (`xdg-open`); then nothing 
 so stop it with the menu action "Stop Vacation Memories" or `vacation-memories --stop`.
 
 ```sh
-sha256sum -c vacation-memories-0.1.0-linux-x86_64.sha256     # in the folder of the download
-chmod +x vacation-memories-0.1.0-linux-x86_64
-./vacation-memories-0.1.0-linux-x86_64 --install-desktop    # adds "Vacation Memories" to the applications menu
+sha256sum -c vacation-memories-X.Y.Z-linux-x86_64.sha256     # in the folder of the download
+chmod +x vacation-memories-X.Y.Z-linux-x86_64
+./vacation-memories-X.Y.Z-linux-x86_64 --install-desktop    # adds "Vacation Memories" to the applications menu
 ```
 
 The menu entry points to the file where it is, so run `--install-desktop` again if you move it. Then a double click
@@ -394,7 +473,9 @@ the answers in `~/.config/vacation-memories/`, downloads the application image f
 starts the editor and shows it. Closing the window stops the containers. `--reconfigure` (or the "Change folders and
 settings" action of the menu entry) asks the folders again; `--stop` stops a running launcher and its containers;
 `--browser PATH` chooses another Chrome; the log is
-`~/.config/vacation-memories/launcher.log`. Your repository `.env` is not used by the launcher.
+`~/.config/vacation-memories/launcher.log`. Your repository `.env` is not used by the launcher. The launcher runs the
+editor (and Ollama, in the background, with the Intel GPU if `/dev/dri` exists): for the command line and the
+`evaluate` commands use the repository (see "Installation").
 
 To build it yourself instead, once the image of that version is on Docker Hub (the CI publishes it on the release tag,
 see "Continuous integration"; `IMAGE_REPO` is the value of the `IMAGE_NAME` variable, e.g. `yourname/vacation-memories`).
@@ -462,6 +543,21 @@ rsync -av server:/path/to/vacation-memories/work/{edit_plan.json,render_report.j
 The working folder has private permissions (`0700`): it holds thumbnails and metadata of private photos. The cache
 (`cache.sqlite3`) and the segments (`segments/`) can be deleted once the video is done; they only make later runs
 faster.
+
+## Privacy
+
+The program is built so that the photos stay on your machine:
+
+- The originals are mounted read-only and are never modified; the program refuses an `--output` inside the media folder.
+- The vision model runs in a local Ollama container. `app`, `editor` and `dev` are on an internal Docker network with no
+  route to the Internet; only `ollama` can reach it, to download models. A remote Ollama is refused unless you pass
+  `--allow-remote-ollama`.
+- The editor's page makes no request outside the editor (fonts included), and the editor accepts only its own `Host` and
+  `Origin`, so no other web page open in your browser can use it. The only published port is `127.0.0.1:8080`. It has no
+  authentication: see "Editor", item "Access".
+- The working folder (`0700`) holds thumbnails, previews, metadata and descriptions of your photos. Do not publish or
+  commit it. Of the evaluation, only `eval_summary.json` is anonymous and meant to be shared.
+- The images run as a normal user with no capabilities and no Docker socket; see "Services and networks".
 
 ## Known limits
 
@@ -600,7 +696,7 @@ serves both; only `.env` changes.
 
 | File | Purpose |
 | --- | --- |
-| `compose.yaml` | the services `editor`, `nginx`, `ollama`, `ollama-pull`, `app` (profile `cli`), `dev` and `ui-dev` (profile `dev`) |
+| `compose.yaml` | the services `editor`, `nginx`, `ollama`, `ollama-pull`, `app` (profile `cli`), `dev`, `ui-dev`, `e2e` and `launcher-build` (profile `dev`) |
 | `compose.intel-gpu.yaml` | gives `ollama` the Intel GPU (`/dev/dri`, `OLLAMA_IGPU_ENABLE=1`) |
 | `compose.selinux.yaml` | `label=disable` for `app`, `dev` and `editor` |
 | `compose.test.yaml` | for `scripts/test-docker.sh` only: a simulated Ollama, no model downloaded |
@@ -621,6 +717,11 @@ serves both; only `.env` changes.
 - `dev` is the `dev` image with the repository mounted at `/src`, for the tests. It never mounts `MEDIA_DIR`.
 - `ui-dev` is the Node image of the interface with the repository mounted, for `npm run check` and `npm test`. Like
   `dev` it never mounts `MEDIA_DIR`, and it has no network at all (`network_mode: none`).
+- `e2e` is Playwright with Chromium, for the browser tests of the editor. It shares the network of `nginx` (so the page is
+  `http://localhost:8080`), has no network of its own and no media; the screenshots of a failure are in
+  `frontend/e2e/results/`.
+- `launcher-build` is the PyInstaller image that builds the launcher into `./dist`. Like `ui-dev` it has the repository
+  mounted, no network and no media.
 - `app`, `editor` and `dev` sit only on the internal network `backend`, which has no route to the Internet: they
   reach Ollama and nothing else. Only `ollama` is also on `egress`, to download models. `nginx` is on `backend` and on
   `frontend`, an ordinary network with nothing else on it (an internal network cannot publish a port). The only
@@ -863,3 +964,16 @@ docker compose run --rm -T -e VACATION_MEMORIES_AI_TIMEOUT=600 app bench vision 
 To go back to the GPU, comment out `OLLAMA_VULKAN=0` again (or restore the override in `COMPOSE_FILE`) and run
 `docker compose up -d ollama`.
 
+## Documentation
+
+| File | Contents |
+| --- | --- |
+| `SPEC.md` | the specification of the program: requirements, selection and planning rules, development plan |
+| `UI-SPEC.md` | the specification of the editor: API, plan schema, interface and launcher |
+| `CHANGELOG.md` | the changes of every version (it is also the text of the GitHub releases) |
+| `frontend/THIRD-PARTY.md` | versions and licenses of the interface's dependencies and fonts |
+| `docs/ui-mockup/` | the interface mockup the editor was built from |
+
+## License
+
+MIT, see `LICENSE`.
