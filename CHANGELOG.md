@@ -14,6 +14,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   containers when the window is closed. `--install-desktop` adds the applications menu entry, `--reconfigure` asks
   the folders again, `--stop` stops it. Without Chrome it opens the default browser with `xdg-open` and waits for `--stop`.
 - `VM_IMAGE` variable: image of `app` and `editor` (default `vacation-memories:local`).
+- CI: on a release tag `vX.Y.Z`, once the tests pass, the `publish-image` job pushes the `runtime` image to Docker Hub as
+  `<IMAGE_NAME>:X.Y.Z` (plus `latest` for a final version). `IMAGE_NAME` is a repository variable; the login uses the
+  secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`.
+- CI: the `release` job then builds the launcher and creates the GitHub release with it
+  (`vacation-memories-X.Y.Z-linux-x86_64` and its `.sha256`). The notes are the `## [X.Y.Z]` section of this file; a tag
+  without it is refused before anything is published.
 
 ## [0.1.0] - 2026-11-13
 

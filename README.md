@@ -374,15 +374,20 @@ server saved; the screenshots of a failure are in `frontend/e2e/results/`. A cha
 
 ### Launcher (one file, double click)
 
-`dist/vacation-memories` is a single executable that starts everything and opens the editor in its own window. It needs
+The launcher is a single executable that starts everything and opens the editor in its own window. Every release has it,
+as `vacation-memories-X.Y.Z-linux-x86_64` with its `.sha256`, on the GitHub releases page. It needs
 Docker Engine with the Compose plugin and Google Chrome on the PC, nothing else (Python is inside the file). Without
 Google Chrome the page opens in your default browser (`xdg-open`); then nothing tells the launcher that you have finished,
 so stop it with the menu action "Stop Vacation Memories" or `vacation-memories --stop`.
 
 ```sh
-chmod +x vacation-memories
-./vacation-memories --install-desktop    # adds "Vacation Memories" to the applications menu; then a double click works
+sha256sum -c vacation-memories-0.1.0-linux-x86_64.sha256     # in the folder of the download
+chmod +x vacation-memories-0.1.0-linux-x86_64
+./vacation-memories-0.1.0-linux-x86_64 --install-desktop    # adds "Vacation Memories" to the applications menu
 ```
+
+The menu entry points to the file where it is, so run `--install-desktop` again if you move it. Then a double click
+works.
 
 On the first start the window asks the folders (the vacations, where to write the projects and videos, the music), saves
 the answers in `~/.config/vacation-memories/`, downloads the application image from Docker Hub (a few minutes, once),
@@ -391,14 +396,18 @@ settings" action of the menu entry) asks the folders again; `--stop` stops a run
 `--browser PATH` chooses another Chrome; the log is
 `~/.config/vacation-memories/launcher.log`. Your repository `.env` is not used by the launcher.
 
-To build it, once you have published the image (the repository is yours, e.g. `yourname/vacation-memories`):
+To build it yourself instead, once the image of that version is on Docker Hub (the CI publishes it on the release tag,
+see "Continuous integration"; `IMAGE_REPO` is the value of the `IMAGE_NAME` variable, e.g. `yourname/vacation-memories`).
+The file is `dist/vacation-memories`:
 
 ```sh
 docker compose --profile dev build launcher-build
-docker build --target runtime --build-arg APP_VERSION=0.1.0 -t yourname/vacation-memories:0.1.0 .
-docker push yourname/vacation-memories:0.1.0              # up to you: logs in with your Docker Hub account
 IMAGE_REPO=yourname/vacation-memories APP_VERSION=0.1.0 docker compose run --rm -T launcher-build
 ```
+
+Without the CI, publish the image yourself first: `docker build --target runtime --build-arg APP_VERSION=0.1.0 -t
+yourname/vacation-memories:0.1.0 .` and `docker push yourname/vacation-memories:0.1.0` (it logs in with your Docker Hub
+account).
 
 The file embeds `compose.yaml` and the files it needs, so it can be copied to another PC on its own. It is built on an
 old glibc and runs on any Linux x86-64 with a newer one. A change to `requirements-launcher.txt` needs
@@ -766,9 +775,38 @@ The GitHub Actions workflow `.github/workflows/ci.yml` runs the same commands as
 | --- | --- |
 | push to `main`, `develop`, `release/**`; every pull request; tags `v*` | build of `dev` and `ui-dev`, `pytest`, `npm run check` and `npm test` |
 | pull requests; tags `v*` | also `scripts/test-docker.sh` |
+| tags `v*`, after both of the above pass | publishes the `runtime` image on Docker Hub (`publish-image` job) |
+| tags `v*`, after the image | builds the launcher and creates the GitHub release with it (`release` job) |
 
 On a tag `vX.Y.Z` the workflow also checks that `X.Y.Z` is the `__version__` of the package. The tests with the real
 model (`-m ollama`) do not run in CI: they are skipped there because no Ollama is reachable.
+
+**Releasing.** The `publish-image` job builds the `runtime` target and pushes `<IMAGE_NAME>:X.Y.Z`, plus
+`<IMAGE_NAME>:latest` unless the version is a pre-release (`X.Y.Z-rc1`). The tags come from
+`scripts/ci_image_tags.sh`, which also refuses an unusable name or tag. Set up once, on GitHub (Settings → Secrets and
+variables → Actions) and on Docker Hub:
+
+| Where | Name | Value |
+| --- | --- | --- |
+| Variable | `IMAGE_NAME` | `<namespace>/<image_name>`, lowercase, **without** `docker.io/` (e.g. `yourname/vacation-memories`) |
+| Secret | `DOCKERHUB_USERNAME` | your Docker Hub user |
+| Secret | `DOCKERHUB_TOKEN` | an access token of that account with read and write permission |
+
+The Docker Hub repository must exist and be public, so that the launcher pulls without a login. The `release` job needs
+nothing else: it uses the token of the workflow.
+
+Then the `release` job builds the launcher with `IMAGE_REPO` set to `IMAGE_NAME` and the version of the tag, and creates
+the GitHub release `vX.Y.Z` with the files `vacation-memories-X.Y.Z-linux-x86_64` and `….sha256`. The notes of the
+release are the section `## [X.Y.Z]` of `CHANGELOG.md`; a version with a hyphen (`0.2.0-rc1`) is marked as a
+pre-release. If the release already exists, its notes are replaced and its files are uploaded again.
+
+To release:
+
+1. rename `[Unreleased]` in `CHANGELOG.md` to `[X.Y.Z] - date`, and raise `__version__` to `X.Y.Z`;
+2. merge into `main`, tag `vX.Y.Z` and push the tag.
+
+The `tests` job fails right away, before anything is published, if the tag does not match `__version__` or the changelog
+has no section with content for the version (`scripts/ci_release_notes.sh`).
 
 ### Tests with the real model
 
