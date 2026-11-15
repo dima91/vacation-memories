@@ -34,7 +34,7 @@ while (($#)); do
 done
 
 # Whatever the shell exports must not leak into the tests: only the env file counts.
-for variable in MEDIA_DIR MUSIC_DIR WORK_DIR HOST_UID HOST_GID OLLAMA_MODEL OLLAMA_VULKAN ASSUME_TZ APP_VERSION \
+for variable in MEDIA_DIR MUSIC_DIR WORK_DIR HOST_UID HOST_GID OLLAMA_MODEL OLLAMA_VULKAN ASSUME_TZ APP_VERSION VM_IMAGE IMAGE_REPO \
     COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES COMPOSE_ENV_FILES; do
     unset "$variable"
 done
@@ -440,6 +440,30 @@ assert "ui-dev" not in [name for name, other in c["services"].items() if not oth
     local without_dev
     without_dev=$(docker compose --env-file "$TEST_ENV" config --services) || return 1
     ! grep -qx ui-dev <<<"$without_dev" || { echo "a bare docker compose up would start ui-dev"; return 1; }
+}
+
+# `launcher-build` (UI-SPEC.md, D15): builds the single-file launcher; repository mounted, no network, no media.
+check_config_launcher_build() {
+    config_assert '
+service = c["services"]["launcher-build"]
+assert service.get("profiles") == ["dev"], service.get("profiles")
+assert service.get("network_mode") == "none" and not service.get("networks"), "launcher-build must have no network"
+assert [volume["target"] for volume in service["volumes"]] == ["/src"], service["volumes"]
+assert service["user"].count(":") == 1 and not service["user"].startswith("0"), service["user"]
+assert service["cap_drop"] == ["ALL"], service.get("cap_drop")
+assert not service.get("ports"), service.get("ports")
+' compose_files || return 1
+    local without_dev
+    without_dev=$(docker compose --env-file "$TEST_ENV" config --services) || return 1
+    ! grep -qx launcher-build <<<"$without_dev" || { echo "a bare docker compose up would start launcher-build"; return 1; }
+    # The launcher sets VM_IMAGE to the published image; without it `app` and `editor` keep the local image.
+    config_assert '
+assert c["services"]["editor"]["image"] == "vacation-memories:local", c["services"]["editor"]["image"]
+' compose_files || return 1
+    VM_IMAGE=example/vacation-memories:9.9.9 config_assert '
+assert c["services"]["editor"]["image"] == "example/vacation-memories:9.9.9", c["services"]["editor"]["image"]
+assert c["services"]["app"]["image"] == c["services"]["editor"]["image"]
+' compose_files || return 1
 }
 
 # `e2e` (UI-SPEC.md, D14): the browser tests. It shares the network of nginx (so it is not on `frontend` itself), publishes
@@ -955,6 +979,7 @@ run_check "app: doctor --require-ai with the simulated Ollama" check_doctor_requ
 run_check "app: reaches Ollama, not the Internet" check_app_network
 run_check "dev: no media, no Internet, reaches Ollama, files owned by the host user" check_dev_isolation
 run_check "config: ui-dev in the dev profile, no network, only the repository mounted" check_config_ui_dev
+run_check "config: launcher-build in the dev profile, no network; VM_IMAGE sets the image of app and editor" check_config_launcher_build
 run_check "config: e2e in the dev profile, in the network of nginx, no port, only the repository mounted" check_config_e2e
 run_check "ui-dev: no network, no media, files owned by the host user" check_ui_dev_isolation
 run_check "ui-dev: npm run check (tsc) and npm test pass" check_ui_dev_checks

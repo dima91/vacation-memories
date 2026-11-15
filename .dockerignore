@@ -35,3 +35,5 @@ Dockerfile
 **/*.m4a
 scripts/
 .test-docker/
+dist/
+build/

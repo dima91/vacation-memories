@@ -9,7 +9,8 @@ x-runtime: &runtime
     target: runtime
     args:
       APP_VERSION: ${APP_VERSION:-dev}
-  image: vacation-memories:local
+  # `VM_IMAGE` is set only by the single-file launcher, which pulls the published image instead of building it.
+  image: ${VM_IMAGE:-vacation-memories:local}
   user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
   init: true
   read_only: true
@@ -96,6 +97,35 @@ services:
     tmpfs:
       - /tmp
     network_mode: none
+
+  # Builds the single-file launcher into ./dist (UI-SPEC.md, D15): `docker compose run --rm -T launcher-build`, with
+  # IMAGE_REPO set to the Docker Hub repository of the runtime image. Like `ui-dev`: the repository is mounted, the tool
+  # is in the image and there is no network and no media. /tmp allows exec: the one-file binary unpacks itself there.
+  launcher-build:
+    profiles: [dev]
+    build:
+      context: .
+      target: launcher-build
+    image: vacation-memories-launcher-build:local
+    user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
+    working_dir: /src
+    environment:
+      HOME: /tmp
+      IMAGE_REPO: ${IMAGE_REPO:-}
+      APP_VERSION: ${APP_VERSION:-dev}
+    command: ["python", "scripts/build_launcher.py"]
+    volumes:
+      - type: bind
+        source: .
+        target: /src
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:exec
+    network_mode: none
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
 
   # The browser tests of the editor (UI-SPEC.md, D14): Chromium in the nginx container's network, so the page is
   # `http://localhost:8080` as in the user's browser (the editor checks `Host` and `Origin`). It has no network of its

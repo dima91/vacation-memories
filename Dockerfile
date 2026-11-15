@@ -2,6 +2,8 @@
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm
 ARG NODE_IMAGE=node:24.20.0-bookworm-slim
 ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.65.1-noble
+# An old glibc on purpose: a PyInstaller binary runs only on a glibc at least as new as the one it was built on.
+ARG LAUNCHER_BUILD_IMAGE=python:3.12-slim-bullseye
 
 FROM ${PYTHON_IMAGE} AS base
 ENV PYTHONUNBUFFERED=1 \
@@ -63,6 +65,18 @@ COPY frontend/e2e/package.json frontend/e2e/package-lock.json /deps/
 RUN cd /deps && npm ci --ignore-scripts --no-audit --no-fund && mv node_modules /node_modules && cd / && rm -rf /deps
 ENV HOME=/tmp
 WORKDIR /src/frontend/e2e
+
+# `launcher-build` (UI-SPEC.md, D15): builds the single-file launcher with PyInstaller. Only the tool is in the image;
+# the repository is mounted when it runs (`scripts/build_launcher.py`). Never part of `runtime`.
+FROM ${LAUNCHER_BUILD_IMAGE} AS launcher-build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends binutils \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements-launcher.txt /tmp/requirements-launcher.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-launcher.txt && rm /tmp/requirements-launcher.txt
+ENV HOME=/tmp \
+    PYTHONDONTWRITEBYTECODE=1
+WORKDIR /src
 
 FROM base AS runtime
 ARG APP_VERSION=dev
