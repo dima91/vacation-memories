@@ -483,11 +483,11 @@ The file is `dist/vacation-memories`:
 
 ```sh
 docker compose --profile dev build launcher-build
-IMAGE_REPO=yourname/vacation-memories APP_VERSION=0.1.0 docker compose run --rm -T launcher-build
+IMAGE_REPO=yourname/vacation-memories APP_VERSION=0.2.0 docker compose run --rm -T launcher-build
 ```
 
-Without the CI, publish the image yourself first: `docker build --target runtime --build-arg APP_VERSION=0.1.0 -t
-yourname/vacation-memories:0.1.0 .` and `docker push yourname/vacation-memories:0.1.0` (it logs in with your Docker Hub
+Without the CI, publish the image yourself first: `docker build --target runtime --build-arg APP_VERSION=0.2.0 -t
+yourname/vacation-memories:0.2.0 .` and `docker push yourname/vacation-memories:0.2.0` (it logs in with your Docker Hub
 account).
 
 The file embeds `compose.yaml` and the files it needs, so it can be copied to another PC on its own. It is built on an
@@ -738,14 +738,16 @@ The image carries its version in the label `org.opencontainers.image.version` an
 `doctor` prints it with the FFmpeg version. Set it at build time:
 
 ```sh
-APP_VERSION=0.1.0 docker compose build app      # or APP_VERSION in .env
+APP_VERSION=0.2.0 docker compose build app      # or APP_VERSION in .env
 docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' vacation-memories:local
 ```
 
-Without `APP_VERSION` the label is `dev`. The base image is pinned by digest in the `PYTHON_IMAGE` default of the
-`Dockerfile`. To update it for a release, read the new digest with
-`docker buildx imagetools inspect python:3.12-slim-bookworm` and replace it there. The image is built for the architecture of the
-machine; for another one use `docker buildx build --platform linux/arm64 --target runtime ...`. A dependency
+Without `APP_VERSION` the label is `dev`. The base image is pinned by tag, not by digest: the `PYTHON_IMAGE` default
+of the `Dockerfile` is `python:3.12-slim-bookworm`, so a new build picks up the security updates of that tag, and two
+builds of the same version can differ in the base layers. To pin an exact base, build with `docker build --target runtime --build-arg
+PYTHON_IMAGE=python:3.12-slim-bookworm@sha256:<digest> .` (read the digest with
+`docker buildx imagetools inspect python:3.12-slim-bookworm`). The image is built for the
+architecture of the machine; for another one use `docker buildx build --platform linux/arm64 --target runtime ...`. A dependency
 without a wheel for that architecture makes the build fail.
 
 ### Resource limits
