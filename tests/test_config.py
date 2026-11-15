@@ -103,6 +103,7 @@ def test_compose_configuration_file_is_accepted():
     assert settings.ollama_url == "http://ollama:11434"
     assert settings.allow_remote_ollama is True
     assert settings.require_ai is True
+    assert settings.music_dir == Path("/music")
 
 
 def test_log_file_defaults_to_run_log_in_the_workdir_and_relative_paths_stay_inside_it(tmp_path):
@@ -311,3 +312,31 @@ class TestAiSettings:
         config = write_config(tmp_path, "ai_frames = 10\n")
         settings = resolve(env={"VACATION_MEMORIES_CONFIG": str(config), "VACATION_MEMORIES_AI_TIME_BUDGET": "90"})
         assert (settings.ai_frames, settings.ai_time_budget) == (None, 90)
+
+
+class TestMusicFolder:
+    """`music_dir` is the root of the music: `--music` and the tracks of the plan are relative to it."""
+
+    def test_there_is_no_music_folder_by_default(self):
+        settings = resolve()
+        assert settings.music_dir is None and settings.music_path is None
+
+    def test_a_relative_music_option_is_under_the_music_folder(self):
+        settings = resolve(cli={"music": Path("album/track.mp3")}, env={"VACATION_MEMORIES_MUSIC_DIR": "/music"})
+        assert settings.music == Path("album/track.mp3")
+        assert settings.music_path == Path("/music/album/track.mp3")
+
+    def test_an_absolute_music_option_stays_as_it_is(self):
+        settings = resolve(cli={"music": Path("/music/track.mp3")}, env={"VACATION_MEMORIES_MUSIC_DIR": "/music"})
+        assert settings.music_path == Path("/music/track.mp3")
+
+    def test_without_a_music_folder_a_relative_music_option_is_left_alone(self):
+        assert resolve(cli={"music": Path("track.mp3")}).music_path == Path("track.mp3")
+
+    def test_a_relative_music_option_cannot_leave_the_music_folder(self):
+        with pytest.raises(ConfigError, match="inside the music folder"):
+            resolve(cli={"music": Path("../secret.mp3")}, env={"VACATION_MEMORIES_MUSIC_DIR": "/music"})
+
+    def test_the_music_folder_comes_from_the_configuration_file(self, tmp_path):
+        config = write_config(tmp_path, 'music_dir = "/songs"\n')
+        assert resolve(cli={"config": config}).music_dir == Path("/songs")

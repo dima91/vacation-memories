@@ -1,0 +1,616 @@
+{
+  "analysis": {
+    "ai": {
+      "coverage": null,
+      "used": false
+    },
+    "counts": {
+      "below_technical_threshold": 2,
+      "candidates": 22,
+      "duplicates": 0,
+      "eligible": 20,
+      "files": 18,
+      "readable_files": 18
+    },
+    "generated_at": "2026-11-14T18:02:18+00:00"
+  },
+  "music": {
+    "tracks": [
+      {
+        "file": "brano.wav",
+        "id": "09d553bbf4d6b603"
+      }
+    ]
+  },
+  "photos": [
+    {
+      "captured_at": "2023-07-14T08:40:00.000",
+      "category": null,
+      "day": "2023-07-14",
+      "description": null,
+      "discard": null,
+      "group": null,
+      "id": "2023-07-14_day1/IMG_0000.jpg",
+      "media": "12f16774ab0ffa4c",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": {
+          "motion": 0.3,
+          "temporal": 1.0,
+          "uniqueness": 0.625
+        },
+        "final": 0.7641,
+        "narrative_score": 0.6844,
+        "technical_score": 0.9123
+      },
+      "source": "2023-07-14_day1/IMG_0000.jpg",
+      "status": "selected"
+    },
+    {
+      "captured_at": "2023-07-14T10:00:00.000",
+      "category": null,
+      "day": "2023-07-14",
+      "description": null,
+      "discard": null,
+      "group": null,
+      "id": "2023-07-14_day1/IMG_0002.jpg",
+      "media": "6fc416ff00e09e89",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": {
+          "motion": 0.3,
+          "temporal": 1.0,
+          "uniqueness": 0.5625
+        },
+        "final": 0.7401,
+        "narrative_score": 0.6609,
+        "technical_score": 0.887
+      },
+      "source": "2023-07-14_day1/IMG_0002.jpg",
+      "status": "selected"
+    },
+    {
+      "captured_at": "2023-07-14T11:20:00.000",
+      "category": null,
+      "day": "2023-07-14",
+      "description": null,
+      "discard": null,
+      "group": null,
+      "id": "2023-07-14_day1/IMG_0003.jpg",
+      "media": "82032fd12dafd054",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": {
+          "motion": 0.3,
+          "temporal": 1.0,
+          "uniqueness": 0.5625
+        },
+        "final": 0.7439,
+        "narrative_score": 0.6609,
+        "technical_score": 0.898
+      },
+      "source": "2023-07-14_day1/IMG_0003.jpg",
+      "status": "selected"
+    },
+    {
+      "captured_at": "2023-07-14T12:40:00.000",
+      "category": null,
+      "day": "2023-07-14",
+      "description": null,
+      "discard": null,
+      "group": null,
+      "id": "2023-07-14_day1/IMG_0005.jpg",
+      "media": "12f221be48c23d79",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": {
+          "motion": 0.3,
+          "temporal": 1.0,
+          "uniqueness": 0.5625
+        },
+        "final": 0.7472,
+        "narrative_score": 0.6609,
+        "technical_score": 0.9074
+      },
+      "source": "2023-07-14_day1/IMG_0005.jpg",
+      "status": "selected"
+    },
+    {
+      "captured_at": "2023-07-14T14:00:00.000",
+      "category": null,
+      "day": "2023-07-14",
+      "description": null,
+      "discard": null,
+      "group": null,
+      "id": "2023-07-14_day1/IMG_0009.jpg",
+      "media": "4fce4ec49e76e112",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": {
+          "motion": 0.3,
+          "temporal": 1.0,
+          "uniqueness": 0.625
+        },
+        "final": 0.774,
+        "narrative_score": 0.6844,
+        "technical_score": 0.9404
+      },
+      "source": "2023-07-14_day1/IMG_0009.jpg",
+      "status": "selected"
+    },
+    {
+      "captured_at": "2023-07-14T15:20:00.000",
+      "category": null,
+      "day": "2023-07-14",
+      "description": null,
+      "discard": null,
+      "group": null,
+      "id": "2023-07-14_day1/IMG_0010.jpg",
+      "media": "007a7fbce9f9a1bf",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": {
+          "motion": 0.3,
+          "temporal": 1.0,
+          "uniqueness": 0.6875
+        },
+        "final": 0.775,
+        "narrative_score": 0.7078,
+        "technical_score": 0.8997
+      },
+      "source": "2023-07-14_day1/IMG_0010.jpg",
+      "status": "selected"
+    },
+    {
+      "captured_at": "2023-07-14T16:40:00.000",
+      "category": null,
+      "day": "2023-07-14",
+      "description": null,
+      "discard": null,
+      "group": null,
+      "id": "2023-07-14_day1/IMG_0011.jpg",
+      "media": "f0e1e0204a7bca6e",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": {
+          "motion": 0.3,
+          "temporal": 1.0,
+          "uniqueness": 0.75
+        },
+        "final": 0.7937,
+        "narrative_score": 0.7312,
+        "technical_score": 0.9097
+      },
+      "source": "2023-07-14_day1/IMG_0011.jpg",
+      "status": "selected"
+    },
+    {
+      "captured_at": "2023-07-14T18:00:00.000",
+      "category": null,
+      "day": "2023-07-14",
+      "description": null,
+      "discard": {
+        "detail": "technical_score 0.16 below 0.35",
+        "reason": "below_technical_threshold"
+      },
+      "group": null,
+      "id": "2023-07-14_day1/IMG_0015.jpg",
+      "media": "bf2f9dfc3b8e0a32",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": null,
+        "final": null,
+        "narrative_score": null,
+        "technical_score": 0.1616
+      },
+      "source": "2023-07-14_day1/IMG_0015.jpg",
+      "status": "excluded"
+    },
+    {
+      "captured_at": "2023-07-15T08:40:00.000",
+      "category": null,
+      "day": "2023-07-15",
+      "description": null,
+      "discard": null,
+      "group": null,
+      "id": "2023-07-15_day2/IMG_0001.jpg",
+      "media": "53cafc445fe51456",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": {
+          "motion": 0.3,
+          "temporal": 1.0,
+          "uniqueness": 0.625
+        },
+        "final": 0.7598,
+        "narrative_score": 0.6844,
+        "technical_score": 0.8999
+      },
+      "source": "2023-07-15_day2/IMG_0001.jpg",
+      "status": "selected"
+    },
+    {
+      "captured_at": "2023-07-15T10:00:00.000",
+      "category": null,
+      "day": "2023-07-15",
+      "description": null,
+      "discard": null,
+      "group": null,
+      "id": "2023-07-15_day2/IMG_0004.jpg",
+      "media": "25b0c9dad746d4be",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": {
+          "motion": 0.3,
+          "temporal": 1.0,
+          "uniqueness": 0.5625
+        },
+        "final": 0.7495,
+        "narrative_score": 0.6609,
+        "technical_score": 0.914
+      },
+      "source": "2023-07-15_day2/IMG_0004.jpg",
+      "status": "selected"
+    },
+    {
+      "captured_at": "2023-07-15T11:20:00.000",
+      "category": null,
+      "day": "2023-07-15",
+      "description": null,
+      "discard": null,
+      "group": null,
+      "id": "2023-07-15_day2/IMG_0006.jpg",
+      "media": "c81ff79ef78ce913",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": {
+          "motion": 0.3,
+          "temporal": 1.0,
+          "uniqueness": 0.6875
+        },
+        "final": 0.7685,
+        "narrative_score": 0.7078,
+        "technical_score": 0.8811
+      },
+      "source": "2023-07-15_day2/IMG_0006.jpg",
+      "status": "selected"
+    },
+    {
+      "captured_at": "2023-07-15T12:40:00.000",
+      "category": null,
+      "day": "2023-07-15",
+      "description": null,
+      "discard": null,
+      "group": null,
+      "id": "2023-07-15_day2/IMG_0007.jpg",
+      "media": "5ee3294e7217f91b",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": {
+          "motion": 0.3,
+          "temporal": 1.0,
+          "uniqueness": 0.5625
+        },
+        "final": 0.7478,
+        "narrative_score": 0.6609,
+        "technical_score": 0.9092
+      },
+      "source": "2023-07-15_day2/IMG_0007.jpg",
+      "status": "selected"
+    },
+    {
+      "captured_at": "2023-07-15T14:00:00.000",
+      "category": null,
+      "day": "2023-07-15",
+      "description": null,
+      "discard": null,
+      "group": null,
+      "id": "2023-07-15_day2/IMG_0008.jpg",
+      "media": "37afe4d79e4bb416",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": {
+          "motion": 0.3,
+          "temporal": 1.0,
+          "uniqueness": 0.5625
+        },
+        "final": 0.7501,
+        "narrative_score": 0.6609,
+        "technical_score": 0.9157
+      },
+      "source": "2023-07-15_day2/IMG_0008.jpg",
+      "status": "selected"
+    },
+    {
+      "captured_at": "2023-07-15T15:20:00.000",
+      "category": null,
+      "day": "2023-07-15",
+      "description": null,
+      "discard": null,
+      "group": null,
+      "id": "2023-07-15_day2/IMG_0012.jpg",
+      "media": "6495eafe6b2d13ce",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": {
+          "motion": 0.3,
+          "temporal": 1.0,
+          "uniqueness": 0.625
+        },
+        "final": 0.7631,
+        "narrative_score": 0.6844,
+        "technical_score": 0.9093
+      },
+      "source": "2023-07-15_day2/IMG_0012.jpg",
+      "status": "selected"
+    },
+    {
+      "captured_at": "2023-07-15T16:40:00.000",
+      "category": null,
+      "day": "2023-07-15",
+      "description": null,
+      "discard": null,
+      "group": null,
+      "id": "2023-07-15_day2/IMG_0013.jpg",
+      "media": "3e838f41cfc7a1b3",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": {
+          "motion": 0.3,
+          "temporal": 1.0,
+          "uniqueness": 0.625
+        },
+        "final": 0.7621,
+        "narrative_score": 0.6844,
+        "technical_score": 0.9066
+      },
+      "source": "2023-07-15_day2/IMG_0013.jpg",
+      "status": "selected"
+    },
+    {
+      "captured_at": "2023-07-15T18:00:00.000",
+      "category": null,
+      "day": "2023-07-15",
+      "description": null,
+      "discard": {
+        "detail": "technical_score 0.14 below 0.35",
+        "reason": "below_technical_threshold"
+      },
+      "group": null,
+      "id": "2023-07-15_day2/IMG_0014.jpg",
+      "media": "77ed043c1113eb2f",
+      "moment_type": null,
+      "narrative_value": null,
+      "score": {
+        "components": null,
+        "final": null,
+        "narrative_score": null,
+        "technical_score": 0.136
+      },
+      "source": "2023-07-15_day2/IMG_0014.jpg",
+      "status": "discarded"
+    }
+  ],
+  "revision": "35ed3bc9fee294c8",
+  "transitions": [
+    {
+      "default_seconds": 1.0,
+      "min_seconds": 0.2,
+      "position": "start",
+      "type": "fade_in"
+    },
+    {
+      "default_seconds": 3.0,
+      "min_seconds": 0.2,
+      "position": "end",
+      "type": "fade_out"
+    },
+    {
+      "default_seconds": 0.8,
+      "min_seconds": 0.2,
+      "position": "start",
+      "type": "dissolve"
+    },
+    {
+      "default_seconds": 0.8,
+      "min_seconds": 0.2,
+      "position": "anywhere",
+      "type": "dip"
+    }
+  ],
+  "videos": [
+    {
+      "duration": 12.0,
+      "media": "8ddf12666f27ff1c",
+      "moments": [
+        {
+          "captured_at": "2023-07-14T19:20:00.000",
+          "category": null,
+          "day": "2023-07-14",
+          "description": null,
+          "discard": null,
+          "end": 4.0,
+          "group": null,
+          "id": "2023-07-14_day1/VID_0000.mp4#0.000-4.000",
+          "media": "8ddf12666f27ff1c",
+          "moment_type": null,
+          "narrative_value": null,
+          "score": {
+            "components": {
+              "motion": 0.4786,
+              "temporal": 0.5774,
+              "uniqueness": 0.5625
+            },
+            "final": 0.6766,
+            "narrative_score": 0.5471,
+            "technical_score": 0.9172
+          },
+          "source": "2023-07-14_day1/VID_0000.mp4",
+          "start": 0.0,
+          "status": "available",
+          "thumb_time": 2.0
+        },
+        {
+          "captured_at": "2023-07-14T19:20:04.000",
+          "category": null,
+          "day": "2023-07-14",
+          "description": null,
+          "discard": null,
+          "end": 8.0,
+          "group": null,
+          "id": "2023-07-14_day1/VID_0000.mp4#4.000-8.000",
+          "media": "8ddf12666f27ff1c",
+          "moment_type": null,
+          "narrative_value": null,
+          "score": {
+            "components": {
+              "motion": 0.6434,
+              "temporal": 0.5774,
+              "uniqueness": 0.625
+            },
+            "final": 0.7107,
+            "narrative_score": 0.6117,
+            "technical_score": 0.8947
+          },
+          "source": "2023-07-14_day1/VID_0000.mp4",
+          "start": 4.0,
+          "status": "selected",
+          "thumb_time": 6.0
+        },
+        {
+          "captured_at": "2023-07-14T19:20:08.000",
+          "category": null,
+          "day": "2023-07-14",
+          "description": null,
+          "discard": null,
+          "end": 12.0,
+          "group": null,
+          "id": "2023-07-14_day1/VID_0000.mp4#8.000-12.000",
+          "media": "8ddf12666f27ff1c",
+          "moment_type": null,
+          "narrative_value": null,
+          "score": {
+            "components": {
+              "motion": 0.5883,
+              "temporal": 0.5774,
+              "uniqueness": 0.5625
+            },
+            "final": 0.682,
+            "narrative_score": 0.5745,
+            "technical_score": 0.8817
+          },
+          "source": "2023-07-14_day1/VID_0000.mp4",
+          "start": 8.0,
+          "status": "available",
+          "thumb_time": 10.0
+        }
+      ],
+      "readable": true,
+      "source": "2023-07-14_day1/VID_0000.mp4"
+    },
+    {
+      "duration": 12.0,
+      "media": "356143d817904fbd",
+      "moments": [
+        {
+          "captured_at": "2023-07-15T19:20:00.000",
+          "category": null,
+          "day": "2023-07-15",
+          "description": null,
+          "discard": null,
+          "end": 4.0,
+          "group": null,
+          "id": "2023-07-15_day2/VID_0001.mp4#0.000-4.000",
+          "media": "356143d817904fbd",
+          "moment_type": null,
+          "narrative_value": null,
+          "score": {
+            "components": {
+              "motion": 0.5046,
+              "temporal": 0.5774,
+              "uniqueness": 0.5625
+            },
+            "final": 0.6755,
+            "narrative_score": 0.5536,
+            "technical_score": 0.9019
+          },
+          "source": "2023-07-15_day2/VID_0001.mp4",
+          "start": 0.0,
+          "status": "available",
+          "thumb_time": 2.0
+        },
+        {
+          "captured_at": "2023-07-15T19:20:04.000",
+          "category": null,
+          "day": "2023-07-15",
+          "description": null,
+          "discard": null,
+          "end": 8.0,
+          "group": null,
+          "id": "2023-07-15_day2/VID_0001.mp4#4.000-8.000",
+          "media": "356143d817904fbd",
+          "moment_type": null,
+          "narrative_value": null,
+          "score": {
+            "components": {
+              "motion": 0.5487,
+              "temporal": 0.5774,
+              "uniqueness": 0.5625
+            },
+            "final": 0.6822,
+            "narrative_score": 0.5646,
+            "technical_score": 0.9007
+          },
+          "source": "2023-07-15_day2/VID_0001.mp4",
+          "start": 4.0,
+          "status": "available",
+          "thumb_time": 6.0
+        },
+        {
+          "captured_at": "2023-07-15T19:20:08.000",
+          "category": null,
+          "day": "2023-07-15",
+          "description": null,
+          "discard": null,
+          "end": 12.0,
+          "group": null,
+          "id": "2023-07-15_day2/VID_0001.mp4#8.000-12.000",
+          "media": "356143d817904fbd",
+          "moment_type": null,
+          "narrative_value": null,
+          "score": {
+            "components": {
+              "motion": 0.4635,
+              "temporal": 0.5774,
+              "uniqueness": 0.5625
+            },
+            "final": 0.6651,
+            "narrative_score": 0.5433,
+            "technical_score": 0.8912
+          },
+          "source": "2023-07-15_day2/VID_0001.mp4",
+          "start": 8.0,
+          "status": "available",
+          "thumb_time": 10.0
+        }
+      ],
+      "readable": true,
+      "source": "2023-07-15_day2/VID_0001.mp4"
+    }
+  ]
+}

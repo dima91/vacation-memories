@@ -15,6 +15,11 @@ SPEC*.md
 CLAUDE.md
 tests/
 docker/
+frontend/node_modules/
+frontend/e2e/*
+!frontend/e2e/package.json
+!frontend/e2e/package-lock.json
+frontend/dist/
 compose*.yaml
 Dockerfile
 # Media files outside tests/fixtures/ (tests/ itself is excluded from the build context)
@@ -30,3 +35,5 @@ Dockerfile
 **/*.m4a
 scripts/
 .test-docker/
+dist/
+build/

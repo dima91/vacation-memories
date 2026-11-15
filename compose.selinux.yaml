@@ -6,3 +6,6 @@ services:
   dev:
     security_opt:
       - label=disable
+  editor:
+    security_opt:
+      - label=disable

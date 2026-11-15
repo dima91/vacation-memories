@@ -1,0 +1,64 @@
+{
+  "analysis": {
+    "ai": {
+      "coverage": null,
+      "used": false
+    },
+    "complete": true,
+    "files": {
+      "analyzed": 18,
+      "new_or_changed": 0,
+      "removed": 0,
+      "total": 18
+    },
+    "generated_at": "2026-11-15T10:06:08+00:00",
+    "present": true
+  },
+  "busy": false,
+  "exports": [],
+  "folder": "vacation",
+  "id": "vacation-1b24e0c1",
+  "job": {
+    "exit": {
+      "code": 0,
+      "detail": null,
+      "key": "done",
+      "message": "the job finished"
+    },
+    "finished_at": "2026-11-15T10:06:09+00:00",
+    "id": "fbaade69fb75",
+    "name": null,
+    "plan_revision": null,
+    "started_at": "2026-11-15T10:06:07+00:00",
+    "state": "done",
+    "type": "plan"
+  },
+  "plan": {
+    "edited": true,
+    "error": null,
+    "present": true,
+    "revision": "35ed3bc9fee294c8",
+    "valid": true
+  },
+  "preview": {
+    "modified": null,
+    "name": null,
+    "outdated": false,
+    "present": false
+  },
+  "settings": {
+    "ai": null,
+    "ai_frames": null,
+    "ai_time_budget": 600,
+    "aspect": "16:9",
+    "assume_tz": null,
+    "auto_preview": true,
+    "duration": "0:30",
+    "hwaccel": "none",
+    "jobs": "auto",
+    "music": [],
+    "nice": 0,
+    "resolution": "1080p",
+    "structure": "narrative"
+  }
+}

@@ -15,8 +15,8 @@ Python application for Linux, fully local and run **only in Docker containers** 
 - Write tests together with the code, run them and fix the errors actually found.
 - In the final report distinguish: **tested** / **run but not tested** / **not verified**. Do not declare working what you have not run.
 - **A step is done only when it is tested and working**: all the checks listed for the step were actually run in the containers, the whole test suite passes (not only the new tests), and what the step delivers runs as described. Do not close a step with failing, skipped-without-reason or deleted tests, and do not weaken a test to make it pass. If something cannot be fixed or verified (e.g. a Docker command that cannot be run), say so explicitly in the report instead of presenting the step as complete.
-- **All code runs in containers** (see "Docker image and Docker Compose"): tests, the synthetic media generator and CLI trials in the development container (`docker compose run --rm dev ...`); the production image is tried with the `app` service and with `scripts/test-docker.sh`, always on synthetic media. Python, dependencies and FFmpeg are not installed on the host, and the application is not run there. Dependencies have pinned versions; if they change, rebuild the images (`docker compose --profile dev build`). No privileged command without authorization.
-- **Branches:** each step is developed on its own branch created by the user from `develop` before the step starts; work on the current branch and do not create or switch branches. Names: `feature/step-1-docker-env`, `feature/step-2a-scanner-metadata`, `feature/step-2b-runtime-profile-doctor`, `feature/step-3-technical-analysis`, `feature/step-4-plan-rendering`, `feature/step-5-ai-analysis`, `feature/step-6-selection-cli`, `feature/step-7-container-tests`. When the step is verified, the user merges it into `develop`.
+- **All code runs in containers** (see "Docker image and Docker Compose"): tests, the synthetic media generator and CLI trials in the development container (`docker compose run --rm dev ...`); the production image is tried with the `app` service and with `scripts/test-docker.sh`, always on synthetic media. Python, Node, dependencies and FFmpeg are not installed on the host, and the application is not run there. Dependencies have pinned versions; if they change, rebuild the images (`docker compose --profile dev build`). No privileged command without authorization.
+- **Branches:** each step is developed on its own branch created by the user from `develop` before the step starts; work on the current branch and do not create or switch branches. Names: `feature/step-1-docker-env`, `feature/step-2a-scanner-metadata`, `feature/step-2b-runtime-profile-doctor`, `feature/step-3-technical-analysis`, `feature/step-4-plan-rendering`, `feature/step-5-ai-analysis`, `feature/step-6-selection-cli`, `feature/step-7-container-tests`. When the step is verified, the user merges it into `develop`. **Exception, the editor steps U1–U8:** all on a single branch, `feature/wui_implementation`, from U1 to U8. Every step is still done alone and ends with its own commits, made by the user after the report; the branch is merged into `develop` only after U8, with no intermediate merges.
 - Do not add frameworks, databases or services without a concrete reason. For the analysis cache use the standard library `sqlite3` (see section 10); the plan, `status.json` and the reports stay JSON written atomically.
 
 ## Privacy and development data
@@ -28,7 +28,7 @@ Python application for Linux, fully local and run **only in Docker containers** 
 
 ## Constraints
 
-- Linux, with Docker Engine and the Compose plugin as the only host dependencies, both on the development PC and on the server: the application runs only in containers (see "Docker image and Docker Compose"). No fixed hardware requirement: the machine's resources and capabilities are detected at runtime (see "Runtime profile") and the program must also work on CPU alone. It must also work in **headless** mode (server without a display, without an interactive terminal and without a GPU): see "Headless execution".
+- Linux, with Docker Engine and the Compose plugin as the only host dependencies (the single-file launcher of U8 also needs Google Chrome, for its window), both on the development PC and on the server: the application runs only in containers (see "Docker image and Docker Compose"). No fixed hardware requirement: the machine's resources and capabilities are detected at runtime (see "Runtime profile") and the program must also work on CPU alone. It must also work in **headless** mode (server without a display, without an interactive terminal and without a GPU): see "Headless execution".
 - Ollama is the `ollama` service of the Docker Compose file, reached by the app as `http://ollama:11434` (URL configurable with `--ollama-url` or in the configuration). For the vision model, one request at a time is assumed: the compose file starts Ollama with `OLLAMA_NUM_PARALLEL=1`.
 - Originals strictly read-only. No deletion or modification, ever, not even optional.
 - Output, cache and temporary files in a separate working folder (`--workdir`, default `./work`). No writes outside it, with a single exception: `--output` and `--log-file` given by the user as an absolute path. A relative `--output` is resolved inside the workdir. Nothing is ever written inside `--input`: an output path in there is an error (code 2). At startup it is also checked that the folders of `--output` and `--log-file` exist and are writable; otherwise code 2 immediately, not at the end of rendering.
@@ -131,6 +131,11 @@ If a detection fails: conservative values, a warning in the log, never a crash.
 
 **Reproducible and offline installation.** Pinned Python dependencies (`requirements.txt` with versions, preferably with hashes too), installed only in the image. On the host no package besides Docker: FFmpeg is in the image, and the `pillow-heif` wheels already include libheif. The app downloads nothing at runtime: the model is downloaded by the `ollama-pull` service on first start (or by Step 0), and the embedding weights are in `<workdir>/models/`. For a server without Internet, images and the models volume are transferred (see "Docker image and Docker Compose").
 
+**Interactive editor** (from U3, see `UI-SPEC.md`)
+- The editor (`serve` subcommand) is a local web page opened in the host's browser. The server never opens a browser (the U8 launcher does it, on the host, in a Google Chrome `--app` window) and does not depend on `DISPLAY`.
+- On a server without a display it is reached through an SSH tunnel, `ssh -L 8080:127.0.0.1:8080 <server>`: the port is published only on the server's `127.0.0.1`.
+- Its jobs are child processes of this CLI, with the same lock, `status.json`, signals and exit codes.
+
 **Phased implementation:** `doctor`, logging, lock, atomic writes, `TMPDIR` in the workdir and the bundled font in Step 2; `-nostdin`, signal handling and `.partial.mp4` files in Step 4; headless tests and the deployment README in Step 6.
 
 ## Docker image and Docker Compose
@@ -140,6 +145,7 @@ If a detection fails: conservative values, a warning in the log, never a crash.
 **What to produce**
 - In Step 1: multi-stage `Dockerfile` with `dev` and `runtime` targets, `.dockerignore`, `compose.yaml` with the `dev`, `app`, `ollama` and `ollama-pull` services, `compose.intel-gpu.yaml` (Intel GPU for Ollama: `/dev/dri` and `OLLAMA_IGPU_ENABLE=1`), `compose.selinux.yaml` (only for hosts with SELinux), `docker/compose.toml` (app configuration in the compose file), `.env.example` to copy to `.env` (not versioned).
 - In Step 7: `compose.test.yaml` (override for tests with a simulated Ollama: the `ollama` service runs `tests/fake_ollama_server.py` on the `dev` image), `scripts/test-docker.sh` (container tests, run on the host with the Docker CLI alone) and the "Docker" section of the README, which also documents the transfer to a server without Internet and the resource limits.
+- In steps U3 and U4 (`UI-SPEC.md`): the `editor` and `nginx` services, the `frontend` network, `docker/nginx.conf`, the Node stage that builds the interface and the `ui-dev` service.
 
 **Building the image**
 - Debian slim base with Python 3.11 or higher, with a pinned tag (never `latest`) and the digest noted for releases. Avoid Alpine (musl): there are fewer precompiled wheels for NumPy and OpenCV.
@@ -148,26 +154,32 @@ If a detection fails: conservative values, a warning in the log, never a crash.
 - `builder` stage (from `base`): installs the runtime dependencies from `requirements.txt` into a venv inside the image (with `--require-hashes` if hashes are present). The dependencies layer is separate from the code layer, to take advantage of the cache. Only `opencv-python-headless`.
 - `dev` stage (from `builder`): adds `requirements-dev.txt` (pytest and development tools). It does not contain the code: in development the repository is mounted in the container. It is used for development and tests.
 - `runtime` stage (from `base`): the venv copied from `builder` (without `pip`: nothing is installed at runtime) and the code, nothing else. No compilers, tests, fixtures or `.git`.
+- Frontend stages (from U4, `UI-SPEC.md`): a Node image with a pinned tag installs the dependencies from `frontend/package-lock.json` (`npm ci`) and builds the interface; the `runtime` stage copies only the bundle into `vacation_memories/editor/static/`. **Node is never in `runtime`.** The `ui-dev` image is the Node stage with the dependencies installed, outside the folder where the repository is mounted.
 - Non-root user with a fixed UID. The image creates `/work` owned by that user and leaves the current directory at `/`, so the default workdir `./work` coincides with `/work` and `doctor` works even without a volume. Environment variables: `PYTHONUNBUFFERED=1`, `PYTHONDONTWRITEBYTECODE=1`, `LANG=C.UTF-8`, `HOME=/work`, `XDG_CACHE_HOME=/work/.cache`, `USER=app`, `LOGNAME=app` (with a UID that has no entry in `/etc/passwd`, `getpass.getuser()` fails, and libraries such as torch, which Milestone 2 will use, call it). The image must also work with an arbitrary UID, as in the compose file, where `/work` is the mounted folder: nothing is written outside `/work`.
 - `runtime` target: `ENTRYPOINT ["python", "-m", "vacation_memories"]` in exec form, with no `CMD` that starts work. The arguments passed to the container are those of the CLI, including the `doctor`, `bench` and `evaluate` subcommands.
 - OCI label with the version (from a build arg). `doctor` prints the image version and the FFmpeg version.
 - Architecture equal to the machine's (amd64 or arm64); for another one, `docker buildx build --platform`. If a dependency has no wheel for the architecture, the README says so.
-- `.dockerignore` excludes `.git`, `.env`, caches, `work/`, `dev-media/`, `music/` and every media file outside `tests/fixtures/`, so no media and no local configuration end up in the build context.
+- `.dockerignore` excludes `.git`, `.env`, caches, `work/`, `dev-media/`, `music/` and every media file outside `tests/fixtures/`, plus `frontend/node_modules/` and `frontend/dist/` (from U4), so no media and no local configuration end up in the build context.
 - `tzdata` (Python package) among the dependencies, so that `--assume-tz` works even where the system time zone data is missing.
 
 **Services**
 - **`dev`** (profile `dev`, development PC only): `dev` image with the repository mounted at `/src`, which is also the container's current directory (`PYTHONPATH=/src`). It runs as `${HOST_UID}:${HOST_GID}`, so the files created in the repository belong to the user. `/tmp` is a tmpfs and `PYTHONDONTWRITEBYTECODE=1` avoids dirtying the repository. It has `HOME=/tmp` and `XDG_CACHE_HOME=/tmp/.cache`, because with the host's UID the image's HOME (`/work`) may not be writable, and, for the integration tests, `OLLAMA_HOST=http://ollama:11434` and `VACATION_MEMORIES_MODEL=${OLLAMA_MODEL}`, so they use the same model as `app`. It does not use `docker/compose.toml`, which sets `input = "/media"`. It sits only on the internal `backend` network: it reaches Ollama for the integration tests but not the Internet, so dependencies are changed only by rebuilding the image (`docker compose build dev`). **It never mounts `MEDIA_DIR`**: it works on the synthetic media, generated in the tests' temporary files or in the repository's `./dev-media` folder (ignored by git). It does not depend on `ollama`, so the normal tests do not start it: for the `-m ollama` tests, first start `docker compose up -d ollama`, and if Ollama does not respond or the model is not present those tests are skipped with a clear message. Usage: `docker compose run --rm dev pytest`, `docker compose run --rm dev python -m vacation_memories ...`.
-- **`app`:** the `runtime` image, used with `docker compose run --rm app <CLI arguments>`. It depends on `ollama` (`condition: service_healthy`) and on `ollama-pull` (`condition: service_completed_successfully`): Compose starts Ollama, waits for it to respond and for the model to be present, then launches the app.
+- **`app`:** the `runtime` image, used with `docker compose run --rm app <CLI arguments>`. It depends on `ollama` (`condition: service_healthy`) and on `ollama-pull` (`condition: service_completed_successfully`): Compose starts Ollama, waits for it to respond and for the model to be present, then launches the app. From U3 it is in the `cli` profile: `docker compose run --rm app …` keeps working, because naming a service enables its profile, while a bare `docker compose up` does not start a full job (D13 of `UI-SPEC.md`).
 - **`ollama`:** official `ollama/ollama` image with a pinned tag (never `latest`), the same one the user chose for Step 0 and gave in the Step 1 request, version 0.30 or later: Qwen3-VL requires at least 0.12.7, and from 0.30 the Vulkan backend, which the integrated Intel GPU needs, is enabled by default. `OLLAMA_NUM_PARALLEL=1`, plus `OLLAMA_VULKAN` only if set in `.env`. The integrated GPU is enabled with `OLLAMA_IGPU_ENABLE=1`, which the `compose.intel-gpu.yaml` override sets (see "Integrated Intel GPU for Ollama"), not the base file. Models in the **external** volume `vacation-ollama-models` (`external: true`, mounted at `/root/.ollama`), created once with `docker volume create vacation-ollama-models`. Being external, it can already be populated by Step 0 and not even `docker compose down -v` deletes it. If it is missing, Compose gives a clear error. No published ports. Healthcheck that verifies the server responds (e.g. `ollama list`), with `interval: 5s`, `timeout: 5s`, `retries: 12` and `start_period: 10s` (with the default values the first check comes after 30 s). Log with rotation (`json-file`, `max-size: 10m`, `max-file: 3`). It stays active until `docker compose stop` or `down` is run.
 - **`ollama-pull`:** startup service with the same image, which talks to the server through `OLLAMA_HOST=http://ollama:11434` and depends on `ollama` (`condition: service_healthy`). It downloads the configured model (`OLLAMA_MODEL`; the default `qwen3-vl:4b-instruct-q4_K_M` is defined in a single place in the compose file, for example in an `x-` extension field, and applies to `ollama-pull`, `app` and `dev`) **only if it is missing** (check with `ollama show` before `ollama pull`), then exits. With the model already present no Internet is needed. The first download is about 3.3 GB.
+- **`editor`** (from U3, details in section 4 of `UI-SPEC.md`): the `runtime` image with the `serve` command, the same user, volumes and hardening as `app`, only on `backend`. **No `depends_on` on `ollama` or `ollama-pull`**: it works with Ollama stopped and checks it only for an analysis with AI. Healthcheck on `/api/health`.
+- **`nginx`** (from U3): unprivileged image with a pinned tag, pure reverse proxy toward `editor`, on `frontend` and `backend`, with the only published port, `127.0.0.1:8080`. Its only volume is its configuration (`docker/nginx.conf`, read-only); `read_only` with a tmpfs for its temporary folders, `cap_drop: [ALL]`, `no-new-privileges`; it logs no query strings.
+- **`launcher-build`** (profile `dev`, U8, `UI-SPEC.md` D15): PyInstaller in a `python:3.12-slim-bullseye` image, with the repository mounted, to build `dist/vacation-memories`, the single-file launcher that embeds the compose files. No network, no `MEDIA_DIR`, never in `runtime`. `app` and `editor` use `${VM_IMAGE:-vacation-memories:local}`: the launcher sets `VM_IMAGE` to the image published on Docker Hub, the development setup builds it.
+- **`ui-dev`** (profile `dev`, from U4): the Node image of the interface with the repository mounted, for `npm run check` and `npm test`. Like `dev`, dependencies change only by rebuilding the image. No network and no `MEDIA_DIR`.
 
 Networks:
-- **`backend`, internal** (`internal: true`): the only network of `app` and `dev`. They talk only to Ollama and **have no Internet access**, so not even a bug in the code can make images leave the machine.
+- **`backend`, internal** (`internal: true`): the only network of `app`, `dev` and (from U3) `editor`. They talk only to Ollama and **have no Internet access**, so not even a bug in the code can make images leave the machine.
 - **`egress`:** only for `ollama`, which sits on both networks and must be able to download models. `ollama-pull` sits only on `backend`: it asks the `ollama` server to download, and the server does it.
-- No published ports: Ollama is not reachable from the network. From the host it is reachable only by knowing the container's IP, because `egress` is an ordinary bridge network.
+- **`frontend`** (from U3): an ordinary bridge with only `nginx`, which also sits on `backend`. An `internal` network cannot publish ports, and `editor` must stay without Internet like `app`.
+- The only published port is that of `nginx`, on `127.0.0.1:8080` (from U3). Ollama is not reachable from the network. From the host it is reachable only by knowing the container's IP, because `egress` is an ordinary bridge network.
 
 Configuration:
-- **`docker/compose.toml`**, mounted read-only and given to the app with `VACATION_MEMORIES_CONFIG`: `input = "/media"`, `workdir = "/work"`, Ollama URL `http://ollama:11434`, `allow_remote_ollama = true`, `require_ai = true`. The permission for a non-local host is explicit and versioned; traffic stays in the internal network anyway. `require_ai` makes a job fail immediately if Ollama does not respond; `--no-ai` on the command line takes precedence over the configuration. The `dev` service does not use this file: the integration tests explicitly pass the permission for the non-local host, and the normal tests do not depend on these variables.
+- **`docker/compose.toml`**, mounted read-only and given to the app with `VACATION_MEMORIES_CONFIG`: `input = "/media"`, `workdir = "/work"`, Ollama URL `http://ollama:11434`, `allow_remote_ollama = true`, `require_ai = true` and, from U2, `music_dir = "/music"`, the music root to which `--music` and the plan's tracks are relative. The permission for a non-local host is explicit and versioned; traffic stays in the internal network anyway. `require_ai` makes a job fail immediately if Ollama does not respond; `--no-ai` on the command line takes precedence over the configuration. The `dev` service does not use this file: the integration tests explicitly pass the permission for the non-local host, and the normal tests do not depend on these variables.
 - **`.env`**, copied from `.env.example`: `MEDIA_DIR`, `MUSIC_DIR` (default `./music`), `WORK_DIR` (default `./work`), `HOST_UID`, `HOST_GID`, `OLLAMA_MODEL`, `COMPOSE_FILE`, the optional `OLLAMA_VULKAN` (see "Integrated Intel GPU for Ollama"), the optional `ASSUME_TZ` (e.g. `Europe/Rome`), `APP_VERSION` (build arg for the image label, optional). `MEDIA_DIR`, `HOST_UID` and `HOST_GID` are required (`${VAR:?message}`), so a missing variable gives a clear error. `.env.example` values, meant for the development PC: `MEDIA_DIR=./dev-media` (synthetic media), `HOST_UID=1000` and `HOST_GID=1000` (example, to be replaced with `id -u` and `id -g`) and `COMPOSE_FILE=compose.yaml:compose.intel-gpu.yaml` (GPU active). On the server, change `MEDIA_DIR`, with the real folder, and `HOST_UID` and `HOST_GID` if the user has different values there.
 - **`app` service:** `user: "${HOST_UID}:${HOST_GID}"`, `init: true`, `read_only: true`, `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, `stop_grace_period: 30s`; `MEDIA_DIR` and `MUSIC_DIR` read-only. It receives `VACATION_MEMORIES_CONFIG`, `VACATION_MEMORIES_MODEL=${OLLAMA_MODEL}` (so app and `ollama-pull` always use the same model) and `VACATION_MEMORIES_ASSUME_TZ=${ASSUME_TZ:-}`.
 
@@ -178,6 +190,9 @@ Configuration:
 | Tests | `docker compose run --rm dev pytest` | Development PC |
 | Integration tests with the real model (synthetic images only) | `docker compose up -d ollama`, then `docker compose run --rm dev pytest -m ollama` | Development PC |
 | Container tests (from Step 7) | `scripts/test-docker.sh` | Development PC |
+| Interface checks and tests (from U4) | `docker compose run --rm ui-dev npm run check`, `docker compose run --rm ui-dev npm test` | Development PC |
+| Editor (from U3) | `docker compose up -d editor nginx`, then `http://127.0.0.1:8080` | both |
+| Editor of the server from the development PC | `ssh -L 8080:127.0.0.1:8080 <server>`, then `http://127.0.0.1:8080` | Development PC |
 | Installation check | `docker compose run --rm app doctor --require-ai` | both |
 | Model benchmark | `docker compose run --rm app bench vision` | both |
 | Full job | `docker compose run --rm app --music /music/<track> --duration 300 --output memories.mp4` | both |
@@ -189,7 +204,7 @@ Configuration:
 
 - `--input` and `--workdir` come from the compose configuration; passing them is still possible.
 - Without `--no-deps` Compose starts `ollama` and `ollama-pull` anyway (and downloads the model if it is missing): for commands that do not use the AI add `--no-deps`. From `cron`, with `nohup` or from Claude Code's shell, which have no terminal, add `-T`.
-- `app` contains the code copied into the image: after every code change or update, rebuild (`docker compose build app`). `dev`, instead, sees the mounted repository immediately.
+- `app` contains the code copied into the image: after every code change or update, rebuild (`docker compose build app`); the same for `editor` (`docker compose build editor`), also after a change of the interface. `dev` and `ui-dev`, instead, see the mounted repository immediately.
 - On the development PC `app` works on the synthetic media of `MEDIA_DIR=./dev-media`, on the server on the real ones.
 - At the end of a job the app asks Ollama to unload the model (section 5), so the model's RAM is freed on its own. `docker compose stop ollama` also stops the server; `docker compose down` stops everything and the external models volume remains.
 - **Changing model:** set `OLLAMA_MODEL` in `.env`. `ollama-pull` downloads it if it is missing, and the AI analysis is redone because the cache depends on the model.
@@ -197,11 +212,11 @@ Configuration:
 - **Server without Internet:** the README explains how to transfer the images (`docker save` of the app and of `ollama/ollama`) and the models volume (`tar` archive of the `vacation-ollama-models` volume prepared on a machine with Internet). On that server the image is not built, because the build downloads the base image and the packages: the transferred one is used, with `docker load`.
 
 **Common rules for container execution**
-- **`app` volumes:** media read-only at `/media`, music read-only at `/music`, writable working folder at `/work` (it also contains temporary files and output). An absolute `--output` or `--log-file` must be under `/work`, the only writable folder. Paths in the plan are relative to `--input`, so a plan stays valid between the development PC and the server.
+- **`app` volumes:** media read-only at `/media`, music read-only at `/music`, writable working folder at `/work` (it also contains temporary files and output). An absolute `--output` or `--log-file` must be under `/work`, the only writable folder. Paths in the plan are relative to `--input` (and the music to `music_dir`), so a plan stays valid between the development PC and the server. `editor` has the same volumes (from U3).
 - **Host folders created beforehand:** if a mounted path does not exist, Docker creates it owned by root and the non-root container cannot write to it. In the compose file the bind mounts use the long syntax with `create_host_path: false`, which turns the case into a clear error.
-- **Hosts with SELinux enabled in the Docker daemon** (`docker info` shows `selinux` among the Security Options; typical of Fedora and RHEL): bind mounts are not accessible to containers without a label. `MEDIA_DIR` is not relabeled with `:z`, because that would change the SELinux labels of the originals: the `compose.selinux.yaml` override, to be added to `COMPOSE_FILE` only on these hosts, sets `security_opt: [label=disable]` for `app` and `dev`.
-- **User:** `app` and `dev` run with the UID and GID of the host user, so the files in `/work` and in the repository belong to them.
-- **`app` hardening:** read-only filesystem (everything lives in `/work`, see `TMPDIR` in the workdir), `cap_drop: ALL`, `no-new-privileges`. Never `--privileged`, never the Docker socket mounted, in any service.
+- **Hosts with SELinux enabled in the Docker daemon** (`docker info` shows `selinux` among the Security Options; typical of Fedora and RHEL): bind mounts are not accessible to containers without a label. `MEDIA_DIR` is not relabeled with `:z`, because that would change the SELinux labels of the originals: the `compose.selinux.yaml` override, to be added to `COMPOSE_FILE` only on these hosts, sets `security_opt: [label=disable]` for `app`, `dev` and (from U3) `editor`.
+- **User:** `app`, `dev` and `editor` run with the UID and GID of the host user, so the files in `/work` and in the repository belong to them.
+- **`app` and `editor` hardening:** read-only filesystem (everything lives in `/work`, see `TMPDIR` in the workdir), `cap_drop: ALL`, `no-new-privileges`. Never `--privileged`, never the Docker socket mounted, in any service.
 - **Resource limits:** the container's are read by the runtime profile's cgroup detection.
 - **Time zone:** in the container the system time zone is usually UTC. Grouping by day does not depend on it (naive dates from the metadata), but the `mtime` fallback does: in that case set `ASSUME_TZ` in `.env` or pass `--assume-tz` (e.g. `Europe/Rome`).
 - **Signals:** `init: true` to clean up child processes. Ctrl-C or `docker stop` cause an orderly shutdown (code 130 or 143) and resuming with `--resume`. Shutdown time granted: 30 s (`stop_grace_period`).
@@ -240,14 +255,17 @@ The script ignores `.env` and the environment of the shell (which may point to r
 - limits `cpus: 1` and `mem_limit: 1g` on the `app` service (in the test compose file): `runtime_profile.json` reports at most 1 core and 1 GiB;
 - `dev`: has no `MEDIA_DIR` mounted (`/media` is the empty folder of the base image, not a mount point), does not reach the Internet, reaches `http://ollama:11434` (with the test compose file, where Ollama is simulated), and the files it creates in `/src` belong to the host user;
 - `docker compose config` is valid with `.env.example`; without `MEDIA_DIR` or `HOST_UID` it gives a clear error; with a nonexistent mounted folder it fails without creating it;
-- `docker compose config` with the `COMPOSE_FILE` of `.env.example`: only `ollama` has a device, `/dev/dri` (no `/dev/kfd`), and `OLLAMA_IGPU_ENABLE=1` appears in its environment; without the override no service has devices and the variable does not appear; `OLLAMA_VULKAN` appears in `ollama`'s environment only if set in `.env`; with `compose.selinux.yaml` added, `label=disable` appears only on `app` and `dev`;
-- with `compose.test.yaml` (Ollama and `ollama-pull` replaced by a simulated server, test models volume in place of the external one, no model downloaded; Compose merges volumes by destination path, so it is enough to redeclare `/root/.ollama`, and where a field must be replaced entirely, such as the `external` declaration, `!override` or `!reset` is used, which require Compose 2.24.4 or later; `docker compose config` with the test file confirms it): `docker compose run --rm app doctor --require-ai` exits with 0; the app reaches `http://ollama:11434` but not the Internet (an outbound connection attempt fails); no Ollama port is published on the host.
+- `docker compose config` with the `COMPOSE_FILE` of `.env.example`: only `ollama` has a device, `/dev/dri` (no `/dev/kfd`), and `OLLAMA_IGPU_ENABLE=1` appears in its environment; without the override no service has devices and the variable does not appear; `OLLAMA_VULKAN` appears in `ollama`'s environment only if set in `.env`; with `compose.selinux.yaml` added, `label=disable` appears only on `app`, `dev` and (from U3) `editor`;
+- with `compose.test.yaml` (Ollama and `ollama-pull` replaced by a simulated server, test models volume in place of the external one, no model downloaded; Compose merges volumes by destination path, so it is enough to redeclare `/root/.ollama`, and where a field must be replaced entirely, such as the `external` declaration, `!override` or `!reset` is used, which require Compose 2.24.4 or later; `docker compose config` with the test file confirms it): `docker compose run --rm app doctor --require-ai` exits with 0; the app reaches `http://ollama:11434` but not the Internet (an outbound connection attempt fails); no Ollama port is published on the host;
+- editor (from U3): only `nginx` publishes a port, only on `127.0.0.1`; `editor` sits only on `backend`, without Internet and without `depends_on` on Ollama, and serves the page with Ollama stopped; the editor responds through nginx and the served page has no external `http(s)` reference; a bare `docker compose up` does not start `app`, and `docker compose run --rm app doctor` still works; `ui-dev` has no network and no `MEDIA_DIR`.
 
 Manual user check on the first real start: the model is downloaded only once, and on the second start `ollama-pull` exits immediately. On both machines `ollama ps` reports GPU; on the server `bench vision`, with and without `OLLAMA_VULKAN=0`, shows how much is gained.
 
 ## Stack
 
 In the image: Python 3.12 (3.11 is the minimum), FFmpeg/FFprobe, OpenCV (headless variant), PySceneDetect, Pillow (+ `pillow-heif` for HEIC), imagehash, NumPy, `tzdata`, plus the transitive dependencies of PySceneDetect and imagehash (SciPy, PyWavelets, click, platformdirs, tqdm), all pinned in `requirements.txt`; pytest only in the `dev` image. No HTTP or validation library: the Ollama client uses the standard library (`http.client`) and the answers of the model are validated by hand against the JSON schema sent to it. `librosa` only from Milestone 3. Visual embeddings (Milestone 2) are not in the MVP stack and are added only after the benchmark described in section 4. On the host: only Docker Engine and Compose.
+
+Editor (`UI-SPEC.md`): the HTTP server is the standard library's (`http.server`), so the rule above still holds (D8). The interface, from U4, is in React and TypeScript, bundled with esbuild and checked with `tsc`, with exact versions in `frontend/package-lock.json` (D7); Node only in the frontend build stage and in `ui-dev`, never in `runtime` (D11). Interface texts in Italian by default, one catalog per language (D10).
 
 ## Structure
 
@@ -256,11 +274,12 @@ Package `vacation_memories/` with independent modules, grouped in subpackages:
 - `core/`, running: `config`, `doctor`, `runtime_profile`, `process` (FFmpeg runner and orderly shutdown), `workdir` (lock and `status.json`), `atomic`, `logging_setup`, `exit_codes`;
 - `analysis/`, scanning and analysis: `media_scanner`, `metadata_extractor`, `media_probe` (streams, rotation, HDR), `scene_detector`, `frame_sampler`, `quality_analyzer`, `technical_analysis` (candidates with scores and hashes), `duplicate_detector`, `cache_manager`, `runner` (the whole analysis of a folder, shared by the pipeline and the evaluation);
 - `ai/`: `ollama_client`, `vision_schema` (prompt, JSON schema, validation), `vision_analyzer`, `bench`;
-- `planning/`, selection and plan: `selection_config`, `scene_ranker`, `edit_planner`, `edit_plan`, `transitions` (the layout shared by planner and renderer), `video_format` (`--duration`, `--resolution`, `--aspect`), `estimates`;
+- `planning/`, selection and plan: `selection_config`, `scene_ranker`, `edit_planner`, `edit_plan`, `transitions` (the layout shared by planner and renderer), `plan_rules` (from U1: limits of the edit and duration of a plan, on top of `transitions`), `video_format` (`--duration`, `--resolution`, `--aspect`), `estimates`;
 - `rendering/`: `render_config`, `render_filters`, `encoders`, `segments` (phase A), `assembly` (phase B), `render_checks`, `renderer`;
-- `evaluate/` (from Milestone 2): `ground_truth`, `metrics`, `synthetic`, `prepare`, `page`, `report`, `labels`, plus `synthetic_media` (synthetic photos, clips and vacations, for the tests and the evaluation).
+- `evaluate/` (from Milestone 2): `ground_truth`, `metrics`, `synthetic`, `prepare`, `page`, `report`, `labels`, plus `synthetic_media` (synthetic photos, clips and vacations, for the tests and the evaluation);
+- `editor/` (from U3, `UI-SPEC.md`): `server`, `projects`, `jobs`, `catalog`, `media`, and `static/` with the built interface, which exists only in the image.
 
-Starting with fewer files and splitting later is allowed. At the repository root: `Dockerfile`, `compose*.yaml`, `.env.example`, `docker/`, `scripts/`.
+Starting with fewer files and splitting later is allowed. At the repository root: `Dockerfile`, `compose*.yaml`, `.env.example`, `docker/`, `scripts/` and, from U4, `frontend/` (React and TypeScript sources of the interface).
 
 ## Pipeline
 
@@ -327,7 +346,7 @@ When the AI is active, send to the model **only the candidates that passed filte
   - `action`: clearly visible movement or activity (swimming, sports, walking, vehicle in motion);
   - `detail`: close-up of an object, food, sign, texture;
   - `transition`: linking material (road, window, travel, waiting, arrivals and departures).
-- Watch the names: the `transition` value of `moment_type` (linking scene) has nothing to do with the plan's `transition_in` (hard cut or dissolve, section 8).
+- Watch the names: the `transition` value of `moment_type` (linking scene) has nothing to do with the plan's transitions (`transition_in` in schema 1, `effects` in schema 2; section 8).
 - In the prompt say explicitly **not to judge sharpness, exposure or composition** and to judge only the content: technical quality is measured elsewhere and the two assessments must not be mixed.
 - If a field is missing or invalid (even `moment_type` outside the enum), use `null` for that field without discarding the frame.
 - Do not infer identities, personal emotions or specific places that cannot be observed with sufficient reliability.
@@ -407,6 +426,14 @@ Configuration and CLI:
 
 At plan level: `schema_version`, `requested_duration`, `planned_duration`, `output` (`width`, `height`, `fps`), time zone assumed for dates and the `runtime` block (see "Runtime profile"). A plan with an unsupported `schema_version` is rejected with a clear error (code 2).
 
+**Schema 2** (from U1, details in section 8 of `UI-SPEC.md`), written by the planner and by the editor:
+- every element has a stable `id` (the candidate id, or `user-<n>` for an element added by hand) and `origin` (`planner` or `user`); a photo also has `duration_origin`;
+- the transitions are `effects` of the element (`fade_in`, `fade_out`, `dissolve`, `dip`, each with `id`, `offset`, `duration`, `origin`), in place of `transition_in` (section 8);
+- at plan level, `excluded` (moments deleted and photos hidden by the user, which the planner does not select again) and `music` (tracks, parts and `offset`, section 9);
+- a schema 1 plan is migrated when read, renders as before and is rewritten as schema 2 at the first save. The limits computed for the editor are never written into the plan.
+
+**Regeneration.** When a full run or `--dry-run` overwrites a plan with user edits (`origin: user`, `duration_origin: user`, effects with `origin: user`, `excluded`, changed music), it first copies it into `<workdir>/plan_history/` (the last 10 copies) and passes `excluded` to the planner.
+
 ### 8. Rendering
 - FFmpeg via `subprocess` with an argument list, **never `shell=True`**; paths with spaces and special characters handled correctly.
 - Uniform resolution and fps according to `--resolution`/`--aspect`; sources with proportions different from the output (e.g. vertical videos in a 16:9 edit, or the reverse) are placed on a blurred background, without distorting or cropping by default.
@@ -432,7 +459,7 @@ The renderer does not assemble the sources directly: it first normalizes each cl
 
 #### Transitions (dissolves and cuts)
 
-- **No dissolve is mandatory.** Every passage between two clips is a `cut` (hard cut) or a `dissolve`, decided by the planner and saved in the plan as the incoming element's `transition_in` (`type`, `duration`). The hard cut is a perfectly valid choice.
+- **No dissolve is mandatory.** Every passage between two clips is a `cut` (hard cut) or a `dissolve`, decided by the planner and saved in the plan as the incoming element's `transition_in` (`type`, `duration`) in schema 1, or as a `dissolve` effect of the incoming element in schema 2 (see the end of this section). The hard cut is a perfectly valid choice.
 - **Choice criteria** (soft, configurable):
   - prefer `dissolve` for changes of place or day, passages between narrative sections, consecutive calm photos and the Closing;
   - prefer `cut` between consecutive `action` clips, in the Opening (fast rhythm), between clips of the same place and moment, for `detail` clips and for short clips;
@@ -447,6 +474,11 @@ The renderer does not assemble the sources directly: it first normalizes each cl
 - **Duration accounting.** Every dissolve overlaps two clips and shortens the total by `d_eff`: timeline duration = sum of clip durations − sum of effective dissolves. Dissolve offsets and destination timestamps in the plan are computed by **a single function shared between planner and renderer**, with frame rounding, to avoid drift between plan and video.
 - **Limits always applied.** The renderer applies these rules also to transitions written by hand in the plan (`--render-only`): if they exceed the limits it reduces them or turns them into `cut`, with a warning in the log and the effective value recorded in the report.
 - Default durations, maximum percentage (25%), minimum threshold (0.2 s) and tolerances live in the single configuration.
+- **Schema 2** (from U1 and U2, decisions D1–D4 of `UI-SPEC.md`):
+  - the transitions are `effects` of the element. A dissolve is stored once, in the incoming element with `offset: 0`. The fades from black at the start and to black at the end of the video become a `fade_in` effect of the first element and a `fade_out` effect of the last one, written by the planner with the defaults above;
+  - `fade_in`, `fade_out` and `dissolve` stay at the edges of the element; only `dip` (to black and back) can be in the middle;
+  - the 25% limit applies to the effects with `origin: planner` (and to migrated schema 1 plans). For `origin: user`: inside the element, no overlap with its other effects, at least 0.2 s, and a dissolve inside the free space of both elements it joins. Out-of-limit values written by hand are still reduced, with a warning and the effective value in the report;
+  - the duration of the timeline is always computed by the shared function (`plan_rules` on top of `transitions`), which subtracts the overlaps of the dissolves.
 
 #### FFprobe verification
 
@@ -465,11 +497,12 @@ A non-conforming segment is regenerated once with more conservative parameters. 
 - video packet timestamps monotonic, with no negative values or jumps above 2 frames (cheap check, does not decode the file);
 - if a check fails the file stays as `<name>.partial.mp4` (it is not renamed to the final name), the program exits with code 3 and a clear message, without presenting it as successful.
 
-At the end of rendering `<workdir>/render_report.json` records planned and obtained duration, VFR clips converted, clips regenerated or skipped, transitions reduced or turned into `cut` and the outcome of every check.
+At the end of rendering `<workdir>/render_report.json` records planned and obtained duration, VFR clips converted, clips regenerated or skipped, transitions reduced or turned into `cut` and the outcome of every check. From U2 the report of a `--preview` render goes to `render_report_preview.json`, so it does not overwrite the one of the final render.
 
 ### 9. Music
 - `--music` is optional: without music the file still has a silent AAC track, so players and FFprobe checks behave the same.
 - Milestone 1: background adapted to the video's duration, with fade-in and fade-out. Longer track: cut with a final fade-out. Shorter track: loop with crossfade and a warning in the log.
+- From U1 and U2 (D6 of `UI-SPEC.md`): the plan's `music` block holds several tracks in order, each with its parts (`start`, `end`, `muted`, `fade_in`, `fade_out`), and a global `offset` (positive: the music starts later; negative: it skips the beginning). Paths are relative to the music root (`music_dir`, `/music` in the compose file); `--music` accepts a path relative to it, and an absolute path under it stays valid. The music beyond the end of the video is cut, with a fade-out as long as the final `fade_out` effect, or the default without one. A plan without a `music` block uses `--music` as above, so a single unchanged track behaves as in Milestone 1.
 - Milestone 3: `librosa` for beats and sections, cut alignment, duration adaptation, occasional original audio. No frequent cuts in quiet moments.
 
 ### 10. Cache
@@ -488,7 +521,7 @@ docker compose run --rm app \
 
 `--input` and `--workdir` come from the compose configuration. In the `dev` container that configuration is absent: the same CLI is invoked as `python -m vacation_memories --input dev-media ...`, with the repository's default workdir `./work` (ignored by git). Since in `dev` `OLLAMA_HOST` points to the `ollama` service, `--allow-remote-ollama` is needed (with Ollama started) or `--no-ai`.
 
-Options: `--input`, `--music`, `--output`, `--duration`, `--aspect`, `--resolution` (see below), `--analyze-only`, `--preview` (low resolution, see "Resolution and format"), `--render-only`, `--resume`, `--dry-run`, `--model`, `--no-ai`, `--workdir`, `--structure narrative|chronological` (default `narrative`, see "Narrative structure" in section 6). Execution options (see "Runtime profile"): `--jobs`, `--hwaccel`, `--ai-frames`, `--ai-time-budget`, `--ollama-url`. For non-interactive use (see "Headless execution"): `--log-file`, `--log-format text|json`, `--quiet`, `--config`, `--require-ai`, `--allow-remote-ollama`, `--nice`, `--assume-tz`; subcommands `doctor`, `bench` and `evaluate` (Milestone 2).
+Options: `--input`, `--music`, `--output`, `--duration`, `--aspect`, `--resolution` (see below), `--analyze-only`, `--preview` (low resolution, see "Resolution and format"), `--render-only`, `--resume`, `--dry-run`, `--model`, `--no-ai`, `--workdir`, `--structure narrative|chronological` (default `narrative`, see "Narrative structure" in section 6). Execution options (see "Runtime profile"): `--jobs`, `--hwaccel`, `--ai-frames`, `--ai-time-budget`, `--ollama-url`. For non-interactive use (see "Headless execution"): `--log-file`, `--log-format text|json`, `--quiet`, `--config`, `--require-ai`, `--allow-remote-ollama`, `--nice`, `--assume-tz`; subcommands `doctor`, `bench`, `evaluate` (Milestone 2) and `serve` (the editor, from U3).
 
 ### Execution modes and subcommands
 
@@ -498,7 +531,9 @@ Options: `--input`, `--music`, `--output`, `--duration`, `--aspect`, `--resoluti
 - **`--render-only`:** rendering from an existing `edit_plan.json`, even a hand-edited one; no analysis.
 - The three modes are mutually exclusive (code 2 if combined).
 - **`--resume`:** resumes an interrupted run in the same workdir, with the parameters saved in `<workdir>/run_config.json`. The original command line can be rerun with `--resume` added: the parameters that change the result must match the saved ones (otherwise code 2), while performance and log options may change. Without `--resume` it restarts from the first phase, but the cache avoids redoing the work already done.
-- **Subcommands:** if the first argument is `doctor`, `bench` or `evaluate` (Milestone 2) the subcommand is run, otherwise the pipeline. This way everything is passed as arguments to the `app` container, whose entrypoint is `python -m vacation_memories`.
+- **`candidates.json`** (from U1): after every analysis (`--analyze-only`, `--dry-run`, full run) the pipeline writes atomically `<workdir>/candidates.json`, with the analyzed files (relative path, size, mtime) and every candidate with its scores, AI fields, duplicate group and discard reason. The editor's catalog reads it (section 5 of `UI-SPEC.md`).
+- **Plan regeneration:** a full run or `--dry-run` on a plan with user edits saves a copy in `plan_history/` and keeps the exclusions (section 7, "Regeneration").
+- **Subcommands:** if the first argument is `doctor`, `bench`, `evaluate` (Milestone 2) or `serve` (from U3: the editor, `UI-SPEC.md`) the subcommand is run, otherwise the pipeline. This way everything is passed as arguments to the `app` container, whose entrypoint is `python -m vacation_memories`.
 
 ### Video duration (`--duration`)
 
@@ -526,7 +561,7 @@ The user chooses resolution and proportions of the final video. Default: `1080p`
 - **Validation:** dimensions always rounded to even values (required by H.264 with `yuv420p`). Minimum short side 320 px, maximum 2160 px. Invalid values: error with examples of accepted formats.
 - **Rendering cost:** above 1080p warn that with the software encoder rendering will be much longer, with an estimate based on the time measured on a test clip, without blocking. Suggest `--preview` for trials.
 - **Sources smaller than the target:** they are scaled up. If more than 30% of the selected clips have a resolution lower than the output, warn in the log.
-- **`--preview`:** forces a short side of 540 px and 24 fps with a fast x264 preset, ignoring `--resolution`. Writes a file with the `_preview` suffix, without overwriting the final output.
+- **`--preview`:** forces a short side of 540 px and 24 fps with a fast x264 preset, ignoring `--resolution`. Writes a file with the `_preview` suffix, without overwriting the final output, and from U2 its report in `render_report_preview.json`.
 - **Interactions:**
   - Quality, duplicates and AI analysis (512 px images) do not depend on the output resolution. Changing `--resolution` or `--aspect` does not rerun analysis or selection: it only redoes rendering.
   - `edit_plan.json` saves `output: {width, height, fps}` (default fps 30).
@@ -550,6 +585,7 @@ The sections "How to work", "Privacy and development data" and "Constraints" app
 | 7 | Docker image and Docker Compose (including "Docker tests") |
 | E1 | Perceived quality evaluation; Milestone 2; Step 2 of Milestone 1 (the synthetic media generator); pipeline 4, 6 (including "Narrative structure") and 7; CLI ("Execution modes and subcommands"); Structure |
 | E2 | Perceived quality evaluation; pipeline 3, 4, 6 and 10; CLI (with Execution modes, Video duration and Resolution and format); Headless execution; Docker image and Docker Compose ("Same commands on the development PC and the server"); Milestone 4 |
+| U1–U8 | The table in section 15 of `UI-SPEC.md`, which lists for every editor step the sections of this document and of `UI-SPEC.md` |
 
 ### Step 0 — by the user (not for Claude Code)
 On both machines, with Docker: a temporary Ollama container with GPU access (`/dev/dri` and `OLLAMA_IGPU_ENABLE=1`), with the same `ollama/ollama` tag the compose file will use (the user communicates it in Step 1), and the models volume the compose file will use (see SETUP.md). The model is downloaded (`ollama pull qwen3-vl:4b-instruct-q4_K_M`) and `ollama ps` is used to check that it runs on the GPU. On the server, which decides the AI budget, manual benchmark on 5-10 images with `ollama run`: time per frame, quality of the responses, sufficient resolution, and whether `moment_type` and `narrative_value` turn out sensible and consistent (small models may confuse `detail`, `transition` and `scenery`). The benchmark must be done twice, with the GPU and with `OLLAMA_VULKAN=0`, to measure the gain. On the development PC it is enough to check that the GPU works: there the model is only used for the integration tests.
@@ -572,6 +608,9 @@ On both machines, with Docker: a temporary Ollama container with GPU access (`/d
 
   README with installation and use with Docker Compose on the development PC and server, known limits, long jobs with `tmux` or `nohup` and copying of the results.
 7. **Production and container tests.** Polishing of the `runtime` image (minimal content, label and version), documentation of transfer without a registry and of resource limits, verification of `app` hardening, `compose.test.yaml`, `scripts/test-docker.sh` with the container tests and the "Docker" section of the README, as described in "Docker image and Docker Compose". It requires the full CLI of Step 6.
+
+### Editor — steps U1–U8
+The interactive editor, specified in `UI-SPEC.md`, is developed after Milestone 1 in steps U1–U8, one at a time, with the rules of "How to work": U1 plan schema 2 and editing rules; U2 renderer for schema 2; U3 server and compose; U4 read-only interface; U5 basic editing; U6 music and transitions; U7 preview and export; U8 single-file launcher (PyInstaller, Chrome window, image from Docker Hub). All the steps are on the single branch `feature/wui_implementation`, merged into `develop` only after U8 ("How to work"). Content, sections to read and tests of each step are in section 15 of `UI-SPEC.md`.
 
 ### Milestone 2 — Quality
 **Order of work:** first the evaluation system (next section), then the improvements below, measuring the effect of each change with it.
@@ -629,7 +668,7 @@ Technical metrics do not say whether the video is really good. This system measu
 - `prepare`: creates `<workdir>/eval/<run_id>/` with the variants' previews, the thumbnails and `review.html`: `--duration` (default 90 s), `--variants` (default `full,random`), `--seed` (of `random`), `--run-id` (default the date and time), `--music`, `--aspect`;
 - `report`: reads the `ratings.json` exported from the page and produces `eval_report.md` (readable) and `eval_summary.json` (anonymous): `--run-id` (default the latest prepared run), `--ratings` (default `eval/<run_id>/ratings.json`).
 
-`review.html` is a local static page, with no server or external resources: it works by opening the file. It contains the preview with the list of clips (thumbnail, start time, duration, section, `moment_type`; clicking the time takes the video to that point), the buttons for the flags, the gallery of excluded clips and the ratings. It saves in the browser while you work and exports `ratings.json` with a button. It is designed to be reused by the Milestone 4 gallery. On a headless server the `eval/<run_id>/` folder is self-contained (relative paths) and is copied to the computer from which it is viewed (rsync/scp); the program never opens a browser and only prints the path.
+`review.html` is a local static page, with no server or external resources: it works by opening the file. It contains the preview with the list of clips (thumbnail, start time, duration, section, `moment_type`; clicking the time takes the video to that point), the buttons for the flags, the gallery of excluded clips and the ratings. It saves in the browser while you work and exports `ratings.json` with a button. It was designed to be reused by the Milestone 4 gallery, now replaced by the editor of `UI-SPEC.md`, which does not reuse it. On a headless server the `eval/<run_id>/` folder is self-contained (relative paths) and is copied to the computer from which it is viewed (rsync/scp); the program never opens a browser and only prints the path.
 
 **Persistent labels and history**
 - The flags are associated with a stable segment ID (source, start, end). If the segmentation changes, the association is made by temporal overlap above a threshold. In later cycles it is enough to review what is new, and the metrics on important moments included and on clips already flagged as repetitive are computed automatically on the new configuration.
@@ -673,7 +712,7 @@ Implemented (E2):
 - blind variant mapping not present in the report before the ratings.
 
 ### Milestone 3 — Music-driven editing
-Beat tracking, more refined transitions, original audio, duration adaptation, alignment of narrative section boundaries to music sections (energetic Opening, Closing on the outro).
+Beat tracking, more refined transitions, original audio, duration adaptation, alignment of narrative section boundaries to music sections (energetic Opening, Closing on the outro). The original audio also brings the "Video audio" lane of the editor and the `audio` block of the plan (schema 3, D5 of `UI-SPEC.md`).
 
 ### Milestone 4 — Review
-Static HTML gallery (reuses `review.html`) to examine, exclude or confirm segments. A static page cannot write files: it exports the choices to a JSON that a subcommand applies to `edit_plan.json`, then it is rendered with `--render-only`.
+Replaced by the interactive editor of `UI-SPEC.md` (steps U1–U8): reviewing, excluding and editing the plan happen there.

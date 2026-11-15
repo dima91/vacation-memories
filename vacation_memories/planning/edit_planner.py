@@ -28,21 +28,45 @@ Basic version of the narrative structure of section 6:
 
 `--structure chronological` drops the sections: one chronological selection over the whole vacation.
 `plan_random` is the random baseline of the evaluation: the same sections and durations, filled by chance.
+
+The plan is written as schema 2 (`UI-SPEC.md`, section 8): ids, `origin: planner`, the dissolve of each
+clip as an effect and the fade from black and to black as effects of the first and last clip. The moments
+the user deleted in the editor (`excluded`) are never chosen again, and the new plan keeps them.
 """
 
 import bisect
 import math
 import random
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 from fractions import Fraction
 
 import numpy as np
 
-from vacation_memories.planning.edit_plan import PHOTO, VIDEO, EditPlan, OutputSpec, PlanElement, finalize_timeline
+from vacation_memories.analysis.technical_analysis import Candidate
+from vacation_memories.planning.edit_plan import (
+    PHOTO,
+    VIDEO,
+    EdgeFades,
+    EditPlan,
+    Effect,
+    Exclusion,
+    OutputSpec,
+    PlanElement,
+    add_edge_fades,
+    finalize_timeline,
+)
 from vacation_memories.planning.scene_ranker import RankedCandidate, Ranking
 from vacation_memories.planning.selection_config import SECTIONS, SelectionConfig
-from vacation_memories.planning.transitions import CUT, DISSOLVE, TransitionRequest, TransitionRules, layout_timeline
+from vacation_memories.planning.transitions import (
+    CUT,
+    DISSOLVE,
+    PLANNER,
+    TransitionRequest,
+    TransitionRules,
+    layout_timeline,
+)
 
 NARRATIVE = "narrative"
 CHRONOLOGICAL = "chronological"
@@ -51,6 +75,7 @@ BODY = "body"  # Beginning, Development and Finale together, in the compressed s
 SERENE_MOMENTS = ("scenery", "social")
 VIDEO_END_MARGIN_SECONDS = 0.1  # never cut a clip right at the end of its segment
 CONTIGUOUS_SECONDS = 1e-3  # two segments of a file closer than this continue each other
+EXCLUSION_OVERLAP_SECONDS = 1e-3  # a segment that shares more than this with a deleted moment is left out
 SINGLE_PIECE_MOMENTS = ("detail", "transition")  # short by nature: never extended into a longer shot
 RUN_RULE = "moment type run"
 PIECE_RULE = "one piece per clip"
@@ -152,6 +177,37 @@ def duration_limits(
     return low, high
 
 
+def candidate_is_excluded(candidate: Candidate, excluded: Sequence[Exclusion]) -> bool:
+    """Whether a deleted moment or hidden photo covers the candidate.
+
+    A video segment is covered when it shares more than a millisecond with a deleted moment of its
+    file (the moment may have been trimmed inside it, or span several segments); a photo, when it is
+    listed. An exclusion with no extent covers the whole file.
+    """
+    source = candidate.rel_path.as_posix()
+    for exclusion in excluded:
+        if exclusion.source != source:
+            continue
+        if exclusion.start is None:
+            return True
+        if candidate.kind == VIDEO and (
+            min(candidate.end, exclusion.end) - max(candidate.start, exclusion.start) > EXCLUSION_OVERLAP_SECONDS
+        ):
+            return True
+    return False
+
+
+def without_excluded(ranking: Ranking, excluded: Sequence[Exclusion]) -> Ranking:
+    """The ranking without the candidates the user deleted (the similarity matrix follows)."""
+    if not excluded:
+        return ranking
+    keep = [position for position, item in enumerate(ranking.ranked) if not candidate_is_excluded(item.candidate, excluded)]
+    if len(keep) == len(ranking.ranked):
+        return ranking
+    return replace(ranking, ranked=[ranking.ranked[position] for position in keep],
+                   similarity=ranking.similarity[np.ix_(keep, keep)])
+
+
 def plan_edit(
     ranking: Ranking,
     *,
@@ -161,8 +217,14 @@ def plan_edit(
     rules: TransitionRules,
     structure: str = NARRATIVE,
     assumed_tz: str | None = None,
+    excluded: Sequence[Exclusion] = (),
+    fades: EdgeFades | None = None,
 ) -> PlanningResult:
-    planner = _Planner(ranking, target, output, config, rules, structure)
+    """`excluded` are the moments the user deleted: they are not chosen and the plan keeps them.
+
+    `fades` are the lengths of the fade from black at the start and to black at the end of the video.
+    """
+    planner = _Planner(ranking, target, output, config, rules, structure, excluded=excluded, fades=fades)
     return planner.run(assumed_tz)
 
 
@@ -187,7 +249,12 @@ def plan_random(
 
 
 class _Planner:
-    def __init__(self, ranking, target, output, config, rules, structure):
+    def __init__(self, ranking, target, output, config, rules, structure, *, excluded=(), fades=None):
+        self.excluded: tuple[Exclusion, ...] = tuple(excluded)
+        self.excluded_candidates = len(ranking.ranked)
+        ranking = without_excluded(ranking, self.excluded)
+        self.excluded_candidates -= len(ranking.ranked)
+        self.fades = fades or EdgeFades()
         self.ranking = ranking
         self.target = target
         self.output = output
@@ -236,6 +303,7 @@ class _Planner:
         self._fit(sequence)
         plan = self._build_plan(sequence, assumed_tz)
         plan, layout = finalize_timeline(plan, self.rules)
+        plan = replace(plan, elements=add_edge_fades(plan.elements, self.fades, min_seconds=self.rules.min_seconds))
         report = self._report(sequence, plan, layout)
         pools = {item.id: section.name for section in self.sections if section.name not in ("opening", "closing")
                  for item in section.pool}
@@ -739,7 +807,8 @@ class _Planner:
 
     def _build_plan(self, sequence: list[Clip], assumed_tz: str | None) -> EditPlan:
         elements = []
-        for clip in sequence:
+        effect_count = 0
+        for position, clip in enumerate(sequence):
             item = clip.item
             candidate = item.candidate
             start = end = None
@@ -761,15 +830,20 @@ class _Planner:
                 "narrative_score": round(item.narrative_score, 4),
                 "components": item.components,
             }
+            effects = ()
+            if position and clip.transition.type == DISSOLVE and clip.transition.duration > 0:
+                effect_count += 1
+                effects = (Effect(f"fx-{effect_count}", DISSOLVE, 0.0, clip.transition.duration, PLANNER),)
             elements.append(PlanElement(
                 source=candidate.rel_path.as_posix(), kind=candidate.kind, duration=round(duration, 6),
-                start=start, end=end, transition_in=clip.transition, score=score,
+                start=start, end=end, effects=effects, score=score,
                 moment_type=item.moment_type, category=item.category, section=clip.section,
                 description=item.ai.description if item.ai else None, reason=reason,
                 captured_at=item.captured_at.isoformat(timespec="milliseconds"), date_source=item.date_source,
-                assumed_tz=item.assumed_tz,
+                assumed_tz=item.assumed_tz, id=item.id,
             ))
-        return EditPlan(output=self.output, elements=elements, requested_duration=self.target, assumed_tz=assumed_tz)
+        return EditPlan(output=self.output, elements=elements, requested_duration=self.target, assumed_tz=assumed_tz,
+                        excluded=self.excluded)
 
     # --- report -----------------------------------------------------------------------------------
 
@@ -824,6 +898,7 @@ class _Planner:
             "clips": len(sequence),
             "extended_shots": sum(1 for clip in sequence if clip.extended),
             "usable_candidates": len(self.useful),
+            "excluded_candidates": self.excluded_candidates,
             "sections": sections,
             "warnings": warnings,
         }

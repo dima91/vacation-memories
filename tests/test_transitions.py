@@ -40,6 +40,31 @@ def test_dissolve_is_limited_to_a_quarter_of_the_shorter_clip():
     assert "reduced from 0.8 s to 0.30 s" in note
 
 
+def test_a_dissolve_of_the_user_is_not_limited_to_a_quarter_of_the_clip():
+    from vacation_memories.planning.transitions import USER
+
+    request = TransitionRequest(DISSOLVE, 2.5, USER)
+    frames, note = effective_dissolve_frames(request, 120, 300, FPS, RULES)  # a 4 s clip, then a 10 s one
+    assert frames == 75 and note is None  # 2.5 s, against the 1 s of the planner's limit
+    planner = effective_dissolve_frames(TransitionRequest(DISSOLVE, 2.5), 120, 300, FPS, RULES)[0]
+    assert planner == 30
+
+
+def test_a_dissolve_of_the_user_still_stops_at_the_shorter_clip_and_at_the_minimum():
+    from vacation_memories.planning.transitions import USER
+
+    frames, note = effective_dissolve_frames(TransitionRequest(DISSOLVE, 9.0, USER), 120, 45, FPS, RULES)
+    assert frames == 45 and "reduced" in note  # the whole shorter clip (1.5 s)
+    frames, note = effective_dissolve_frames(TransitionRequest(DISSOLVE, 0.15, USER), 120, 300, FPS, RULES)
+    assert frames == 0 and "turned into a cut" in note
+
+
+def test_the_origin_defaults_to_the_planner():
+    from vacation_memories.planning.transitions import PLANNER
+
+    assert TransitionRequest().origin == PLANNER == "planner"
+
+
 def test_the_shorter_of_the_two_clips_decides():
     assert effective(0.8, 10.0, 1.2)[0] == effective(0.8, 1.2, 10.0)[0]
 

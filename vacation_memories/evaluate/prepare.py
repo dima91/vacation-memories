@@ -181,8 +181,8 @@ def _check(settings: Settings, request: PrepareRequest) -> Path:
         raise ConfigError(f"the input folder does not exist or is not a folder: {input_dir}")
     if settings.no_ai and NO_AI in request.variants:
         raise ConfigError(f"the {NO_AI} variant is the full one without the AI: leave out --no-ai to compare them")
-    if settings.music is not None and not Path(settings.music).is_file():
-        raise ConfigError(f"the music file does not exist: {settings.music}")
+    if settings.music_path is not None and not Path(settings.music_path).is_file():
+        raise ConfigError(f"the music file does not exist: {settings.music_path}")
     return input_dir
 
 
@@ -314,7 +314,7 @@ class _Preparation:
         }
 
     def _render(self, variants: dict, results: dict, letters: dict, profile) -> None:
-        options = RenderOptions.from_profile(profile, self.settings, preview=True, music=self.settings.music)
+        options = RenderOptions.from_profile(profile, self.settings, preview=True, music=self.settings.music_path)
         for letter in sorted(variants):
             self.controller.check()
             logger.info("rendering the preview of version %s", letter)

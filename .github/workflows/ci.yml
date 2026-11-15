@@ -40,11 +40,16 @@ jobs:
             .env
           mkdir -p dev-media music work
 
-      - name: Build the dev image
-        run: docker compose --profile dev build dev
+      - name: Build the dev images
+        run: docker compose --profile dev build dev ui-dev
 
       - name: Run the tests
         run: docker compose run --rm -T --no-deps dev pytest
+
+      - name: Check and test the interface
+        run: |
+          docker compose run --rm -T --no-deps ui-dev npm run check
+          docker compose run --rm -T --no-deps ui-dev npm test
 
   container-tests:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request'

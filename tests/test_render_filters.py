@@ -2,15 +2,19 @@ from fractions import Fraction
 
 import pytest
 
+from vacation_memories.planning.edit_plan import DIP, FADE_IN, FADE_OUT
 from vacation_memories.planning.video_format import even
 from vacation_memories.rendering.render_config import RenderConfig
 from vacation_memories.rendering.render_filters import (
     BlockItem,
+    ClipFade,
     Geometry,
+    MixPart,
     audio_graph,
     block_graph,
     compose,
     fps_text,
+    parts_audio_graph,
     photo_segment_graph,
     seconds_text,
     video_segment_graph,
@@ -156,9 +160,34 @@ def test_block_graph_never_feeds_a_concat_into_an_xfade():
     assert graph.count("concat") == 1 and graph.index("concat") > graph.rindex("xfade")
 
 
-def test_block_graph_fades_and_output_filters():
-    graph = block_graph([BlockItem(150, 0)], FPS, fade_in=1.0, fade_out=2.0, total_frames=150, output_filters="format=nv12,hwupload")
-    assert graph == "[0:v]format=yuv420p,setsar=1,fade=t=in:st=0:d=1,fade=t=out:st=3:d=2,format=nv12,hwupload[vout]"
+def test_block_graph_output_filters():
+    graph = block_graph([BlockItem(150, 0)], FPS, output_filters="format=nv12,hwupload")
+    assert graph == "[0:v]format=yuv420p,setsar=1,format=nv12,hwupload[vout]"
+
+
+def test_a_fade_in_and_a_fade_out_are_frame_exact_fades_of_their_clip():
+    items = [BlockItem(150, 0, (ClipFade(FADE_IN, 0, 30), ClipFade(FADE_OUT, 105, 45))), BlockItem(60, 0)]
+    first, second, joined, tail = block_graph(items, FPS).split(";")
+    assert first == "[0:v]fade=t=in:s=0:n=30[e0_0]"
+    assert second == "[e0_0]fade=t=out:s=105:n=45[e0]"
+    assert joined == "[e0][1:v]concat=n=2:v=1:a=0[joined]"  # the second clip has no fades and keeps its input label
+    assert tail == "[joined]format=yuv420p,setsar=1[vout]"
+
+
+def test_a_dip_fades_out_one_copy_and_in_another_and_switches_between_them_at_the_bottom():
+    graph = block_graph([BlockItem(90, 0, (ClipFade(DIP, 30, 20),))], FPS)
+    assert graph.split(";")[:4] == [
+        "[0:v]split=2[e0_0a][e0_0b]",
+        "[e0_0a]fade=t=out:s=30:n=10[e0_0ao]",
+        "[e0_0b]fade=t=in:s=40:n=10[e0_0bo]",
+        "[e0_0ao][e0_0bo]overlay=enable='gte(n,40)':format=yuv420[e0]",
+    ]
+
+
+def test_fades_of_a_clip_in_a_dissolve_feed_the_xfade():
+    items = [BlockItem(60, 0, (ClipFade(FADE_IN, 0, 15),)), BlockItem(60, 15, (ClipFade(FADE_OUT, 30, 30),))]
+    graph = block_graph(items, FPS)
+    assert "[e0][e1]xfade=transition=fade:duration=0.5:offset=1.491667[r0x1]" in graph
 
 
 def test_silent_audio_graph():
@@ -182,3 +211,39 @@ def test_looped_music_is_chained_with_crossfades():
 def test_fades_never_exceed_half_of_a_short_video():
     graph = audio_graph(duration=2, sample_rate=48000, fade_in=5, fade_out=5, music_inputs=[1], crossfade=0)
     assert "afade=t=in:st=0:d=1" in graph and "afade=t=out:st=1:d=1" in graph
+
+
+class TestPartsAudioGraph:
+    """The music of the plan: parts of tracks one after the other, shifted, cut at the end of the video."""
+
+    def parts(self):
+        return [MixPart(2, 1.0, 4.0, False, 0.5, 1.0), MixPart(3, 0.0, 2.0, True, 0.0, 0.0)]
+
+    def test_every_part_is_trimmed_faded_and_the_mute_is_a_volume_of_zero(self):
+        graph = parts_audio_graph(self.parts(), offset=0, duration=10, sample_rate=48000, fade_out=0)
+        assert ("[2:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=start=1:end=4,"
+                "asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.5,afade=t=out:st=2:d=1[p0]") in graph
+        assert ("[3:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=start=0:end=2,"
+                "asetpts=PTS-STARTPTS,volume=0[p1]") in graph
+
+    def test_the_parts_are_joined_in_order_and_fitted_to_the_video(self):
+        graph = parts_audio_graph(self.parts(), offset=0, duration=10, sample_rate=48000, fade_out=0)
+        assert graph.endswith("[p0][p1]concat=n=2:v=0:a=1[mix];[mix]apad=whole_dur=10,atrim=duration=10,"
+                              "asetpts=PTS-STARTPTS[aout]")
+
+    def test_a_positive_shift_starts_the_music_with_silence(self):
+        graph = parts_audio_graph(self.parts(), offset=2.5, duration=10, sample_rate=48000, fade_out=0)
+        assert "anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=2.5,asetpts=PTS-STARTPTS[lead]" in graph
+        assert "[lead][p0][p1]concat=n=3:v=0:a=1[mix]" in graph
+
+    def test_a_negative_shift_skips_the_beginning_of_the_music(self):
+        graph = parts_audio_graph(self.parts(), offset=-1.5, duration=10, sample_rate=48000, fade_out=0)
+        assert "[p0][p1]concat=n=2:v=0:a=1[joined];[joined]atrim=start=1.5,asetpts=PTS-STARTPTS[mix]" in graph
+
+    def test_the_music_ends_with_the_final_fade_out_of_the_video(self):
+        graph = parts_audio_graph(self.parts(), offset=0, duration=10, sample_rate=48000, fade_out=3)
+        assert graph.endswith("atrim=duration=10,asetpts=PTS-STARTPTS,afade=t=out:st=7:d=3[aout]")
+
+    def test_the_final_fade_out_is_at_most_half_of_a_short_video(self):
+        graph = parts_audio_graph(self.parts(), offset=0, duration=2, sample_rate=48000, fade_out=5)
+        assert graph.endswith("afade=t=out:st=1:d=1[aout]")
