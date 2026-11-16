@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { projectFromHash } from "../src/App";
 import { ApiFailure, failureFrom, urls } from "../src/api/client";
 import { chooseView } from "../src/screens/ProjectScreen";
+import { aiChoiceBody } from "../src/screens/SettingsScreen";
 import { clone, projectNew, projectPlanned } from "./fixtures";
 
 test("the project is in the address", () => {
@@ -43,4 +44,10 @@ test("media are named by opaque ids in the URLs, never by file names", () => {
   assert.equal(urls.thumb("p-1", "0123456789abcdef", 3.5), "/api/projects/p-1/thumb/0123456789abcdef?t=3.5");
   assert.equal(urls.clip("p-1", "fedcba9876543210"), "/api/projects/p-1/clip/fedcba9876543210");
   assert.equal(urls.video("p-1", "memories_preview"), "/api/projects/p-1/video/memories_preview");
+});
+
+test("the notice about the AI says what is missing", () => {
+  assert.equal(aiChoiceBody("model_missing"), "ai.choice.model_missing");
+  assert.equal(aiChoiceBody("ollama_unreachable"), "ai.choice.unreachable");
+  assert.equal(aiChoiceBody(""), "ai.choice.body");
 });

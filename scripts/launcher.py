@@ -584,7 +584,10 @@ class Launcher:
 
     def _start_ollama(self, compose: Compose) -> None:
         def work() -> None:
-            code, lines = compose.run("up", "-d", "ollama", "ollama-pull")
+            # The volume is external in compose.yaml (down -v keeps the models), so compose never creates it.
+            code, lines = self.runner.run(["docker", "volume", "create", MODELS_VOLUME])
+            if code == 0:
+                code, lines = compose.run("up", "-d", "ollama", "ollama-pull")
             if code != 0:
                 log.warning("Ollama did not start (the editor works without it): %s", " | ".join(lines[-3:]))
 

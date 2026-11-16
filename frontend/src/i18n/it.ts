@@ -156,6 +156,8 @@ export const it = {
   "phase.verifying the file": "controllo del file",
   "ai.choice.title": "L'IA non è disponibile",
   "ai.choice.body": "Ollama o il suo modello non rispondono. Puoi aspettare (il modello potrebbe essere in scaricamento) oppure analizzare subito senza IA.",
+  "ai.choice.model_missing": "Ollama è attivo, ma il modello non è ancora presente. Al primo avvio viene scaricato (alcuni GB, può richiedere diversi minuti): aspetta che finisca, senza chiudere il launcher, poi riprova. Oppure analizza subito senza IA.",
+  "ai.choice.unreachable": "Ollama non risponde. Al primo avvio ci mette circa un minuto a partire, poi scarica il modello: aspetta e riprova, senza chiudere il launcher. Oppure analizza subito senza IA.",
   "ai.choice.wait": "Aspetta e riprova",
   "ai.choice.without": "Analizza senza IA",
 

@@ -474,8 +474,10 @@ starts the editor and shows it. Closing the window stops the containers. `--reco
 settings" action of the menu entry) asks the folders again; `--stop` stops a running launcher and its containers;
 `--browser PATH` chooses another Chrome; the log is
 `~/.config/vacation-memories/launcher.log`. Your repository `.env` is not used by the launcher. The launcher runs the
-editor (and Ollama, in the background, with the Intel GPU if `/dev/dri` exists): for the command line and the
-`evaluate` commands use the repository (see "Installation").
+editor (and Ollama, in the background, with the Intel GPU if `/dev/dri` exists) and creates the volume
+`vacation-ollama-models` if it is missing (`docker volume create`, harmless when it exists); if that fails, Ollama is
+not started and the editor works without it. For the command line and the `evaluate` commands use the repository (see
+"Installation").
 
 To remove what the launcher left on the computer, run `--uninstall`: it stops the launcher, removes the containers and
 the networks, deletes `~/.config/vacation-memories/`, `~/.local/share/vacation-memories/` (the extracted files and the

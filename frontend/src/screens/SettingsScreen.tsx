@@ -10,6 +10,13 @@ const ASPECTS = ["16:9", "9:16", "1:1", "4:3"] as const;
 const RESOLUTIONS = ["480p", "720p", "1080p", "1440p", "4k"] as const;
 type AiChoice = "auto" | "yes" | "no";
 
+// The reason the server gives for `ai_unavailable` (`model_missing`: Ollama answers but the model is not there yet).
+export function aiChoiceBody(reason: string): MessageKey {
+  if (reason === "model_missing") return "ai.choice.model_missing";
+  if (reason === "ollama_unreachable") return "ai.choice.unreachable";
+  return "ai.choice.body";
+}
+
 interface Form {
   ai: AiChoice;
   aiTimeBudget: string;
@@ -97,7 +104,7 @@ export function SettingsForm({ project, mode, onSaved, onStarted, onBack, ai, tr
   const [error, setError] = useState<unknown>(null);
   const [saved, setSaved] = useState<Requirement[] | null>(null);
   const [working, setWorking] = useState(false);
-  const [choice, setChoice] = useState(false);
+  const [choice, setChoice] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const set = <K extends keyof Form>(key: K, value: Form[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -121,14 +128,14 @@ export function SettingsForm({ project, mode, onSaved, onStarted, onBack, ai, tr
 
   const start = async (withAi?: boolean) => {
     setWorking(true);
-    setChoice(false);
+    setChoice(null);
     setConfirming(false);
     try {
       if (withAi === undefined && !(await save())) return;
       await api.startPlan(project.id, withAi);
       onStarted();
     } catch (failure) {
-      if (failure instanceof ApiFailure && failure.code === "ai_unavailable") setChoice(true);
+      if (failure instanceof ApiFailure && failure.code === "ai_unavailable") setChoice(String(failure.details.reason ?? ""));
       else setError(failure);
     } finally {
       setWorking(false);
@@ -267,11 +274,11 @@ export function SettingsForm({ project, mode, onSaved, onStarted, onBack, ai, tr
 
       {confirming ? <RegenerateDialog edited={project.plan.edited} working={working} onConfirm={() => void start()} onCancel={() => setConfirming(false)} /> : null}
 
-      {choice ? (
+      {choice !== null ? (
         <div className="notice notice--warn" role="alertdialog" aria-labelledby="ai-choice-title" aria-describedby="ai-choice-body">
           <div>
             <p id="ai-choice-title"><strong>{t("ai.choice.title")}</strong></p>
-            <p id="ai-choice-body">{t("ai.choice.body")}</p>
+            <p id="ai-choice-body">{t(aiChoiceBody(choice))}</p>
             <div className="actions">
               <button type="button" className="btn" onClick={() => void start()}>{t("ai.choice.wait")}</button>
               <button type="button" className="btn" onClick={() => void start(false)}>{t("ai.choice.without")}</button>

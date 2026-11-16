@@ -323,6 +323,20 @@ def test_an_ollama_failure_is_not_fatal(layout, payload, tmp_path, media):
     assert launcher.session.snapshot()["phase"] == "ready"
 
 
+def test_the_models_volume_is_created_before_ollama_starts(layout, payload, tmp_path, media):
+    launcher, popen = ready_launcher(layout, payload, tmp_path, media)
+    create = ["docker", "volume", "create", "vacation-ollama-models"]
+    start = next(command for command in popen.compose() if command[-2:] == ["ollama", "ollama-pull"])
+    assert popen.commands.index(create) < popen.commands.index(start)
+
+
+def test_ollama_is_not_started_when_the_volume_cannot_be_created(layout, payload, tmp_path, media):
+    popen = FakePopen(lambda command: (1, ["denied"]) if command[:3] == ["docker", "volume", "create"] else (0, []))
+    launcher, popen = ready_launcher(layout, payload, tmp_path, media, popen)
+    assert launcher.session.snapshot()["phase"] == "ready"
+    assert ("up", "-d", "ollama", "ollama-pull") not in popen.verbs()
+
+
 def test_the_editor_must_answer_its_health_check(layout, payload, tmp_path, media):
     clock = iter(range(0, 1000, 10))
     launcher, popen = make_launcher(layout, payload, tmp_path, urlopen=HealthyAfter(failures=10 ** 6))
