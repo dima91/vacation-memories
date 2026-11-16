@@ -477,6 +477,14 @@ settings" action of the menu entry) asks the folders again; `--stop` stops a run
 editor (and Ollama, in the background, with the Intel GPU if `/dev/dri` exists): for the command line and the
 `evaluate` commands use the repository (see "Installation").
 
+To remove what the launcher left on the computer, run `--uninstall`: it stops the launcher, removes the containers and
+the networks, deletes `~/.config/vacation-memories/`, `~/.local/share/vacation-memories/` (the extracted files and the
+default music folder) and the menu entry. Add `--remove-images` for the Docker images, `--remove-models` for the Docker
+volume `vacation-ollama-models` (the AI models, several GB, shared with an installation from the repository) and
+`--remove-work-data` for the projects and the **exported videos** in the work folder (only what the application wrote
+there; it asks for a confirmation, or add `--yes`). `--all` is the three together. The folders with the vacations and
+the music are never touched.
+
 To build it yourself instead, once the image of that version is on Docker Hub (the CI publishes it on the release tag,
 see "Continuous integration"; `IMAGE_REPO` is the value of the `IMAGE_NAME` variable, e.g. `yourname/vacation-memories`).
 The file is `dist/vacation-memories`:

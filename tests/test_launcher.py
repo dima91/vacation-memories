@@ -753,3 +753,141 @@ def test_stop_reports_an_unreadable_pid(layout, payload, capsys):
         layout.lock_file.write_text("not a pid")
         assert L.stop_running(layout, L.load_dist_config(payload), payload, kill=lambda *a: None) == 1
     assert "could not be reached" in capsys.readouterr().err
+
+
+# --- --uninstall ---
+
+
+def installed(layout, payload, tmp_path, media):
+    """A machine where the launcher ran once: saved answers, extracted files, a menu entry and work data."""
+    ready_launcher(layout, payload, tmp_path, media)
+    layout.desktop_file.parent.mkdir(parents=True)
+    layout.desktop_file.write_text("[Desktop Entry]\n")
+    layout.profile_dir.mkdir()
+    work = tmp_path / "work"
+    (work / "projects" / "paris-1a2b3c4d").mkdir(parents=True)
+    (work / "projects" / "paris-1a2b3c4d" / "paris.mp4").write_bytes(b"video")
+    (work / "tmp").mkdir()
+    (work / "run.log").write_text("log")
+    (work / "mine.txt").write_text("not ours")
+    return work
+
+
+def uninstall(layout, payload, popen, **options):
+    return L.uninstall(layout, L.load_dist_config(payload), payload, runner=L.Runner(popen=popen), **options)
+
+
+def test_layout_knows_the_menu_entry(layout):
+    assert layout.desktop_file == layout.data_root.parent / "applications" / "vacation-memories.desktop"
+
+
+def test_uninstall_removes_the_stack_and_the_launcher_folders_but_not_the_work_data(
+        layout, payload, tmp_path, media, capsys):
+    work = installed(layout, payload, tmp_path, media)
+    popen = FakePopen()
+    assert uninstall(layout, payload, popen) == 0
+    assert popen.verbs() == [("stop",), ("down", "--remove-orphans")]
+    assert not layout.config_dir.exists() and not layout.data_root.exists() and not layout.desktop_file.exists()
+    assert (work / "projects" / "paris-1a2b3c4d" / "paris.mp4").is_file()
+    assert media.is_dir()
+    assert not any(command[:2] in (["docker", "rmi"], ["docker", "volume"]) for command in popen.commands)
+
+
+def test_uninstall_stops_the_stack_before_it_deletes_anything(layout, payload, tmp_path, media):
+    installed(layout, payload, tmp_path, media)
+    seen = []
+
+    def respond(command):
+        seen.append(layout.config_dir.exists() and layout.data_dir.exists())
+        return 0, []
+
+    assert uninstall(layout, payload, FakePopen(respond)) == 0
+    assert seen and all(seen)  # compose needs the env file and the compose files: they go last
+
+
+def test_uninstall_images_and_models_only_when_asked(layout, payload, tmp_path, media):
+    installed(layout, payload, tmp_path, media)
+    popen = FakePopen(lambda command: (0, ["sha1", "sha1", "sha2"]) if command[:2] == ["docker", "images"]
+                      else (0, []))
+    assert uninstall(layout, payload, popen, images=True, models=True) == 0
+    assert ("down", "--remove-orphans", "--rmi", "all") in popen.verbs()
+    assert ["docker", "images", IMAGE, "-q"] in popen.commands
+    assert ["docker", "rmi", "sha1", "sha2"] in popen.commands
+    assert ["docker", "volume", "rm", "vacation-ollama-models"] in popen.commands
+
+
+def test_uninstall_goes_on_when_docker_fails(layout, payload, tmp_path, media, capsys):
+    installed(layout, payload, tmp_path, media)
+    popen = FakePopen(lambda command: (1, ["No such volume"]) if command[:3] == ["docker", "volume", "rm"]
+                      else (0, []))
+    assert uninstall(layout, payload, popen, models=True) == 0
+    assert "docker volume rm failed: No such volume" in capsys.readouterr().err
+    assert not layout.config_dir.exists()
+
+
+def test_uninstall_work_data_removes_only_what_the_application_wrote(layout, payload, tmp_path, media):
+    work = installed(layout, payload, tmp_path, media)
+    assert uninstall(layout, payload, FakePopen(), work_data=True, assume_yes=True) == 0
+    assert sorted(path.name for path in work.iterdir()) == ["mine.txt"]
+
+
+def test_uninstall_work_data_removes_the_folder_when_nothing_else_is_in_it(layout, payload, tmp_path, media):
+    work = installed(layout, payload, tmp_path, media)
+    (work / "mine.txt").unlink()
+    assert uninstall(layout, payload, FakePopen(), work_data=True, assume_yes=True) == 0
+    assert not work.exists()
+
+
+def test_uninstall_work_data_asks_first(layout, payload, tmp_path, media, capsys):
+    work = installed(layout, payload, tmp_path, media)
+    popen = FakePopen()
+    assert uninstall(layout, payload, popen, work_data=True, ask=lambda prompt: "no") == 1
+    assert popen.commands == [] and (work / "projects").is_dir() and layout.config_dir.exists()
+    assert uninstall(layout, payload, popen, work_data=True, ask=lambda prompt: "yes") == 0
+    assert not (work / "projects").exists()
+
+
+def test_uninstall_work_data_without_a_terminal_and_without_yes_does_nothing(
+        layout, payload, tmp_path, media, capsys):
+    work = installed(layout, payload, tmp_path, media)
+    popen = FakePopen()
+    assert uninstall(layout, payload, popen, work_data=True) == 1
+    assert "--yes" in capsys.readouterr().err
+    assert popen.commands == [] and (work / "projects").is_dir() and layout.config_dir.exists()
+
+
+def test_uninstall_with_nothing_installed_is_not_an_error(layout, payload, capsys):
+    popen = FakePopen()
+    assert uninstall(layout, payload, popen) == 0
+    assert popen.compose() == []
+    assert "No saved start found" in capsys.readouterr().out
+
+
+def test_uninstall_does_not_delete_while_a_launcher_cannot_be_stopped(layout, payload, tmp_path, media):
+    installed(layout, payload, tmp_path, media)
+    with L.single_instance(layout.lock_file):
+        code = uninstall(layout, payload, FakePopen(), kill=lambda pid, number: None, sleep=lambda seconds: None,
+                         clock=iter(range(0, 100, 20)).__next__, timeout=50)
+    assert code == 1 and layout.answers_file.is_file() and layout.desktop_file.is_file()
+
+
+def test_uninstall_from_the_command_line_leaves_no_log_behind(tmp_path, capsys, keep_logging):
+    environ = {"HOME": str(tmp_path), "XDG_DATA_HOME": str(tmp_path / "share"),
+               "XDG_CONFIG_HOME": str(tmp_path / "config")}
+    assert L.main(["--install-desktop"], environ=environ) == 0
+    assert L.main(["--uninstall"], environ=environ) == 0
+    assert not (tmp_path / "config" / "vacation-memories").exists()
+    assert not (tmp_path / "share" / "applications" / "vacation-memories.desktop").exists()
+
+
+def test_all_means_images_models_and_work_data():
+    args = L.parse_args(["--uninstall", "--all"])
+    assert args.remove_images and args.remove_models and args.remove_work_data
+
+
+@pytest.mark.parametrize("flag", ["--all", "--remove-images", "--remove-models", "--remove-work-data"])
+def test_the_remove_flags_need_uninstall(flag, capsys):
+    with pytest.raises(SystemExit) as stopped:
+        L.parse_args([flag])
+    assert stopped.value.code == 2
+    assert "--uninstall" in capsys.readouterr().err

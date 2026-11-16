@@ -35,6 +35,9 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 APP_NAME = "vacation-memories"
 PROJECT_NAME = "vacation-memories-app"
+MODELS_VOLUME = "vacation-ollama-models"
+# What the application writes at the top of the work folder; the exported videos live in `projects/`.
+WORK_ENTRIES = ("projects", "tmp", "run.log", "runtime_profile.json", ".lock", "status.json", ".cache")
 WINDOW_TITLE = "Vacation Memories"
 EDITOR_URL = "http://127.0.0.1:8080"
 HEALTH_URL = EDITOR_URL + "/api/health"
@@ -99,6 +102,10 @@ class Layout:
     @property
     def default_music_dir(self) -> Path:
         return self.data_root / "music"
+
+    @property
+    def desktop_file(self) -> Path:
+        return self.data_root.parent / "applications" / f"{APP_NAME}.desktop"
 
 
 def default_layout(version: str, environ=os.environ) -> Layout:
@@ -1050,9 +1057,25 @@ def parse_args(argv: Optional[List[str]]) -> argparse.Namespace:
     parser.add_argument("--stop", action="store_true", help="stop a running launcher and its containers")
     parser.add_argument("--install-desktop", action="store_true",
                         help="add the launcher to the applications menu (~/.local/share/applications)")
+    parser.add_argument("--uninstall", action="store_true",
+                        help="stop and remove the containers and the networks, the launcher's folders in "
+                             "~/.config and ~/.local/share and the menu entry")
+    parser.add_argument("--remove-images", action="store_true", help="with --uninstall: also remove the Docker images")
+    parser.add_argument("--remove-models", action="store_true",
+                        help=f"with --uninstall: also remove the Docker volume {MODELS_VOLUME} (the AI models)")
+    parser.add_argument("--remove-work-data", action="store_true",
+                        help="with --uninstall: also delete the projects and the videos in the work folder")
+    parser.add_argument("--all", action="store_true",
+                        help="with --uninstall: same as --remove-images --remove-models --remove-work-data")
+    parser.add_argument("--yes", action="store_true", help="with --uninstall: do not ask before deleting the work data")
     parser.add_argument("--self-check", action="store_true", help="check that the files it carries are all there")
     parser.add_argument("--version", action="store_true", help="print the version and exit")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.all:
+        args.remove_images = args.remove_models = args.remove_work_data = True
+    if not args.uninstall and (args.remove_images or args.remove_models or args.remove_work_data):
+        parser.error("--all and --remove-* need --uninstall")
+    return args
 
 
 def run_window(launcher: Launcher, browser: Optional[str], reconfigure: bool, opener: Optional[str] = None) -> int:
@@ -1126,6 +1149,73 @@ def stop_running(layout: Layout, dist: DistConfig, source: Path, *, kill=os.kill
     return 1
 
 
+def _delete(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    elif path.exists() or path.is_symlink():
+        path.unlink()
+
+
+def uninstall(layout: Layout, dist: DistConfig, source: Path, *, images: bool = False, models: bool = False,
+              work_data: bool = False, assume_yes: bool = False, ask: Optional[Callable[[str], str]] = None,
+              runner: Optional[Runner] = None, **stop_options) -> int:
+    """`--uninstall`: stop the launcher, remove the stack, then the launcher's own folders. The work folder holds the
+    exported videos, so it is cleaned only when asked, and only of what the application wrote there."""
+    saved = load_answers(layout)
+    work = Path(saved["work_dir"]) if work_data and saved and isinstance(saved.get("work_dir"), str) \
+        and saved["work_dir"] else None
+    if work and not work.is_absolute():
+        work = None
+    if work and not assume_yes:
+        ask = ask or (input if sys.stdin.isatty() else None)
+        if ask is None:
+            print("Deleting the work data needs a confirmation: run in a terminal or add --yes.", file=sys.stderr)
+            return 1
+        if ask(f"This deletes the projects and the videos in {work}. Type 'yes' to continue: ").strip().lower() != "yes":
+            print("Cancelled.")
+            return 1
+
+    runner = runner or Runner()
+    if stop_running(layout, dist, source, runner=runner, **stop_options) != 0:
+        return 1
+
+    def warn(what: str, lines: List[str]) -> None:
+        print(f"{what} failed: {lines[-1] if lines else 'no output'}", file=sys.stderr)
+
+    if saved is not None and layout.env_file.is_file() and layout.data_dir.is_dir():
+        files = compose_files(validate_answers(saved, layout)[0])
+        down = ["down", "--remove-orphans"] + (["--rmi", "all"] if images else [])
+        code, lines = Compose(runner, layout, files).run(*down)
+        if code == 0:
+            print("Containers and networks removed.")
+        else:
+            warn("docker compose down", lines)
+    else:
+        print("No saved start found: the containers and the networks were not touched.")
+    if images and dist.image:  # the images of the other versions this machine has run
+        code, ids = runner.run(["docker", "images", dist.image, "-q"])
+        if code == 0 and ids:
+            code, lines = runner.run(["docker", "rmi", *sorted(set(ids))])
+            if code != 0:
+                warn("docker rmi", lines)
+    if models:
+        code, lines = runner.run(["docker", "volume", "rm", MODELS_VOLUME])
+        if code == 0:
+            print(f"Volume {MODELS_VOLUME} removed.")
+        else:
+            warn("docker volume rm", lines)
+    if work:
+        for name in WORK_ENTRIES:
+            _delete(work / name)
+        with contextlib.suppress(OSError):
+            work.rmdir()  # only when nothing else is in it
+        print(f"Work data removed from {work}.")
+    for path in (layout.data_root, layout.config_dir, layout.desktop_file):
+        _delete(path)
+    print(f"Removed {layout.data_root}, {layout.config_dir} and the menu entry.")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None, environ=os.environ) -> int:
     args = parse_args(argv)
     root = payload_root()
@@ -1137,9 +1227,11 @@ def main(argv: Optional[List[str]] = None, environ=os.environ) -> int:
         return self_check(root)
     layout = default_layout(dist.version, environ)
     if args.install_desktop:
-        data_home = Path(environ.get("XDG_DATA_HOME") or Path(environ.get("HOME") or Path.home()) / ".local" / "share")
-        print(install_desktop(data_home / "applications", own_command()))
+        print(install_desktop(layout.desktop_file.parent, own_command()))
         return 0
+    if args.uninstall:  # before the log file is opened: it would be created again in the folder being removed
+        return uninstall(layout, dist, root, images=args.remove_images, models=args.remove_models,
+                         work_data=args.remove_work_data, assume_yes=args.yes)
 
     configure_logging(layout)
     if args.stop:
