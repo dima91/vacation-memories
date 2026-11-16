@@ -16,7 +16,7 @@ import { offsetBounds, trackExtents } from "../lib/musicEdit";
 import type { Selection } from "../lib/selection";
 import {
   MAX_ZOOM, MIN_ZOOM, ZOOM_STEP, clipRects, clampZoom, contentWidth, musicSlots, peaksBetween, pixelsPerSecond,
-  scrollAfterZoom, scrollByPage, scrollToReveal, stepPlayhead, tickTimes, timeAtPointer, timeToX, windowSeconds, type MusicSlot, type View,
+  scrollAfterZoom, scrollByPage, scrollToReveal, stepPlayhead, tickTimes, timeAtPointer, timeToX, windowSeconds, xToTime, zoomAfterWheel, type MusicSlot, type View,
 } from "../lib/timeline";
 import type { EditActions } from "./editing";
 import { Handle } from "./Handle";
@@ -94,12 +94,30 @@ export function Timeline({ projectId, document: doc, waveforms, selection, playh
     if (next !== element.scrollLeft) element.scrollLeft = next;
   }, [playhead]);
 
-  const changeZoom = (next: number) => {
+  const changeZoom = (next: number, pointerTime?: number) => {
     const clamped = clampZoom(next);
-    const anchor = timeToX(playhead, view) - scroll >= 0 && timeToX(playhead, view) - scroll <= width ? playhead : (scroll + width / 2) / pps;
+    const anchor = pointerTime ?? (timeToX(playhead, view) - scroll >= 0 && timeToX(playhead, view) - scroll <= width ? playhead : (scroll + width / 2) / pps);
     pendingScroll.current = scrollAfterZoom(scroll, view, clamped, anchor);
     setZoom(clamped);
   };
+
+  // Ctrl+wheel zooms around the pointer. A native listener: React's onWheel is passive and could not
+  // be cancelled (the page-wide cancel is in main.tsx).
+  const onWheelRef = useRef<(event: WheelEvent) => void>(() => undefined);
+  onWheelRef.current = (event) => {
+    const element = viewportRef.current;
+    if (!event.ctrlKey || !element) return;
+    const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+    const pointerTime = xToTime(event.clientX - element.getBoundingClientRect().left + scroll, view);
+    changeZoom(zoomAfterWheel(zoom, delta), pointerTime);
+  };
+  useEffect(() => {
+    const element = viewportRef.current;
+    if (!element) return undefined;
+    const listener = (event: WheelEvent) => onWheelRef.current(event);
+    element.addEventListener("wheel", listener, { passive: false });
+    return () => element.removeEventListener("wheel", listener);
+  }, []);
 
   const scrollPage = (direction: -1 | 1) => {
     const element = viewportRef.current;

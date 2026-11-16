@@ -28,6 +28,9 @@ export function clampZoom(zoom: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
 }
 
+/** The zoom after a wheel tick: wheel up (negative delta) zooms in, smoothly for notches and pinch alike. */
+export const zoomAfterWheel = (zoom: number, deltaY: number): number => clampZoom(zoom * Math.exp(-deltaY * 0.002));
+
 export interface View {
   window: number; // seconds at zoom 1
   zoom: number; // 1 to 6

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { MusicPlan } from "../src/api/types";
 import {
   clampScroll, clampZoom, clipAt, clipRects, clipStart, contentWidth, maxScroll, musicSlots, peaksBetween, pixelsPerSecond,
-  scrollAfterZoom, scrollByPage, scrollToReveal, stepPlayhead, tickStep, tickTimes, timeAtPointer, timeToX, windowSeconds, xToTime, type View,
+  scrollAfterZoom, scrollByPage, scrollToReveal, stepPlayhead, tickStep, tickTimes, timeAtPointer, timeToX, windowSeconds, xToTime, zoomAfterWheel, type View,
 } from "../src/lib/timeline";
 import { planDocument } from "./fixtures";
 
@@ -29,6 +29,14 @@ test("the zoom stays between 1× and 6×", () => {
   assert.equal(clampZoom(0.2), 1);
   assert.equal(clampZoom(3.5), 3.5);
   assert.equal(clampZoom(9), 6);
+});
+
+test("the wheel zooms in upwards and out downwards, within the limits", () => {
+  assert.ok(zoomAfterWheel(2, -100) > 2);
+  assert.ok(zoomAfterWheel(2, 100) < 2);
+  assert.equal(zoomAfterWheel(2, 0), 2);
+  assert.equal(zoomAfterWheel(5.9, -1000), 6);
+  assert.equal(zoomAfterWheel(1.1, 1000), 1);
 });
 
 test("pixels, seconds and the scroll limits at the zoom steps", () => {

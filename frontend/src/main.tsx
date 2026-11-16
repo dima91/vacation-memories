@@ -12,6 +12,8 @@ import { I18nProvider } from "./i18n";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("the page has no #root");
+// Ctrl+wheel and pinch would zoom the whole page; the timeline uses them to zoom itself.
+window.addEventListener("wheel", (event) => event.ctrlKey && event.preventDefault(), { passive: false });
 createRoot(root).render(
   <I18nProvider>
     <App />
