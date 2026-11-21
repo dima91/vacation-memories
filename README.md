@@ -487,18 +487,19 @@ volume `vacation-ollama-models` (the AI models, several GB, shared with an insta
 there; it asks for a confirmation, or add `--yes`). `--all` is the three together. The folders with the vacations and
 the music are never touched.
 
-To build it yourself instead, once the image of that version is on Docker Hub (the CI publishes it on the release tag,
-see "Continuous integration"; `IMAGE_REPO` is the value of the `IMAGE_NAME` variable, e.g. `yourname/vacation-memories`).
-The file is `dist/vacation-memories`:
+To build it yourself instead, use `scripts/build.sh` (the same script the CI runs). It needs the Docker CLI, git and the
+`dev` profile of `compose.yaml`:
 
 ```sh
-docker compose --profile dev build launcher-build
-IMAGE_REPO=yourname/vacation-memories APP_VERSION=0.2.0 docker compose run --rm -T launcher-build
+scripts/build.sh yourname v0.2.0                  # image yourname/vacation-memories + dist/vacation-memories-0.2.0-linux-x86_64
+docker login && scripts/build.sh yourname v0.2.0 --push   # also push every image tag
+scripts/build.sh yourname develop --skip-launcher        # only the image, tagged :develop
 ```
 
-Without the CI, publish the image yourself first: `docker build --target runtime --build-arg APP_VERSION=0.2.0 -t
-yourname/vacation-memories:0.2.0 .` and `docker push yourname/vacation-memories:0.2.0` (it logs in with your Docker Hub
-account).
+`--skip-image` builds only the launcher, which pulls `yourname/vacation-memories:<version>`, so that image must exist
+on Docker Hub. The image tags are: for `vX.Y.Z` the tags `X.Y.Z`, `X.Y`, `X` and `latest`; for a pre-release
+(`vX.Y.Z-rc1`) only `X.Y.Z-rc1`; for any other ref (`develop`, `feature/x`) its name made usable as a tag
+(`feature-x`); and always `sha-<commit>`. The launcher file and its `.sha256` are written in `dist/`.
 
 The file embeds `compose.yaml` and the files it needs, so it can be copied to another PC on its own. It is built on an
 old glibc and runs on any Linux x86-64 with a newer one. A change to `requirements-launcher.txt` needs
@@ -895,8 +896,8 @@ On a tag `vX.Y.Z` the workflow also checks that `X.Y.Z` is the `__version__` of 
 model (`-m ollama`) do not run in CI: they are skipped there because no Ollama is reachable.
 
 **Releasing.** The `publish-image` job builds the `runtime` target and pushes `<IMAGE_NAME>:X.Y.Z`, plus
-`<IMAGE_NAME>:latest` unless the version is a pre-release (`X.Y.Z-rc1`). The tags come from
-`scripts/ci_image_tags.sh`, which also refuses an unusable name or tag. Set up once, on GitHub (Settings → Secrets and
+`<IMAGE_NAME>:X.Y`, `:X`, `:latest` and `:sha-<commit>` unless the version is a pre-release (`X.Y.Z-rc1`). Both jobs call
+`scripts/build.sh`; the tags come from `scripts/ci_image_tags.sh`, which also refuses an unusable name or tag. Set up once, on GitHub (Settings → Secrets and
 variables → Actions) and on Docker Hub:
 
 | Where | Name | Value |

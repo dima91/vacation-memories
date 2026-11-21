@@ -145,24 +145,21 @@ def test_the_changelog_is_checked_before_anything_is_published():
     assert "publish-image" not in block
 
 
-def test_the_launcher_is_built_with_the_image_name_that_was_pushed():
+def test_the_launcher_is_built_for_the_image_that_was_pushed():
     block = job_block("release")
-    assert "IMAGE_REPO: ${{ vars.IMAGE_NAME }}" in block
-    assert "APP_VERSION=${TAG#v}" in block
-    assert "docker compose --profile dev build launcher-build" in block
-    assert "docker compose run --rm -T launcher-build" in block
+    assert "IMAGE_NAME: ${{ vars.IMAGE_NAME }}" in block
+    assert 'scripts/build.sh "${IMAGE_NAME%%/*}" "$TAG" --skip-image' in block
 
 
-def test_the_files_are_named_with_the_version_and_have_a_checksum():
+def test_the_release_attaches_the_files_named_with_the_version_and_their_checksum():
     block = job_block("release")
     assert "name=vacation-memories-$version-linux-x86_64" in block
-    assert 'sha256sum "$name" > "$name.sha256"' in block
     assert block.count('"dist/$name" "dist/$name.sha256"') == 1
 
 
 def test_the_release_uses_the_changelog_notes_and_marks_pre_releases():
     block = job_block("release")
-    assert 'scripts/ci_release_notes.sh "$version" > notes.md' in block
+    assert 'scripts/ci_release_notes.sh "${TAG#v}" > notes.md' in block
     assert "GH_TOKEN: ${{ github.token }}" in block
     assert '[[ $version == *-* ]] && prerelease=--prerelease' in block
     assert "--prerelease=false" in block

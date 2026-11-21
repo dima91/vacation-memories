@@ -78,35 +78,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compute the image tags
-        id: tags
-        env:
-          IMAGE_NAME: ${{ vars.IMAGE_NAME }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          images=$(scripts/ci_image_tags.sh "$IMAGE_NAME" "$TAG")
-          {
-            echo "tags<<EOF"
-            echo "$images"
-            echo "EOF"
-            echo "version=${TAG#v}"
-          } >> "$GITHUB_OUTPUT"
-
       - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: runtime
-          build-args: APP_VERSION=${{ steps.tags.outputs.version }}
-          tags: ${{ steps.tags.outputs.tags }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-          push: true
+      - name: Build and push the image
+        env:
+          IMAGE_NAME: ${{ vars.IMAGE_NAME }}
+          TAG: ${{ github.ref_name }}
+        run: scripts/build.sh "${IMAGE_NAME%%/*}" "$TAG" --push --skip-launcher
 
   # The launcher and the release page: built with the same IMAGE_NAME the image was just pushed to, and attached to a
   # GitHub release whose notes are the section of CHANGELOG.md for the version. The only job allowed to write.
@@ -131,22 +112,14 @@ jobs:
 
       - name: Build the launcher
         env:
-          IMAGE_REPO: ${{ vars.IMAGE_NAME }}
+          IMAGE_NAME: ${{ vars.IMAGE_NAME }}
           TAG: ${{ github.ref_name }}
-        run: |
-          export APP_VERSION=${TAG#v}
-          docker compose --profile dev build launcher-build
-          docker compose run --rm -T launcher-build
+        run: scripts/build.sh "${IMAGE_NAME%%/*}" "$TAG" --skip-image
 
-      - name: Name the files and write the notes
+      - name: Write the notes
         env:
           TAG: ${{ github.ref_name }}
-        run: |
-          version=${TAG#v}
-          name=vacation-memories-$version-linux-x86_64
-          mv dist/vacation-memories "dist/$name"
-          (cd dist && sha256sum "$name" > "$name.sha256")
-          scripts/ci_release_notes.sh "$version" > notes.md
+        run: scripts/ci_release_notes.sh "${TAG#v}" > notes.md
 
       - name: Create or update the release
         env:
