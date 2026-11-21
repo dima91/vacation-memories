@@ -494,6 +494,8 @@ To build it yourself instead, use `scripts/build.sh` (the same script the CI run
 scripts/build.sh yourname v0.2.0                  # image yourname/vacation-memories + dist/vacation-memories-0.2.0-linux-x86_64
 docker login && scripts/build.sh yourname v0.2.0 --push   # also push every image tag
 scripts/build.sh yourname develop --skip-launcher        # only the image, tagged :develop
+scripts/build.sh --clean-by-ns yourname                  # remove the local yourname/vacation-memories:* tags (asks first)
+scripts/build.sh --clean-by-version develop --yes        # remove every */vacation-memories:develop; with both flags, only their AND
 ```
 
 `--skip-image` builds only the launcher, which pulls `yourname/vacation-memories:<version>`, so that image must exist

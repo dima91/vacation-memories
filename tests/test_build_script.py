@@ -13,6 +13,9 @@ docker() {
     if [[ $1 == compose && $2 == run ]]; then
         mkdir -p dist && echo launcher > dist/vacation-memories
     fi
+    if [[ $1 == image && $2 == ls ]]; then
+        printf '%s\\n' ${IMAGES:-}
+    fi
 }
 git() {
     case $* in
@@ -111,6 +114,40 @@ def test_the_github_outputs_are_written(sandbox):
 def test_bad_arguments_are_refused_before_anything_runs(sandbox, args, code):
     result, calls = build(sandbox, *args)
     assert result.returncode == code and calls == []
+    assert result.stderr
+
+
+LS = "docker image ls --format {{.Repository}}:{{.Tag}} --filter reference="
+
+
+@pytest.mark.parametrize("flags, pattern", [(["--clean-by-ns", "someone"], "someone/vacation-memories:*"),
+                                            (["--clean-by-version", "1.2.3"], "*/vacation-memories:1.2.3"),
+                                            (["--clean-by-version", "1.2.3", "--clean-by-ns", "someone"],
+                                             "someone/vacation-memories:1.2.3")])
+def test_clean_removes_the_images_matching_the_pattern_and_builds_nothing(sandbox, flags, pattern):
+    result, calls = build(sandbox, *flags, "--yes", env={"IMAGES": "someone/vacation-memories:1.2.3 someone/vacation-memories:1"})
+    assert result.returncode == 0, result.stderr
+    assert calls == [LS + pattern, "docker rmi someone/vacation-memories:1.2.3 someone/vacation-memories:1"]
+
+
+def test_clean_with_no_match_removes_nothing(sandbox):
+    result, calls = build(sandbox, "--clean-by-ns", "someone", "--yes")
+    assert result.returncode == 0 and "no image matches" in result.stdout
+    assert [call for call in calls if call.startswith("docker rmi")] == []
+
+
+def test_clean_without_a_terminal_needs_yes(sandbox):
+    result, calls = build(sandbox, "--clean-by-ns", "someone", env={"IMAGES": "someone/vacation-memories:1"})
+    assert result.returncode == 1 and "--yes" in result.stderr
+    assert [call for call in calls if call.startswith("docker rmi")] == []
+
+
+@pytest.mark.parametrize("args", [["--clean-by-ns"], ["--clean-by-ns", "some*"], ["--clean-by-version", "1.?"],
+                                  ["--clean-by-version", "[1]"], ["--clean-by-ns", "someone", "someone", "v1.2.3"],
+                                  ["--clean-by-ns", "someone", "--push"]])
+def test_bad_clean_arguments_are_refused_before_anything_runs(sandbox, args):
+    result, calls = build(sandbox, *args, "--yes")
+    assert result.returncode == 2 and calls == []
     assert result.stderr
 
 

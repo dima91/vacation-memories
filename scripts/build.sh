@@ -2,11 +2,17 @@
 # Builds the runtime image and the single-file launcher, on a PC and in CI (.github/workflows/ci.yml).
 #
 # Usage: scripts/build.sh NAMESPACE TAG [--push] [--skip-image] [--skip-launcher]
+#        scripts/build.sh [--clean-by-ns NS] [--clean-by-version V] [--yes]
 #   NAMESPACE        Docker Hub namespace; the image is NAMESPACE/vacation-memories
 #   TAG              the git ref: vX.Y.Z or vX.Y.Z-prerelease for a release, or any other name (develop, feature/x)
 #   --push           push every image tag after the build (log in to the registry first)
 #   --skip-image     do not build the image (the launcher still points to NAMESPACE/vacation-memories:<version>)
 #   --skip-launcher  do not build the launcher
+#
+# Clean mode (builds nothing): removes the local tags matching NS/vacation-memories:V, where an omitted NS or V matches
+# anything, so --clean-by-ns removes NS/vacation-memories:*, --clean-by-version removes */vacation-memories:V and both
+# together (AND) remove NS/vacation-memories:V. It lists the tags and asks for confirmation; --yes skips the question
+# (required without a terminal). NS and V cannot contain * ? [. An image used by a container is not removed.
 #
 # Image tags (scripts/ci_image_tags.sh): a release gets X.Y.Z, X.Y, X and latest, a pre-release only X.Y.Z-pre, any
 # other ref its own name; every build also gets sha-<commit> when git can tell the commit.
@@ -17,18 +23,50 @@ set -euo pipefail
 
 usage() { sed -n '2,/^set /p' "$0" | sed '$d; s/^# \{0,1\}//'; }
 
-push= skip_image= skip_launcher=
+push= skip_image= skip_launcher= yes= clean= clean_ns='*' clean_version='*'
 args=()
-for arg in "$@"; do
-    case $arg in
+while (($#)); do
+    case $1 in
         --push) push=1 ;;
         --skip-image) skip_image=1 ;;
         --skip-launcher) skip_launcher=1 ;;
+        --yes) yes=1 ;;
+        --clean-by-ns | --clean-by-version)
+            if [[ -z ${2:-} || $2 == -* || $2 == *[*?[]* ]]; then
+                echo "$1 needs a value that does not start with - and has no * ? [" >&2
+                exit 2
+            fi
+            clean=1
+            if [[ $1 == --clean-by-ns ]]; then clean_ns=$2; else clean_version=$2; fi
+            shift ;;
         -h | --help) usage; exit 0 ;;
-        -*) echo "unknown option: $arg" >&2; exit 2 ;;
-        *) args+=("$arg") ;;
+        -*) echo "unknown option: $1" >&2; exit 2 ;;
+        *) args+=("$1") ;;
     esac
+    shift
 done
+
+if [[ -n $clean ]]; then
+    if ((${#args[@]})) || [[ -n $push$skip_image$skip_launcher ]]; then
+        usage >&2
+        exit 2
+    fi
+    found=$(docker image ls --format '{{.Repository}}:{{.Tag}}' --filter "reference=$clean_ns/vacation-memories:$clean_version")
+    if [[ -z $found ]]; then
+        echo "no image matches $clean_ns/vacation-memories:$clean_version"
+        exit 0
+    fi
+    echo "$found"
+    if [[ -z $yes ]]; then
+        [[ -t 0 ]] || { echo "no terminal: pass --yes to remove without asking" >&2; exit 1; }
+        read -r -p "remove these images? [y/N] " answer
+        [[ $answer == [yY] ]] || { echo "aborted"; exit 1; }
+    fi
+    mapfile -t found <<< "$found"
+    docker rmi "${found[@]}"
+    exit 0
+fi
+
 if ((${#args[@]} != 2)); then
     usage >&2
     exit 2
