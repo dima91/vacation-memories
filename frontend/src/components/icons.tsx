@@ -20,6 +20,9 @@ export const ChevronDownIcon = () => <Icon><path d="m6 9 6 6 6-6" /></Icon>;
 export const ChevronRightIcon = () => <Icon><path d="m9 6 6 6-6 6" /></Icon>;
 export const ChevronLeftIcon = () => <Icon><path d="m15 6-6 6 6 6" /></Icon>;
 export const CopyIcon = () => <Icon size={14}><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h8" /></Icon>;
+export const LinkIcon = ({ size = 14 }: { size?: number }) => (
+  <Icon size={size}><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></Icon>
+);
 export const CloseIcon = () => <Icon><path d="M6 6l12 12M18 6 6 18" /></Icon>;
 export const AlertIcon = () => <Icon><path d="M12 3 2 20h20z" /><path d="M12 10v4M12 17.5v.5" /></Icon>;
 export const MusicIcon = () => <Icon><path d="M9 18V5l11-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="17" cy="16" r="3" /></Icon>;

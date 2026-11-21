@@ -13,6 +13,7 @@ import { boundsOf } from "../lib/effectEdit";
 import { clock } from "../lib/format";
 import { durationRange } from "../lib/limits";
 import { offsetBounds, trackExtents } from "../lib/musicEdit";
+import { mergeableWith } from "../lib/planEdit";
 import type { Selection } from "../lib/selection";
 import {
   MAX_ZOOM, MIN_ZOOM, ZOOM_STEP, clipRects, clampZoom, contentWidth, musicSlots, peaksBetween, pixelsPerSecond,
@@ -20,7 +21,7 @@ import {
 } from "../lib/timeline";
 import type { EditActions } from "./editing";
 import { Handle } from "./Handle";
-import { ChevronLeftIcon, ChevronRightIcon } from "./icons";
+import { ChevronLeftIcon, ChevronRightIcon, LinkIcon } from "./icons";
 
 interface Props {
   projectId: string;
@@ -201,6 +202,11 @@ export function Timeline({ projectId, document: doc, waveforms, selection, playh
   const onMusicLeave = (event: DragEvent<HTMLDivElement>) => {
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMusicMark(null);
   };
+  // A seam between two touching moments of one video: the marker joins them.
+  const seams = actions.readOnly ? [] : plan.elements.flatMap((element, index) => {
+    const next = rects[index + 1];
+    return next && mergeableWith(plan, element.id) ? [{ id: element.id, x: next.x, first: index + 1, second: index + 2 }] : [];
+  });
   const cuttable = !actions.readOnly && slots.some((slot) => playhead >= slot.start && playhead < slot.end);
   const bounds = offsetBounds(plan.music ?? { tracks: [], offset: 0 }, total);
   const selectedElement = selection.kind === "element" ? selection.id : selection.kind === "effect" ? selection.element : null;
@@ -296,6 +302,13 @@ export function Timeline({ projectId, document: doc, waveforms, selection, playh
               {musicMark !== null ? <div className="insertion" style={{ left: slotX(trackRects, musicMark) }} aria-hidden="true" /> : null}
               {slots.length > 0 && musicEnd > total ? <div className="lane__beyond" style={{ left: timeToX(total, view) }} aria-hidden="true" /> : null}
             </div>
+
+            {seams.map((seam) => (
+              <button key={seam.id} type="button" className="seam" style={{ left: seam.x }} title={t("timeline.merge", { first: seam.first, second: seam.second })}
+                aria-label={t("timeline.merge", { first: seam.first, second: seam.second })} onClick={() => actions.merge(seam.id)}>
+                <LinkIcon />
+              </button>
+            ))}
 
             <div className="end-line" style={{ left: timeToX(total, view) }} aria-hidden="true"><span>{t("timeline.endOfVideo")}</span></div>
             <div className="playhead" style={{ left: timeToX(playhead, view) }} aria-hidden="true" />

@@ -258,6 +258,51 @@ export function moveElement(plan: Plan, id: string, slot: number, minimum = MIN_
   return conclude({ ...plan, elements: [...rest.slice(0, to), moved, ...rest.slice(to)] }, plan, minimum);
 }
 
+/** The clip that can be joined to this one: the next, when it is a moment of the same video that starts where this one ends. */
+export function mergeableWith(plan: Plan, id: string): PlanElement | null {
+  const index = plan.elements.findIndex((element) => element.id === id);
+  const first = plan.elements[index];
+  const second = plan.elements[index + 1];
+  if (!first || !second || first.type !== "video" || second.type !== "video" || first.source !== second.source) return null;
+  if (first.end === undefined || second.start === undefined) return null;
+  return Math.abs(first.end - second.start) <= TOLERANCE ? second : null;
+}
+
+/** The transitions a merge takes off the seam: the fade out of the first, the fade in and the dissolve of the second. */
+export function seamEffects(plan: Plan, id: string): number {
+  const second = mergeableWith(plan, id);
+  const first = plan.elements.find((element) => element.id === id);
+  if (!first || !second) return 0;
+  return first.effects.filter((effect) => effect.type === "fade_out").length
+    + second.effects.filter((effect) => effect.type === "fade_in" || effect.type === "dissolve").length;
+}
+
+/**
+ * Joins a moment to the next one when their edges touch: one clip, with the first's id, from the start of the first to the end of
+ * the second. The two moments are gone for good: their stretch goes into `excluded`, so they are not listed again and the planner
+ * does not pick them again (a clip of the plan may lie over an exclusion; the rules do not look at it). The seam is no longer an edge, so what sat on it goes: the fade out of the first, and the fade in and the dissolve of
+ * the second. The rest stays, the second's transitions moved by the length of the first.
+ */
+export function mergeElements(plan: Plan, id: string, minimum = MIN_EFFECT_SECONDS): Plan {
+  const second = mergeableWith(plan, id);
+  const index = plan.elements.findIndex((element) => element.id === id);
+  const first = plan.elements[index];
+  if (!first || !second || first.start === undefined || second.end === undefined) return plan;
+  const later = second.effects
+    .filter((effect) => effect.type === "fade_out" || effect.type === "dip")
+    .map((effect) => ({ ...effect, offset: round6(effect.offset + first.duration) }));
+  const effects = [...first.effects.filter((effect) => effect.type !== "fade_out"), ...later];
+  const merged: PlanElement = {
+    ...first,
+    origin: first.origin === "user" || second.origin === "user" ? "user" : first.origin,
+    end: second.end,
+    duration: round6(second.end - first.start),
+    effects,
+  };
+  const elements = plan.elements.flatMap((element, position) => (position === index ? [merged] : position === index + 1 ? [] : [element]));
+  return withExclusion(conclude({ ...plan, elements }, plan, minimum), exclusionOf(first.source, first.start, second.end));
+}
+
 /** A photo hidden or a moment deleted: it leaves the timeline and the planner will not choose it again. */
 export function excludeElement(plan: Plan, id: string, minimum = MIN_EFFECT_SECONDS): Plan {
   const element = plan.elements.find((entry) => entry.id === id);

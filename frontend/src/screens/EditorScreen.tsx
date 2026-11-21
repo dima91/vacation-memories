@@ -25,8 +25,8 @@ import {
   MIN_PART_SECONDS, addTrack, cutAt, moveTrack, offsetBounds, removePart, removeTrack, restoreDeleted, setOffset, setPartFade, setPartMuted,
 } from "../lib/musicEdit";
 import {
-  addElements, excludeCandidate, excludeElement, lostEffects, moveElement, newMoment, removeElement, restoreCandidate,
-  selectAddable, setMomentEdge, setPhotoDuration,
+  addElements, excludeCandidate, excludeElement, lostEffects, mergeableWith, mergeElements, moveElement, newMoment, removeElement, restoreCandidate,
+  seamEffects, selectAddable, setMomentEdge, setPhotoDuration,
 } from "../lib/planEdit";
 import { canRender, isRunning } from "../lib/render";
 import { NO_SELECTION, type Selection } from "../lib/selection";
@@ -346,6 +346,14 @@ export function Workspace({ project, initial, catalog, incomplete, onSaved, onJo
         setSelection({ kind: "element", id: element.id });
       },
       move: (id, slot) => { apply((plan) => moveElement(plan, id, slot, minimum())); },
+      merge: (id) => {
+        if (!mergeableWith(latest.current, id)) { notify(t("notice.noMerge"), false); return; }
+        // `lostEffects` only looks at the clips that stay, and the second one leaves: the seam is counted here.
+        const dropped = seamEffects(latest.current, id);
+        if (!apply((plan) => mergeElements(plan, id, minimum()), undefined, true)) return;
+        setSelection({ kind: "element", id });
+        if (dropped > 0) notify(plural("notice.mergeEffects", dropped), true);
+      },
       remove: (id) => {
         if (apply((plan) => removeElement(plan, id, minimum()))) {
           setSelection((current) => (current.kind === "element" && current.id === id ? NO_SELECTION : current));

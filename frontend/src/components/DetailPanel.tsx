@@ -12,6 +12,7 @@ import { useSettled } from "../lib/useSettled";
 import { durationRange, effectBounds, largestWindow, trimRange } from "../lib/limits";
 import { countDeleted, fadeRoom, offsetBounds } from "../lib/musicEdit";
 import { durationDeviation, findElement, planStats, positionOf } from "../lib/plan";
+import { mergeableWith } from "../lib/planEdit";
 import type { Selection } from "../lib/selection";
 import { isRunning, latestJob, outcomeOf, partialOf, renderUsesOlderPlan } from "../lib/render";
 import { clamp, clipAt, clipStart } from "../lib/timeline";
@@ -241,6 +242,7 @@ function EditSection({ props, element }: { props: DetailProps; element: PlanElem
   const duration = durationRange(limits);
   const trim = trimRange(limits, element);
   const isVideo = element.type === "video";
+  const canMerge = mergeableWith(doc.plan, element.id) !== null;
   const endMax = trim && Number.isFinite(trim.end.max) ? trim.end.max : (element.end ?? 0) + 60;
   return (
     <Section title={t("edit.title")}>
@@ -262,10 +264,12 @@ function EditSection({ props, element }: { props: DetailProps; element: PlanElem
       <Buttons>
         <button type="button" className="btn" disabled={index <= 0} onClick={() => actions.move(element.id, index - 1)}>{t("edit.earlier")}</button>
         <button type="button" className="btn" disabled={index < 0 || index >= last} onClick={() => actions.move(element.id, index + 2)}>{t("edit.later")}</button>
+        {isVideo ? <button type="button" className="btn" disabled={!canMerge} onClick={() => actions.merge(element.id)}>{t("edit.merge")}</button> : null}
         <button type="button" className="btn" onClick={() => actions.remove(element.id)}>{t("edit.remove")}</button>
         <button type="button" className="btn" onClick={() => actions.hide(element.id)}>{t(isVideo ? "edit.delete" : "edit.hide")}</button>
       </Buttons>
       <p className="help">{t("edit.help.reorder")} {t("edit.help.remove")} {t("edit.help.hide")}</p>
+      {isVideo ? <p className="help">{t(canMerge ? "edit.help.merge" : "edit.help.mergeNo")}</p> : null}
     </Section>
   );
 }
