@@ -5,7 +5,7 @@ import { withPlan } from "../src/lib/catalog";
 import { trimRange } from "../src/lib/limits";
 import {
   addElements, covers, defaultPhotoSeconds, elementFromCandidate, excludeCandidate, excludeElement, isExcluded, lostEffects, moveElement,
-  newMoment, nextUserId, removeElement, restoreCandidate, restoreMoments, restoreWhere, setMomentEdge, setPhotoDuration, settle,
+  newMoment, nextUserId, removeElement, restoreCandidate, setMomentEdge, setPhotoDuration, settle,
 } from "../src/lib/planEdit";
 import { catalog, clone, planDocument } from "./fixtures";
 import { violations } from "./rules";
@@ -191,14 +191,6 @@ test("a moment deleted overlaps what covers it, as the planner decides", () => {
   assert.equal(covers(moment, "w.mp4", 4, 8), false);
   assert.equal(covers(moment, "v.mp4"), false, "a photo is not a moment");
   assert.equal(covers({ ...moment, start: null, end: null }, "v.mp4", 100, 101), true, "a whole file");
-});
-
-test("restoring the deleted moments leaves the hidden photos", () => {
-  const plan = { ...base, excluded: [...base.excluded, { source: "v.mp4", start: 1, end: 2, reason: "user" }] };
-  const restored = restoreMoments(plan);
-  assert.deepEqual(restored.excluded, base.excluded);
-  assert.equal(restoreMoments(base), base);
-  assert.equal(restoreWhere(plan, () => false), plan);
 });
 
 test("an element the user made gets the next user-<n> and its own range", () => {

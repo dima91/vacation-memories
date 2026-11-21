@@ -281,8 +281,6 @@ export function restoreWhere(plan: Plan, selected: (exclusion: Exclusion) => boo
 export const restoreCandidate = (plan: Plan, item: CatalogItem): Plan =>
   restoreWhere(plan, (exclusion) => covers(exclusion, item.source, item.start, item.end));
 
-export const restoreMoments = (plan: Plan): Plan => restoreWhere(plan, (exclusion) => exclusion.start !== null);
-
 /** The duration of a photo, in the server's range and on the grid of a tenth of a second; it becomes the user's. */
 export function setPhotoDuration(plan: Plan, id: string, seconds: number, bounds: Range = PHOTO_BOUNDS, minimum = MIN_EFFECT_SECONDS): Plan {
   const element = plan.elements.find((entry) => entry.id === id);

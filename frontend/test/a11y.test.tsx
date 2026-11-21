@@ -269,14 +269,11 @@ test("a candidate offers to add it or hide it, a hidden one to restore it", () =
   assert.ok(names(hidden.id).includes("Ripristina") && !names(hidden.id).includes("Aggiungi alla timeline"));
 });
 
-test("the video panel can add all the moments that are not used, a new moment, and bring deleted ones back", () => {
+test("the video panel can add all the moments that are not used and a new moment, and lists no deleted one", () => {
   const html = render(detail({ kind: "video", media: catalog.videos[1]!.media }));
   auditHtml(html, "detail video");
   for (const text of ["Aggiungi tutti i momenti", "Aggiungi un momento", "Un clic su un punto libero"]) assert.match(html, new RegExp(text));
-  assert.doesNotMatch(html, /Ripristina i momenti eliminati/, "none was deleted");
-  const withDeleted = clone(catalog);
-  withDeleted.videos[1]!.moments[0]!.status = "excluded";
-  assert.match(render(detail({ kind: "video", media: catalog.videos[1]!.media }, { catalog: withDeleted })), /Ripristina i momenti eliminati/);
+  assert.doesNotMatch(html, /Ripristina i momenti eliminati/, "deleted moments are not brought back");
 });
 
 const mediaTab = (tab: MediaTab, actions = editable, view = catalog) => render(

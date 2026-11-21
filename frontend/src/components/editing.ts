@@ -21,7 +21,6 @@ export interface EditActions {
   hide(id: string): void;
   hideCandidate(item: CatalogItem): void;
   restore(item: CatalogItem): void;
-  restoreMoments(): void;
   setDuration(id: string, seconds: number): void;
   setEdge(id: string, edge: "start" | "end", value: number): void;
   /** Ends a gesture (a drag, a slider): what it changed is one step of the history. */

@@ -25,7 +25,7 @@ import {
   MIN_PART_SECONDS, addTrack, cutAt, moveTrack, offsetBounds, removePart, removeTrack, restoreDeleted, setOffset, setPartFade, setPartMuted,
 } from "../lib/musicEdit";
 import {
-  addElements, excludeCandidate, excludeElement, lostEffects, moveElement, newMoment, removeElement, restoreCandidate, restoreMoments,
+  addElements, excludeCandidate, excludeElement, lostEffects, moveElement, newMoment, removeElement, restoreCandidate,
   selectAddable, setMomentEdge, setPhotoDuration,
 } from "../lib/planEdit";
 import { canRender, isRunning } from "../lib/render";
@@ -366,7 +366,6 @@ export function Workspace({ project, initial, catalog, incomplete, onSaved, onJo
         }
       },
       restore: (item) => { apply((plan) => restoreCandidate(plan, item)); },
-      restoreMoments: () => { apply((plan) => restoreMoments(plan)); },
       setDuration: (id, seconds) => {
         const range = durationRange(limits.current.elements[id]);
         apply((plan) => setPhotoDuration(plan, id, seconds, range ?? undefined, minimum()), `duration:${id}`);

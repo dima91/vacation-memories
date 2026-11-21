@@ -218,7 +218,7 @@ Fonts: Bricolage Grotesque (titles), IBM Plex Sans (text), IBM Plex Mono (number
 - **Click on a free point** of the bar: adds a moment (~6 s, `origin: user`).
 - **Dragging the edges** of a moment changes its start and end (limits: inside the video, without overlapping the neighboring moments, at least 1 s; also with the arrow keys).
 - A moment is dragged onto the timeline; a whole video is dragged to add all its moments not yet used.
-- **Deleting** a moment also removes it from the timeline (it goes into `excluded`); "Restore deleted moments".
+- **Deleting** a moment also removes it from the timeline (it goes into `excluded`, so the planner never chooses it again). A deleted moment is **not listed any more**, not even dimmed: there is no "Restore deleted moments" (only Undo, right after). Hidden **photos** keep their "Hidden" group and "Restore".
 
 **Transitions** (library)
 - Hard cut (removes), Dissolve, From black, To black; default durations from the single configuration (today 0.8 s, 1 s and 3 s), plus Dip to black (D1).

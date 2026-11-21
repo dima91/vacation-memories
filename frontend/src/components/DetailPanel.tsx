@@ -411,13 +411,11 @@ function VideoActions({ props, video }: { props: DetailProps; video: CatalogVide
   const { actions } = props;
   if (actions.readOnly) return <Section title={t("edit.title")}><p className="note">{t("edit.readOnly")}</p></Section>;
   const addable = video.moments.filter((moment) => moment.status === "available");
-  const hidden = video.moments.some((moment) => moment.status === "excluded");
   return (
     <Section title={t("edit.title")}>
       <Buttons>
         <button type="button" className="btn" disabled={addable.length === 0} onClick={() => actions.addCandidates(addable)}>{t("edit.addAll")}</button>
         <button type="button" className="btn" disabled={!video.duration} onClick={() => actions.addMoment(video.source, video.duration ?? 0, null)}>{t("edit.addMoment")}</button>
-        {hidden ? <button type="button" className="btn" onClick={actions.restoreMoments}>{t("edit.restoreMoments")}</button> : null}
       </Buttons>
       <p className="help">{t("edit.help.addMoment")}</p>
     </Section>
