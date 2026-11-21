@@ -98,7 +98,8 @@ export function withPlan(catalog: Catalog, plan: Plan): Catalog {
     ...catalog,
     photos: catalog.photos.map(update),
     videos: catalog.videos.map((video) => {
-      const found = video.moments.map(update);
+      // A deleted moment (or one absorbed by a merge) is gone for the user: it stays in `excluded` only so the planner never picks it again.
+      const found = video.moments.map(update).filter((item) => item.status !== "excluded");
       const known = new Set(found.map((item) => item.id));
       const made = plan.elements.filter((element) => element.type === "video" && element.source === video.source && !known.has(element.id))
         .map((element) => momentOfPlan(element, video.media));
@@ -107,5 +108,3 @@ export function withPlan(catalog: Catalog, plan: Plan): Catalog {
   };
 }
 
-export const hiddenMoments = (catalog: Catalog): CatalogItem[] =>
-  catalog.videos.flatMap((video) => video.moments.filter((moment) => moment.status === "excluded"));

@@ -15,13 +15,14 @@ export interface EditActions {
   addMoment(source: string, videoLength: number, point: number | null): void;
   /** Moves a clip to a slot of the timeline (0 to n, before the clip there). */
   move(id: string, slot: number): void;
+  /** Joins a moment to the next one of the same video when their edges touch (a single step of the history). */
+  merge(id: string): void;
   /** Takes a clip out of the timeline; it stays available in the Media panel. */
   remove(id: string): void;
   /** Hides a photo or deletes a moment that is in the timeline: the planner will not choose it again. */
   hide(id: string): void;
   hideCandidate(item: CatalogItem): void;
   restore(item: CatalogItem): void;
-  restoreMoments(): void;
   setDuration(id: string, seconds: number): void;
   setEdge(id: string, edge: "start" | "end", value: number): void;
   /** Ends a gesture (a drag, a slider): what it changed is one step of the history. */

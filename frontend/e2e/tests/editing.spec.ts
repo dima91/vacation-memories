@@ -289,3 +289,48 @@ test("a new plan asks first, keeps what was hidden and drops the rest of the edi
   await page.getByRole("button", { name: "Apri l'editor" }).click();
   await expect(clips(page).first()).toBeVisible();
 });
+
+/** The plan with the first video moment cut in two touching ones (as if the planner had chosen two adjacent windows). */
+async function splitFirstVideo(request: Parameters<typeof readPlan>[0]) {
+  const { project, plan } = state();
+  const index = plan.elements.findIndex((element) => element.type === "video");
+  const video = plan.elements[index]!;
+  const middle = Math.round(((video.start! + video.end!) / 2) * 1000) / 1000;
+  const first: Element = { ...video, end: middle, duration: Math.round((middle - video.start!) * 1000) / 1000, effects: [] };
+  const second: Element = { ...video, id: "user-901", origin: "user", start: middle, duration: Math.round((video.end! - middle) * 1000) / 1000, effects: [] };
+  // The dissolve into the next clip was sized for the whole moment, and the planner's 25% now binds it to a shorter one.
+  const rest = plan.elements.slice(index + 1).map((element, position) => (position === 0 ? { ...element, effects: element.effects.filter((effect) => effect.type !== "dissolve") } : element));
+  const elements = [...plan.elements.slice(0, index), first, second, ...rest];
+  const current = await readPlan(request, project);
+  await writePlan(request, project, { ...plan, elements }, current.revision);
+  return { index, video, count: elements.length };
+}
+
+test("the marker on the seam joins two touching moments of a video in one step, and undo splits them again", async ({ page, request }) => {
+  const { index, video, count } = await splitFirstVideo(request);
+  await openEditor(page);
+  await expect(clips(page)).toHaveCount(count);
+  await page.getByRole("button", { name: `Unisci i clip ${index + 1} e ${index + 2}` }).click();
+  await expect(clips(page)).toHaveCount(count - 1);
+  await expect.poll(async () => {
+    const joined = (await server(request)).elements[index]!;
+    return [joined.start, joined.end, joined.duration];
+  }).toEqual([video.start, video.end, video.duration]);
+  await expect(page.getByRole("button", { name: /^Unisci i clip/ })).toHaveCount(0);
+  await expect.poll(async () => (await server(request)).excluded.filter((entry) => entry.source === video.source && entry.start === video.start && entry.end === video.end).length).toBe(1);
+  await page.getByRole("button", { name: "Annulla (Ctrl+Z)" }).click();
+  await expect(clips(page)).toHaveCount(count);
+  await expect(page.getByRole("button", { name: `Unisci i clip ${index + 1} e ${index + 2}` })).toBeVisible();
+});
+
+test("the Detail button joins the selected moment with the next one, and is off where they do not touch", async ({ page, request }) => {
+  const { index, video, count } = await splitFirstVideo(request);
+  await openEditor(page);
+  await selectClip(page, index + 1);
+  await expect(page.getByRole("button", { name: "Unisci con il successivo" })).toBeDisabled();
+  await selectClip(page, index);
+  await page.getByRole("button", { name: "Unisci con il successivo" }).click();
+  await expect(clips(page)).toHaveCount(count - 1);
+  await expect.poll(async () => (await server(request)).elements[index]?.end).toBe(video.end);
+  await expect(clipButtons(page).nth(index)).toHaveAttribute("aria-pressed", "true");
+});

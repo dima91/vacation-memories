@@ -6,7 +6,7 @@ import { useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { urls } from "../api/client";
 import type { Catalog, CatalogItem, CatalogVideo, PlanDocument, Waveform } from "../api/types";
 import { useI18n, type MessageKey } from "../i18n";
-import { discardKey, groupPhotos, hiddenMoments, isBelowThreshold, type PhotoGroupId } from "../lib/catalog";
+import { discardKey, groupPhotos, isBelowThreshold, type PhotoGroupId } from "../lib/catalog";
 import { DRAG_TYPE, beginDrag, encodePayload, endDrag, type DragPayload } from "../lib/dnd";
 import type { LibraryKind } from "../lib/effectEdit";
 import { clock } from "../lib/format";
@@ -81,7 +81,7 @@ export function MediaPanel({ projectId, catalog, document: doc, waveforms, selec
       </header>
       <div className="media__body" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
         {tab === "photos" ? <PhotosTab projectId={projectId} photos={catalog.photos} selection={selection} actions={actions} onSelect={onSelect} /> : null}
-        {tab === "videos" ? <VideosTab projectId={projectId} videos={catalog.videos} hidden={hiddenMoments(catalog).length} document={doc} selection={selection} actions={actions} onSelect={onSelect} /> : null}
+        {tab === "videos" ? <VideosTab projectId={projectId} videos={catalog.videos} document={doc} selection={selection} actions={actions} onSelect={onSelect} /> : null}
         {tab === "transitions" ? <TransitionsTab library={catalog.transitions} selection={selection} actions={actions} onSelect={onSelect} /> : null}
         {tab === "music" ? <MusicTab catalog={catalog} document={doc} waveforms={waveforms} selection={selection} actions={actions} onSelect={onSelect} /> : null}
       </div>
@@ -191,14 +191,13 @@ function PhotoThumb({ projectId, item, dimmed, selected, actions, onSelect }: { 
 interface VideosProps {
   projectId: string;
   videos: CatalogVideo[];
-  hidden: number;
   document: PlanDocument | null;
   selection: Selection;
   actions: EditActions;
   onSelect: (s: Selection) => void;
 }
 
-function VideosTab({ projectId, videos, hidden, document: doc, selection, actions, onSelect }: VideosProps) {
+function VideosTab({ projectId, videos, document: doc, selection, actions, onSelect }: VideosProps) {
   const { t, plural } = useI18n();
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set(videos.slice(0, 1).map((video) => video.media)));
   if (videos.length === 0) return <p className="empty">{t("videos.empty")}</p>;
@@ -206,7 +205,6 @@ function VideosTab({ projectId, videos, hidden, document: doc, selection, action
     <>
       <div className="toolbar">
         <p className="toolbar__text">{t("videos.intro")}</p>
-        {hidden > 0 && !actions.readOnly ? <button type="button" className="btn" onClick={actions.restoreMoments}>{t("videos.restoreDeleted")}</button> : null}
       </div>
       <p className="toolbar__text toolbar__text--block">{t("videos.barHint")}</p>
       <ul className="videos">

@@ -4,8 +4,8 @@ import type { Effect, Plan, PlanElement } from "../src/api/types";
 import { withPlan } from "../src/lib/catalog";
 import { trimRange } from "../src/lib/limits";
 import {
-  addElements, covers, defaultPhotoSeconds, elementFromCandidate, excludeCandidate, excludeElement, isExcluded, lostEffects, moveElement,
-  newMoment, nextUserId, removeElement, restoreCandidate, restoreMoments, restoreWhere, setMomentEdge, setPhotoDuration, settle,
+  addElements, covers, defaultPhotoSeconds, elementFromCandidate, excludeCandidate, excludeElement, isExcluded, lostEffects, mergeableWith, mergeElements, moveElement, seamEffects,
+  newMoment, nextUserId, removeElement, restoreCandidate, setMomentEdge, setPhotoDuration, settle,
 } from "../src/lib/planEdit";
 import { catalog, clone, planDocument } from "./fixtures";
 import { violations } from "./rules";
@@ -193,14 +193,6 @@ test("a moment deleted overlaps what covers it, as the planner decides", () => {
   assert.equal(covers({ ...moment, start: null, end: null }, "v.mp4", 100, 101), true, "a whole file");
 });
 
-test("restoring the deleted moments leaves the hidden photos", () => {
-  const plan = { ...base, excluded: [...base.excluded, { source: "v.mp4", start: 1, end: 2, reason: "user" }] };
-  const restored = restoreMoments(plan);
-  assert.deepEqual(restored.excluded, base.excluded);
-  assert.equal(restoreMoments(base), base);
-  assert.equal(restoreWhere(plan, () => false), plan);
-});
-
 test("an element the user made gets the next user-<n> and its own range", () => {
   assert.equal(nextUserId(base), "user-1");
   const first = newMoment(base, "v.mp4", { start: 2, end: 8 });
@@ -262,4 +254,79 @@ test("effects keep their ids through an edit", () => {
   const plan = setPhotoDuration(base, photo.id, 5);
   const before: Effect[] = photo.effects;
   assert.deepEqual(find(plan, photo.id).effects.map((effect) => effect.id), before.map((effect) => effect.id));
+});
+
+// --- merging two moments of one video ----------------------------------------------------------------------------------
+
+const effect = (id: string, type: Effect["type"], offset: number, duration: number): Effect => ({ id, type, offset, duration, origin: "user" });
+const moment = (id: string, start: number, end: number, effects: Effect[] = [], source = "trip/a.mp4"): PlanElement => ({
+  id, origin: "planner", source, type: "video", start, end, duration: end - start, effects,
+});
+const timeline = (...elements: PlanElement[]): Plan => ({ ...base, elements, excluded: [], music: undefined });
+
+test("two touching moments of one video join into one clip with the first's id", () => {
+  const plan = timeline(moment("a", 0, 4), moment("b", 4, 10), moment("c", 10, 12, [effect("fx", "dissolve", 0, 1)], "trip/b.mp4"));
+  const merged = mergeElements(plan, "a");
+  assert.deepEqual(merged.elements.map((element) => element.id), ["a", "c"]);
+  const joined = find(merged, "a");
+  assert.deepEqual([joined.start, joined.end, joined.duration], [0, 10, 10]);
+  assert.deepEqual(merged.excluded, [{ source: "trip/a.mp4", start: 0, end: 10, reason: "user" }], "both halves are deleted for good");
+  assert.equal(find(merged, "c").effects[0]?.id, "fx", "the dissolve into the next clip stays where it was");
+  assert.deepEqual(violations(merged), []);
+});
+
+test("what sat on the seam goes, the rest of the transitions stays, those of the second moved by the length of the first", () => {
+  const plan = timeline(
+    moment("a", 0, 4, [effect("in", "fade_in", 0, 0.5), effect("out", "fade_out", 3.5, 0.5), effect("dipA", "dip", 1, 0.5)]),
+    moment("b", 4, 10, [effect("dis", "dissolve", 0, 0.5), effect("inB", "fade_in", 0, 0.5), effect("dipB", "dip", 2, 0.5), effect("outB", "fade_out", 5, 1)]),
+  );
+  const joined = find(mergeElements(plan, "a"), "a");
+  const kept = Object.fromEntries(joined.effects.map((entry) => [entry.id, entry.offset]));
+  assert.deepEqual(kept, { in: 0, dipA: 1, dipB: 6, outB: 9 });
+  assert.equal(seamEffects(plan, "a"), 3, "the fade out of the first, the fade in and the dissolve of the second");
+  assert.equal(seamEffects(timeline(moment("a", 0, 4), moment("b", 5, 9)), "a"), 0);
+  assert.deepEqual(violations(mergeElements(plan, "a")), []);
+});
+
+test("a merge by the user marks the clip as the user's, and it is a single plan", () => {
+  const plan = timeline({ ...moment("a", 0, 4), origin: "user" }, moment("b", 4, 10));
+  assert.equal(find(mergeElements(plan, "a"), "a").origin, "user");
+  assert.equal(find(mergeElements(timeline(moment("a", 0, 4), moment("b", 4, 10)), "a"), "a").origin, "planner");
+});
+
+test("an edge within the tolerance touches, a gap or an overlap does not", () => {
+  assert.notEqual(mergeableWith(timeline(moment("a", 0, 4), moment("b", 4.0005, 10)), "a"), null);
+  assert.equal(mergeableWith(timeline(moment("a", 0, 4), moment("b", 4.5, 10)), "a"), null);
+  assert.equal(mergeableWith(timeline(moment("a", 0, 4), moment("b", 3, 10)), "a"), null);
+});
+
+test("nothing joins unless it is the next clip, a moment of the same video, and touching", () => {
+  const plan = timeline(moment("a", 0, 4), moment("b", 4, 10, [], "trip/b.mp4"), moment("c", 10, 12, [], "trip/b.mp4"));
+  assert.equal(mergeElements(plan, "a"), plan, "another video");
+  assert.equal(mergeElements(plan, "c"), plan, "the last clip has no next one");
+  assert.equal(mergeElements(plan, "nope"), plan);
+  const photo: PlanElement = { id: "p", origin: "planner", source: "trip/a.mp4", type: "photo", duration: 3, effects: [] };
+  assert.equal(mergeElements(timeline(moment("a", 0, 4), photo), "a").elements.length, 2);
+  assert.equal(mergeElements(timeline(photo, moment("a", 0, 4)), "p").elements.length, 2);
+  assert.equal(mergeElements(timeline(moment("b", 4, 10), moment("a", 0, 4)), "b").elements.length, 2, "in the wrong order they do not touch");
+  assert.notEqual(mergeElements(plan, "b"), plan);
+});
+
+test("three moments in a row join in two steps", () => {
+  const plan = timeline(moment("a", 0, 4), moment("b", 4, 8), moment("c", 8, 12));
+  const joined = mergeElements(mergeElements(plan, "a"), "a");
+  assert.deepEqual(joined.elements.map((element) => [element.id, element.start, element.end, element.duration]), [["a", 0, 12, 12]]);
+});
+
+test("a deleted moment is not listed at all, and a merge leaves the video one moment, the two it came from gone", () => {
+  const video = catalog.videos[1]!;
+  const [first, second, third] = video.moments;
+  const moments = (view: Plan) => withPlan(catalog, view).videos[1]!.moments.map((item) => [item.id, item.status, item.start, item.end]);
+  const split = timeline(moment(first!.id, 0, 4, [], video.source), moment(second!.id, 4, 8, [], video.source));
+  const merged = mergeElements(split, first!.id);
+  assert.deepEqual(merged.excluded, [{ source: video.source, start: 0, end: 8, reason: "user" }]);
+  assert.deepEqual(moments(merged), [[first!.id, "selected", 0, 8], [third!.id, "available", 8, 12]]);
+  assert.deepEqual(moments(removeElement(merged, first!.id)).map(([id]) => id), [third!.id], "removing the joined clip does not bring the halves back");
+  assert.deepEqual(moments(excludeElement(timeline(moment(first!.id, 0, 4, [], video.source)), first!.id)).map(([id]) => id), [second!.id, third!.id], "a deleted moment is gone");
+  assert.equal(mergeElements(timeline(moment("a", 0, 4), moment("b", 4, 10)), "a").excluded.length, 1);
 });
